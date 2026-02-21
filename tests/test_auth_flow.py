@@ -207,3 +207,49 @@ def test_reassign_standalone_personal_to_company_and_attach_to_group(session: Se
     )
     user_ids = {item.id for item in users}
     assert moved.id in user_ids
+
+
+def test_company_profile_defaults_and_update(session: Session) -> None:
+    controller = AuthController(session=session)
+    company_user = controller.bootstrap_company_account(
+        company_name="Profile Org",
+        username="profile_admin",
+        password="profile_pass",
+    )
+    session.commit()
+
+    profile = controller.get_company_profile(company_user.company_id)
+    assert profile.timezone == "Europe/Kyiv"
+    assert profile.theme == "ocean"
+    assert profile.language == "uk"
+
+    company, updated = controller.update_company_profile(
+        company_id=company_user.company_id,
+        company_name="Profile Org Updated",
+        timezone="Europe/Berlin",
+        theme="graphite",
+    )
+    session.commit()
+
+    assert company.name == "Profile Org Updated"
+    assert updated.timezone == "Europe/Berlin"
+    assert updated.theme == "graphite"
+    assert updated.language == "uk"
+
+
+def test_company_profile_rejects_unknown_theme(session: Session) -> None:
+    controller = AuthController(session=session)
+    company_user = controller.bootstrap_company_account(
+        company_name="Theme Guard",
+        username="theme_admin",
+        password="theme_pass",
+    )
+    session.commit()
+
+    with pytest.raises(ValueError):
+        controller.update_company_profile(
+            company_id=company_user.company_id,
+            company_name="Theme Guard",
+            timezone="UTC",
+            theme="unknown-theme",
+        )
