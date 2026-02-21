@@ -1,6 +1,6 @@
 from sqlalchemy.orm import Session
 
-from app.domain.models import Company, User
+from app.domain.models import Company, CompanyProfile, User
 from app.services.auth_service import AuthService
 
 
@@ -113,3 +113,22 @@ class AuthController:
 
     def get_company(self, company_id: int) -> Company | None:
         return self.auth_service.get_company(session=self.session, company_id=company_id)
+
+    def get_company_profile(self, company_id: int) -> CompanyProfile:
+        return self.auth_service.get_company_profile(session=self.session, company_id=company_id)
+
+    def update_company_profile(
+        self,
+        company_id: int,
+        *,
+        company_name: str,
+        timezone: str,
+        theme: str,
+    ) -> tuple[Company, CompanyProfile]:
+        return self.auth_service.update_company_profile(
+            session=self.session,
+            company_id=company_id,
+            company_name=company_name,
+            timezone=timezone,
+            theme=theme,
+        )

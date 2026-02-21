@@ -2,7 +2,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from app.domain.enums import UserRole
-from app.domain.models import Company, User
+from app.domain.models import Company, CompanyProfile, User
 
 
 class AuthRepository:
@@ -18,9 +18,49 @@ class AuthRepository:
     def get_company(self, company_id: int) -> Company | None:
         return self.session.get(Company, company_id)
 
+    def update_company_name(self, company_id: int, name: str) -> Company:
+        company = self.get_company(company_id)
+        if company is None:
+            raise ValueError(f"Company with id={company_id} was not found")
+        company.name = name
+        self.session.flush()
+        return company
+
     def get_company_by_name(self, name: str) -> Company | None:
         statement = select(Company).where(Company.name == name)
         return self.session.scalars(statement).first()
+
+    def get_company_profile(self, company_id: int) -> CompanyProfile | None:
+        statement = select(CompanyProfile).where(CompanyProfile.company_id == company_id)
+        return self.session.scalars(statement).first()
+
+    def get_or_create_company_profile(self, company_id: int) -> CompanyProfile:
+        profile = self.get_company_profile(company_id)
+        if profile is not None:
+            return profile
+        profile = CompanyProfile(company_id=company_id)
+        self.session.add(profile)
+        self.session.flush()
+        return profile
+
+    def update_company_profile(
+        self,
+        company_id: int,
+        *,
+        timezone: str,
+        theme: str,
+        language: str | None = None,
+        logo_path: str | None = None,
+    ) -> CompanyProfile:
+        profile = self.get_or_create_company_profile(company_id=company_id)
+        profile.timezone = timezone
+        profile.theme = theme
+        if language is not None:
+            profile.language = language
+        if logo_path is not None:
+            profile.logo_path = logo_path
+        self.session.flush()
+        return profile
 
     def list_companies(self) -> list[Company]:
         statement = select(Company).order_by(Company.name.asc(), Company.id.asc())

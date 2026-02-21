@@ -7,11 +7,13 @@ import os
 from sqlalchemy.orm import Session
 
 from app.domain.enums import UserRole
-from app.domain.models import Company, User
+from app.domain.models import Company, CompanyProfile, User
 from app.repositories.auth_repository import AuthRepository
 
 
 class AuthService:
+    ALLOWED_THEMES = {"ocean", "graphite", "sunrise"}
+
     def __init__(self, repository_cls: type[AuthRepository] = AuthRepository) -> None:
         self.repository_cls = repository_cls
 
@@ -147,6 +149,37 @@ class AuthService:
 
     def get_company(self, session: Session, company_id: int) -> Company | None:
         return self.repository_cls(session).get_company(company_id=company_id)
+
+    def get_company_profile(self, session: Session, company_id: int) -> CompanyProfile:
+        return self.repository_cls(session).get_or_create_company_profile(company_id=company_id)
+
+    def update_company_profile(
+        self,
+        session: Session,
+        company_id: int,
+        *,
+        company_name: str,
+        timezone: str,
+        theme: str,
+    ) -> tuple[Company, CompanyProfile]:
+        cleaned_name = company_name.strip()
+        cleaned_timezone = timezone.strip()
+        cleaned_theme = theme.strip().lower()
+        if not cleaned_name:
+            raise ValueError("Назва компанії обов'язкова.")
+        if not cleaned_timezone:
+            raise ValueError("Часовий пояс обов'язковий.")
+        if cleaned_theme not in self.ALLOWED_THEMES:
+            raise ValueError("Невідома тема оформлення.")
+
+        repository = self.repository_cls(session)
+        company = repository.update_company_name(company_id=company_id, name=cleaned_name)
+        profile = repository.update_company_profile(
+            company_id=company_id,
+            timezone=cleaned_timezone,
+            theme=cleaned_theme,
+        )
+        return company, profile
 
     def update_user_membership(
         self,

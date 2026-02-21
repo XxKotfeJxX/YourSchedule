@@ -16,11 +16,41 @@ class Company(Base):
     name: Mapped[str] = mapped_column(String(150), nullable=False, unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
+    profile: Mapped["CompanyProfile | None"] = relationship(
+        "CompanyProfile",
+        back_populates="company",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
     users: Mapped[list["User"]] = relationship(
         "User",
         back_populates="company",
         cascade="all, delete-orphan",
     )
+
+
+class CompanyProfile(Base):
+    __tablename__ = "company_profiles"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    timezone: Mapped[str] = mapped_column(String(64), nullable=False, default="Europe/Kyiv")
+    language: Mapped[str] = mapped_column(String(32), nullable=False, default="uk")
+    theme: Mapped[str] = mapped_column(String(32), nullable=False, default="ocean")
+    logo_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    company: Mapped[Company] = relationship("Company", back_populates="profile")
 
 
 class User(Base):

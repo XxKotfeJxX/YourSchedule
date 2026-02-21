@@ -1,4 +1,4 @@
-from app.domain.models.auth import Company, User
+from app.domain.models.auth import Company, CompanyProfile, User
 from app.domain.models.calendar import (
     CalendarPeriod,
     DayPattern,
@@ -13,6 +13,7 @@ from app.domain.models.resource import Resource
 
 __all__ = [
     "Company",
+    "CompanyProfile",
     "User",
     "MarkType",
     "DayPattern",
