@@ -22,11 +22,13 @@ Current state includes:
 
 ## First launch flow
 
-1. App shows bootstrap screen (if no company account exists).
-2. Create company admin account.
-3. Login and use company dashboard:
+1. App opens login screen.
+2. If you do not have account, open registration:
+   - `Company name` filled -> `COMPANY` account
+   - `Company name` empty -> `PERSONAL` account
+3. After login in company dashboard:
    - `Розклад`: periods, subject input, build/validate schedule
-   - `Групи`: create groups and personal users
+   - `Групи`: create/open/delete groups, add participants, manage subgroups
    - `Налаштування`: create default schedule template
 
 ### If you see "period not found"
