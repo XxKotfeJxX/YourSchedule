@@ -6,21 +6,64 @@ from tkinter import ttk
 
 
 class UiTheme:
-    APP_BG = "#edf2f7"
-    SURFACE = "#ffffff"
-    SURFACE_ALT = "#f5f8fc"
-    SIDEBAR_BG = "#17324a"
-    TEXT_PRIMARY = "#1f2937"
-    TEXT_MUTED = "#607084"
-    TEXT_LIGHT = "#f8fbff"
-    ACCENT = "#0f766e"
-    ACCENT_HOVER = "#115e59"
-    DANGER = "#be123c"
-    DANGER_HOVER = "#9f1239"
-    BORDER = "#d5deea"
+    PALETTES = {
+        "ocean": {
+            "APP_BG": "#edf2f7",
+            "SURFACE": "#ffffff",
+            "SURFACE_ALT": "#f5f8fc",
+            "SIDEBAR_BG": "#17324a",
+            "TEXT_PRIMARY": "#1f2937",
+            "TEXT_MUTED": "#607084",
+            "TEXT_LIGHT": "#f8fbff",
+            "ACCENT": "#0f766e",
+            "ACCENT_HOVER": "#115e59",
+            "DANGER": "#be123c",
+            "DANGER_HOVER": "#9f1239",
+            "BORDER": "#d5deea",
+        },
+        "graphite": {
+            "APP_BG": "#ecf1f5",
+            "SURFACE": "#ffffff",
+            "SURFACE_ALT": "#f3f6fa",
+            "SIDEBAR_BG": "#253849",
+            "TEXT_PRIMARY": "#1f2937",
+            "TEXT_MUTED": "#5f7187",
+            "TEXT_LIGHT": "#f8fbff",
+            "ACCENT": "#2563eb",
+            "ACCENT_HOVER": "#1d4ed8",
+            "DANGER": "#be123c",
+            "DANGER_HOVER": "#9f1239",
+            "BORDER": "#cfd9e6",
+        },
+        "sunrise": {
+            "APP_BG": "#f8f1e8",
+            "SURFACE": "#fffdf9",
+            "SURFACE_ALT": "#f6eee3",
+            "SIDEBAR_BG": "#3f2f2c",
+            "TEXT_PRIMARY": "#2c2623",
+            "TEXT_MUTED": "#7b675d",
+            "TEXT_LIGHT": "#fffaf5",
+            "ACCENT": "#c65d3a",
+            "ACCENT_HOVER": "#a84b2d",
+            "DANGER": "#b02045",
+            "DANGER_HOVER": "#901538",
+            "BORDER": "#dfd1c4",
+        },
+    }
+    DEFAULT_VARIANT = "ocean"
 
     def __init__(self, root: tk.Tk) -> None:
         self.root = root
+        self.current_variant = self.DEFAULT_VARIANT
+        self.set_variant(self.DEFAULT_VARIANT)
+
+    def set_variant(self, variant: str) -> str:
+        chosen = variant if variant in self.PALETTES else self.DEFAULT_VARIANT
+        self.current_variant = chosen
+        palette = self.PALETTES[chosen]
+        for key, value in palette.items():
+            setattr(self, key, value)
+        return chosen
 
     def _pick_font_family(self, candidates: tuple[str, ...]) -> str:
         available = set(tkfont.families(self.root))
@@ -213,6 +256,25 @@ class UiTheme:
             bordercolor=self.BORDER,
             font=(body_font, 10, "bold"),
             padding=(6, 8),
+        )
+
+        style.configure(
+            "App.Vertical.TScrollbar",
+            background="#c8d4e4",
+            troughcolor="#eef3f9",
+            bordercolor="#d3deeb",
+            darkcolor="#c8d4e4",
+            lightcolor="#c8d4e4",
+            arrowcolor="#5e6f84",
+            relief="flat",
+            borderwidth=0,
+            arrowsize=14,
+            width=12,
+        )
+        style.map(
+            "App.Vertical.TScrollbar",
+            background=[("active", "#a8bacf"), ("pressed", "#8fa5bf")],
+            arrowcolor=[("active", "#203d5a"), ("pressed", "#203d5a")],
         )
 
     def style_listbox(self, box: tk.Listbox) -> None:

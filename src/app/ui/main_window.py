@@ -19,7 +19,7 @@ from app.domain.enums import MarkKind, ResourceType, UserRole
 from app.domain.models import User
 from app.repositories.calendar_repository import CalendarRepository
 from app.services.schedule_visualization import WEEKDAY_LABELS
-from app.ui.fx_widgets import RoundedMotionButton, RoundedMotionCard
+from app.ui.fx_widgets import HoverCircleIconButton, RoundedMotionButton, RoundedMotionCard
 from app.ui.theme import UiTheme
 
 
@@ -171,7 +171,20 @@ class ScheduleMainWindow:
 
     def _logout(self) -> None:
         self.current_user = None
+        self._apply_theme_variant(UiTheme.DEFAULT_VARIANT)
         self._show_login_screen()
+
+    def _apply_theme_variant(self, variant: str) -> None:
+        self.theme.set_variant(variant)
+        self.theme.apply()
+
+    def _apply_company_theme(self, company_id: int) -> None:
+        theme_name = UiTheme.DEFAULT_VARIANT
+        with session_scope() as session:
+            profile = AuthController(session=session).get_company_profile(company_id)
+            if profile.theme:
+                theme_name = profile.theme
+        self._apply_theme_variant(theme_name)
 
     def _create_default_template_period(
         self,
@@ -346,12 +359,13 @@ class ScheduleMainWindow:
             width=280,
         ).pack(anchor="w")
 
-    def _show_company_dashboard(self) -> None:
+    def _show_company_dashboard(self, initial_view: str = "schedule") -> None:
         user = self.current_user
         if user is None:
             self._show_login_screen()
             return
 
+        self._apply_company_theme(user.company_id)
         self._clear_root()
 
         root_frame = ttk.Frame(self.root)
@@ -486,7 +500,8 @@ class ScheduleMainWindow:
         self._build_company_groups_view(views["groups"], user.company_id)
         self._build_company_settings_view(views["settings"], user.company_id, user.username)
 
-        open_view("schedule")
+        selected_view = initial_view if initial_view in views else "schedule"
+        open_view(selected_view)
 
     def _build_company_schedule_view(self, parent: ttk.Frame, company_id: int) -> None:
         period_var = tk.StringVar()
@@ -776,12 +791,6 @@ class ScheduleMainWindow:
                 return full_name
             return full_name.split(marker, maxsplit=1)[1]
     
-        tabs = ttk.Frame(parent, style="Card.TFrame")
-    
-        back_button = self._motion_button(tabs, text="<", command=lambda: None, primary=False, width=56)
-        main_tab_button = self._motion_button(tabs, text="Групи", command=lambda: None, primary=True, width=120)
-        subgroup_tab_button = self._motion_button(tabs, text="", command=lambda: None, primary=False, width=220)
-    
         content = ttk.Frame(parent, style="Card.TFrame")
         content.pack(fill=tk.BOTH, expand=True)
     
@@ -815,104 +824,298 @@ class ScheduleMainWindow:
         cards_container.grid_columnconfigure(1, weight=1)
         cards_container.grid_columnconfigure(2, weight=1)
     
-        detail_header = ttk.Frame(detail_view, style="Card.TFrame")
-        detail_header.pack(fill=tk.X, pady=(0, 8))
+        detail_scroll_wrap = ttk.Frame(detail_view, style="Card.TFrame")
+        detail_scroll_wrap.pack(fill=tk.BOTH, expand=True)
+        detail_canvas = tk.Canvas(
+            detail_scroll_wrap,
+            bg=self.theme.SURFACE,
+            bd=0,
+            highlightthickness=0,
+            relief=tk.FLAT,
+        )
+        detail_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        detail_scroll = ttk.Scrollbar(
+            detail_scroll_wrap,
+            orient=tk.VERTICAL,
+            command=detail_canvas.yview,
+            style="App.Vertical.TScrollbar",
+        )
+        detail_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        detail_canvas.configure(yscrollcommand=detail_scroll.set)
+        detail_body = ttk.Frame(detail_canvas, style="Card.TFrame")
+        detail_body_window = detail_canvas.create_window((0, 0), anchor="nw", window=detail_body)
+
+        def _sync_detail_scroll(_event=None) -> None:
+            detail_canvas.configure(scrollregion=detail_canvas.bbox("all"))
+            detail_canvas.itemconfigure(detail_body_window, width=detail_canvas.winfo_width())
+
+        detail_body.bind("<Configure>", _sync_detail_scroll)
+        detail_canvas.bind("<Configure>", _sync_detail_scroll)
+
+        detail_nav = ttk.Frame(detail_body, style="Card.TFrame")
+        detail_nav.pack(fill=tk.X, pady=(0, 6))
         detail_title_var = tk.StringVar(value="")
-        ttk.Label(detail_header, textvariable=detail_title_var, style="CardTitle.TLabel").pack(anchor="w")
-        ttk.Label(
-            detail_header,
-            text="Керування учасниками та підгрупами вибраної групи.",
+        back_button = HoverCircleIconButton(
+            detail_nav,
+            text="←",
+            command=lambda: None,
+            diameter=44,
+            canvas_bg=self.theme.SURFACE,
+            icon_color=self.theme.TEXT_PRIMARY,
+            hover_bg="#e8eff8",
+            hover_icon_color="#163554",
+            pressed_bg="#dfe8f4",
+        )
+        back_button.pack(side=tk.LEFT)
+        ttk.Label(detail_nav, textvariable=detail_title_var, style="CardTitle.TLabel").pack(side=tk.LEFT, padx=(10, 0))
+        detail_subtitle = ttk.Label(
+            detail_body,
+            text="Додавай учасників за логіном і перетягуй їх між підгрупами.",
             style="CardSubtle.TLabel",
-        ).pack(anchor="w", pady=(2, 0))
-    
-        participants_list = tk.Listbox(detail_view, height=10)
-        participants_list.pack(fill=tk.X, pady=(6, 10))
-        self.theme.style_listbox(participants_list)
-    
+        )
+        detail_subtitle.pack(anchor="w", pady=(0, 10))
+
         participant_username_var = tk.StringVar()
-        participant_password_var = tk.StringVar()
-        participant_row = ttk.Frame(detail_view, style="Card.TFrame")
-        participant_row.pack(fill=tk.X, pady=(0, 10))
-        ttk.Label(participant_row, text="Логін", style="Card.TLabel").pack(side=tk.LEFT)
-        ttk.Entry(participant_row, textvariable=participant_username_var, width=16).pack(side=tk.LEFT, padx=(6, 10))
-        ttk.Label(participant_row, text="Пароль", style="Card.TLabel").pack(side=tk.LEFT)
-        ttk.Entry(participant_row, textvariable=participant_password_var, show="*", width=16).pack(side=tk.LEFT, padx=(6, 10))
-        self._motion_button(
+
+        participants_panel = ttk.Frame(detail_body, style="Card.TFrame")
+        participants_panel.pack(fill=tk.X, pady=(0, 12))
+        ttk.Label(participants_panel, text="Учасники", style="CardTitle.TLabel").pack(anchor="w")
+
+        participant_row = ttk.Frame(participants_panel, style="Card.TFrame")
+        participant_row.pack(fill=tk.X, pady=(8, 10))
+        participant_login_label = ttk.Label(participant_row, text="Логін", style="Card.TLabel")
+        participant_login_label.grid(row=0, column=0, sticky="w")
+        participant_row.grid_columnconfigure(0, weight=1)
+        participant_input_box = ttk.Combobox(participant_row, textvariable=participant_username_var, width=26, state="normal")
+        participant_input_box.grid(row=1, column=0, sticky="ew", pady=(6, 8))
+        participant_add_button = self._motion_button(
             participant_row,
             text="Додати учасника",
             command=lambda: on_add_participant(),
             primary=True,
             width=180,
-        ).pack(side=tk.LEFT)
-    
-        subgroups_list = tk.Listbox(detail_view, height=8)
-        subgroups_list.pack(fill=tk.X, pady=(6, 10))
-        self.theme.style_listbox(subgroups_list)
-    
+        )
+        participant_add_button.grid(row=1, column=1, sticky="w", padx=(10, 0), pady=(6, 8))
+
+        participants_scroll_wrap = ttk.Frame(participants_panel, style="Card.TFrame")
+        participants_scroll_wrap.pack(fill=tk.X)
+        participants_scroll_wrap.configure(height=250)
+        participants_scroll_wrap.pack_propagate(False)
+        participants_canvas = tk.Canvas(
+            participants_scroll_wrap,
+            bg=self.theme.SURFACE,
+            bd=0,
+            highlightthickness=0,
+            relief=tk.FLAT,
+            height=250,
+        )
+        participants_canvas.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        participants_scroll = ttk.Scrollbar(
+            participants_scroll_wrap,
+            orient=tk.VERTICAL,
+            command=participants_canvas.yview,
+            style="App.Vertical.TScrollbar",
+        )
+        participants_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        participants_canvas.configure(yscrollcommand=participants_scroll.set)
+        participants_cards_frame = ttk.Frame(participants_canvas, style="Card.TFrame")
+        participants_cards_window = participants_canvas.create_window((0, 0), anchor="nw", window=participants_cards_frame)
+
+        def _sync_participants_scroll(_event=None) -> None:
+            participants_canvas.configure(scrollregion=participants_canvas.bbox("all"))
+            participants_canvas.itemconfigure(participants_cards_window, width=participants_canvas.winfo_width())
+
+        participants_cards_frame.bind("<Configure>", _sync_participants_scroll)
+        participants_canvas.bind("<Configure>", _sync_participants_scroll)
+
+        subgroups_panel = ttk.Frame(detail_body, style="Card.TFrame")
+        subgroups_panel.pack(fill=tk.X, pady=(0, 8))
+        ttk.Label(subgroups_panel, text="Підгрупи", style="CardTitle.TLabel").pack(anchor="w")
+        ttk.Label(
+            subgroups_panel,
+            text="Перетягни картку учасника в підгрупу. Щоб прибрати з підгрупи - перетягни у 'Без підгрупи'.",
+            style="CardSubtle.TLabel",
+        ).pack(anchor="w", pady=(2, 8))
+
         subgroup_name_var = tk.StringVar()
-        subgroup_row = ttk.Frame(detail_view, style="Card.TFrame")
-        subgroup_row.pack(fill=tk.X, pady=(0, 10))
-        ttk.Label(subgroup_row, text="Назва підгрупи", style="Card.TLabel").pack(side=tk.LEFT)
-        ttk.Entry(subgroup_row, textvariable=subgroup_name_var, width=24).pack(side=tk.LEFT, padx=(6, 10))
-        self._motion_button(
+        subgroup_row = ttk.Frame(subgroups_panel, style="Card.TFrame")
+        subgroup_row.pack(fill=tk.X, pady=(0, 8))
+        subgroup_name_label = ttk.Label(subgroup_row, text="Нова підгрупа", style="Card.TLabel")
+        subgroup_name_label.grid(row=0, column=0, sticky="w")
+        subgroup_row.grid_columnconfigure(0, weight=1)
+        subgroup_entry = ttk.Entry(subgroup_row, textvariable=subgroup_name_var, width=24)
+        subgroup_entry.grid(row=1, column=0, sticky="ew", pady=(6, 8))
+        subgroup_create_button = self._motion_button(
             subgroup_row,
             text="Створити підгрупу",
             command=lambda: on_create_subgroup(),
             primary=False,
             width=180,
-        ).pack(side=tk.LEFT, padx=(0, 6))
-        self._motion_button(
+        )
+        subgroup_create_button.grid(row=1, column=1, sticky="w", padx=(10, 6), pady=(6, 8))
+        subgroup_delete_button = self._motion_button(
             subgroup_row,
             text="Видалити підгрупу",
             command=lambda: on_delete_subgroup(),
             primary=False,
             width=180,
-        ).pack(side=tk.LEFT)
-    
-        participant_select_var = tk.StringVar()
-        subgroup_select_var = tk.StringVar()
-        assign_row = ttk.Frame(detail_view, style="Card.TFrame")
-        assign_row.pack(fill=tk.X, pady=(0, 6))
-        ttk.Label(assign_row, text="Учасник", style="Card.TLabel").pack(side=tk.LEFT)
-        participant_box = ttk.Combobox(assign_row, textvariable=participant_select_var, width=24, state="readonly")
-        participant_box.pack(side=tk.LEFT, padx=(6, 10))
-        ttk.Label(assign_row, text="Підгрупа", style="Card.TLabel").pack(side=tk.LEFT)
-        subgroup_box = ttk.Combobox(assign_row, textvariable=subgroup_select_var, width=24, state="readonly")
-        subgroup_box.pack(side=tk.LEFT, padx=(6, 10))
-        self._motion_button(
-            assign_row,
-            text="Призначити",
-            command=lambda: on_assign_subgroup(),
-            primary=True,
-            width=130,
-        ).pack(side=tk.LEFT)
+        )
+        subgroup_delete_button.grid(row=1, column=2, sticky="w", pady=(6, 8))
+
+        subgroup_tree_wrap = ttk.Frame(subgroups_panel, style="Card.TFrame")
+        subgroup_tree_wrap.pack(fill=tk.X)
+        subgroup_tree_wrap.configure(height=300)
+        subgroup_tree_wrap.pack_propagate(False)
+        subgroup_tree = ttk.Treeview(subgroup_tree_wrap, show="tree", height=14)
+        subgroup_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        subgroup_tree_scroll = ttk.Scrollbar(
+            subgroup_tree_wrap,
+            orient=tk.VERTICAL,
+            command=subgroup_tree.yview,
+            style="App.Vertical.TScrollbar",
+        )
+        subgroup_tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        subgroup_tree.configure(yscrollcommand=subgroup_tree_scroll.set)
+
+        tree_subgroup_id_by_iid: dict[str, int | None] = {}
+        tree_drag_state: dict[str, str | bool | None] = {"item": None, "active": False}
+        current_users_by_id: dict[int, User] = {}
+        current_subgroups_by_id: dict[int, object] = {}
+        detail_layout_state = {"compact": False}
+
+        def _update_detail_responsive(_event=None) -> None:
+            width = detail_canvas.winfo_width()
+            compact = width < 980
+            if detail_layout_state["compact"] == compact:
+                return
+            detail_layout_state["compact"] = compact
+
+            participant_add_button.grid_forget()
+            if compact:
+                participant_add_button.grid(row=2, column=0, sticky="w", pady=(0, 4))
+            else:
+                participant_add_button.grid(row=1, column=1, sticky="w", padx=(10, 0), pady=(6, 8))
+
+            subgroup_create_button.grid_forget()
+            subgroup_delete_button.grid_forget()
+            if compact:
+                subgroup_create_button.grid(row=2, column=0, sticky="w", pady=(0, 4))
+                subgroup_delete_button.grid(row=2, column=1, sticky="w", padx=(10, 0), pady=(0, 4))
+            else:
+                subgroup_create_button.grid(row=1, column=1, sticky="w", padx=(10, 6), pady=(6, 8))
+                subgroup_delete_button.grid(row=1, column=2, sticky="w", pady=(6, 8))
+
+        def _create_smooth_wheel_handlers(get_view, set_view, *, gain: float = 0.14):
+            # Keep scroll deterministic (no async inertia loop) to avoid jitter
+            # while still smoothing raw wheel/touchpad input.
+            state: dict[str, float] = {"velocity": 0.0}
+
+            def _wheel_step(step_units: float) -> str:
+                first, last = get_view()
+                first_f = float(first)
+                last_f = float(last)
+                visible = max(0.0001, last_f - first_f)
+                if visible >= 0.999:
+                    return "break"
+
+                smoothed_units = state["velocity"] * 0.35 + max(-4.0, min(4.0, step_units)) * 0.65
+                if abs(smoothed_units) < 0.01:
+                    smoothed_units = step_units
+                state["velocity"] = smoothed_units
+
+                max_first = max(0.0, 1.0 - visible)
+                next_first = max(0.0, min(first_f + smoothed_units * visible * gain, max_first))
+                if abs(next_first - first_f) < 0.00001:
+                    return "break"
+                set_view(next_first)
+                return "break"
+
+            def _on_wheel(event: tk.Event) -> str:
+                delta = float(getattr(event, "delta", 0.0))
+                if delta == 0:
+                    return "break"
+                return _wheel_step(-delta / 120.0)
+
+            def _on_button4(_event: tk.Event) -> str:
+                return _wheel_step(-1.0)
+
+            def _on_button5(_event: tk.Event) -> str:
+                return _wheel_step(1.0)
+
+            return _on_wheel, _on_button4, _on_button5
+
+        def _bind_wheel_recursive(widget: tk.Widget, on_wheel, on_up, on_down) -> None:
+            widget.bind("<MouseWheel>", on_wheel, add="+")
+            widget.bind("<Button-4>", on_up, add="+")
+            widget.bind("<Button-5>", on_down, add="+")
+            for child in widget.winfo_children():
+                _bind_wheel_recursive(child, on_wheel, on_up, on_down)
+
+        def _with_fallback(primary_handler, primary_view, fallback_handler):
+            def _handler(event: tk.Event) -> str:
+                first, last = primary_view()
+                first_f = float(first)
+                last_f = float(last)
+                if last_f - first_f >= 0.999:
+                    return fallback_handler(event)
+                event_num = getattr(event, "num", 0)
+                delta = float(getattr(event, "delta", 0.0))
+                scroll_up = bool(event_num == 4 or delta > 0)
+                scroll_down = bool(event_num == 5 or delta < 0)
+                if scroll_up and first_f <= 0.0001:
+                    return fallback_handler(event)
+                if scroll_down and last_f >= 0.9999:
+                    return fallback_handler(event)
+                return primary_handler(event)
+
+            return _handler
+
+        detail_canvas.bind("<Configure>", _update_detail_responsive, add="+")
+        detail_wheel, detail_wheel_up, detail_wheel_down = _create_smooth_wheel_handlers(
+            detail_canvas.yview,
+            detail_canvas.yview_moveto,
+            gain=0.14,
+        )
+
+        participants_wheel, participants_wheel_up, participants_wheel_down = _create_smooth_wheel_handlers(
+            participants_canvas.yview,
+            participants_canvas.yview_moveto,
+            gain=0.13,
+        )
+        participants_wheel_f = _with_fallback(participants_wheel, participants_canvas.yview, detail_wheel)
+        participants_wheel_up_f = _with_fallback(participants_wheel_up, participants_canvas.yview, detail_wheel_up)
+        participants_wheel_down_f = _with_fallback(participants_wheel_down, participants_canvas.yview, detail_wheel_down)
+
+        tree_wheel, tree_wheel_up, tree_wheel_down = _create_smooth_wheel_handlers(
+            subgroup_tree.yview,
+            subgroup_tree.yview_moveto,
+            gain=0.14,
+        )
+        tree_wheel_f = _with_fallback(tree_wheel, subgroup_tree.yview, detail_wheel)
+        tree_wheel_up_f = _with_fallback(tree_wheel_up, subgroup_tree.yview, detail_wheel_up)
+        tree_wheel_down_f = _with_fallback(tree_wheel_down, subgroup_tree.yview, detail_wheel_down)
+
+        _bind_wheel_recursive(detail_nav, detail_wheel, detail_wheel_up, detail_wheel_down)
+        _bind_wheel_recursive(detail_subtitle, detail_wheel, detail_wheel_up, detail_wheel_down)
+        _bind_wheel_recursive(participants_panel, participants_wheel_f, participants_wheel_up_f, participants_wheel_down_f)
+        _bind_wheel_recursive(subgroups_panel, tree_wheel_f, tree_wheel_up_f, tree_wheel_down_f)
+        detail_canvas.bind("<MouseWheel>", detail_wheel, add="+")
+        detail_canvas.bind("<Button-4>", detail_wheel_up, add="+")
+        detail_canvas.bind("<Button-5>", detail_wheel_down, add="+")
     
         def open_main_view() -> None:
             group_state["id"] = None
             group_state["name"] = None
             detail_view.pack_forget()
             main_view.pack(fill=tk.BOTH, expand=True)
-            tabs.pack_forget()
-            back_button.pack_forget()
-            main_tab_button.pack_forget()
-            subgroup_tab_button.pack_forget()
             render_group_cards()
     
         def open_group_view(group_id: int, group_name: str) -> None:
             group_state["id"] = group_id
             group_state["name"] = group_name
-            detail_title_var.set(f"Група: {group_name}")
-            subgroup_tab_button.set_text(group_name)
+            detail_title_var.set(group_name)
             main_view.pack_forget()
             detail_view.pack(fill=tk.BOTH, expand=True)
-            if not tabs.winfo_ismapped():
-                tabs.pack(fill=tk.X, pady=(0, 8), before=content)
-            if not back_button.winfo_ismapped():
-                back_button.pack(side=tk.LEFT, padx=(0, 6))
-            if not main_tab_button.winfo_ismapped():
-                main_tab_button.pack(side=tk.LEFT, padx=(0, 6))
-            if not subgroup_tab_button.winfo_ismapped():
-                subgroup_tab_button.pack(side=tk.LEFT, padx=(0, 6))
             load_group_detail()
     
         def delete_group(group_id: int, group_name: str) -> None:
@@ -1029,7 +1232,91 @@ class ScheduleMainWindow:
                     widget.bind("<Button-1>", lambda _e, gid=group_id, gname=group_name: open_group_view(gid, gname))
                     widget.bind("<Button-3>", lambda e, gid=group_id, gname=group_name: on_card_context(e, gid, gname))
     
+        def render_participant_cards(users: list[User]) -> None:
+            for child in participants_cards_frame.winfo_children():
+                child.destroy()
+
+            if not users:
+                empty_label = ttk.Label(
+                    participants_cards_frame,
+                    text="У групі поки немає учасників.",
+                    style="CardSubtle.TLabel",
+                )
+                empty_label.pack(anchor="w", pady=(2, 0))
+                _bind_wheel_recursive(
+                    empty_label,
+                    participants_wheel_f,
+                    participants_wheel_up_f,
+                    participants_wheel_down_f,
+                )
+                _sync_participants_scroll()
+                return
+
+            for user in users:
+                subgroup_label = "Без підгрупи"
+                if user.subgroup_id and user.subgroup_id in current_subgroups_by_id:
+                    subgroup_label = subgroup_short_name(current_subgroups_by_id[user.subgroup_id].name)
+
+                card = RoundedMotionCard(
+                    participants_cards_frame,
+                    bg_color=self.theme.SURFACE,
+                    card_color="#f7fbff",
+                    shadow_color="#d8e2ee",
+                    radius=14,
+                    padding=3,
+                    shadow_offset=3,
+                    motion_enabled=True,
+                    height=104,
+                )
+                card.pack(fill=tk.X, pady=(0, 8))
+                card.content.grid_columnconfigure(0, weight=1)
+                username_label = ttk.Label(card.content, text=user.username, style="CardTitle.TLabel")
+                username_label.grid(row=0, column=0, sticky="w")
+                badge_color = "#dff4ef" if user.subgroup_id is not None else "#e9eef5"
+                badge_fg = "#0f766e" if user.subgroup_id is not None else "#516174"
+                badge_label = tk.Label(
+                    card.content,
+                    text=subgroup_label,
+                    bg=badge_color,
+                    fg=badge_fg,
+                    font=("Segoe UI", 9, "bold"),
+                    padx=10,
+                    pady=4,
+                    bd=0,
+                    relief=tk.FLAT,
+                )
+                badge_label.grid(row=1, column=0, sticky="w", pady=(4, 0))
+                _bind_wheel_recursive(
+                    card,
+                    participants_wheel_f,
+                    participants_wheel_up_f,
+                    participants_wheel_down_f,
+                )
+
+            _sync_participants_scroll()
+
+        def render_subgroup_tree(users: list[User]) -> None:
+            subgroup_tree.delete(*subgroup_tree.get_children())
+            tree_subgroup_id_by_iid.clear()
+
+            unassigned_iid = "sg_none"
+            subgroup_tree.insert("", tk.END, iid=unassigned_iid, text="Без підгрупи", open=True)
+            tree_subgroup_id_by_iid[unassigned_iid] = None
+
+            for subgroup in current_subgroups_by_id.values():
+                iid = f"sg_{subgroup.id}"
+                subgroup_tree.insert("", tk.END, iid=iid, text=subgroup_short_name(subgroup.name), open=True)
+                tree_subgroup_id_by_iid[iid] = subgroup.id
+
+            for user in users:
+                parent_iid = unassigned_iid
+                if user.subgroup_id is not None and user.subgroup_id in current_subgroups_by_id:
+                    parent_iid = f"sg_{user.subgroup_id}"
+                subgroup_tree.insert(parent_iid, tk.END, iid=f"user_{user.id}", text=user.username, tags=("participant",))
+
         def load_group_detail() -> None:
+            nonlocal current_users_by_id, current_subgroups_by_id
+
             group_id = group_state["id"]
             if group_id is None:
                 return
@@ -1048,53 +1335,63 @@ class ScheduleMainWindow:
                     group_id=group_id,
                     subgroup_ids=subgroup_ids,
                 )
-    
-            subgroups_by_id = {item.id: item for item in subgroups}
-            participants_list.delete(0, tk.END)
-            participant_values: list[str] = []
-            for user in users:
-                subgroup_label = "-"
-                if user.subgroup_id and user.subgroup_id in subgroups_by_id:
-                    subgroup_label = subgroup_short_name(subgroups_by_id[user.subgroup_id].name)
-                participants_list.insert(tk.END, f"{user.id} | {user.username} | Підгрупа: {subgroup_label}")
-                participant_values.append(f"{user.id} | {user.username}")
-    
-            subgroup_values = [f"{item.id} | {subgroup_short_name(item.name)}" for item in subgroups]
-            subgroups_list.delete(0, tk.END)
-            for value in subgroup_values:
-                subgroups_list.insert(tk.END, value)
-    
-            participant_box["values"] = participant_values
-            participant_select_var.set(participant_values[0] if participant_values else "")
-            subgroup_box["values"] = ["0 | (без підгрупи)"] + subgroup_values
-            subgroup_select_var.set("0 | (без підгрупи)")
-    
+                available_users = auth_controller.list_available_personal_users_for_company(company_id=company_id)
+
+            current_subgroups_by_id = {item.id: item for item in subgroups}
+            current_users_by_id = {item.id: item for item in users}
+
+            render_participant_cards(users)
+            render_subgroup_tree(users)
+
+            available_usernames = [item.username for item in available_users if item.id not in current_users_by_id]
+            participant_input_box["values"] = available_usernames
+            if participant_username_var.get().strip() not in available_usernames:
+                participant_username_var.set("")
+
         def on_add_participant() -> None:
             group_id = group_state["id"]
             if group_id is None:
                 return
+
             username = participant_username_var.get().strip()
-            password = participant_password_var.get()
-            if not username or not password:
-                messagebox.showerror("Некоректні дані", "Логін і пароль обов'язкові.")
+            if not username:
+                messagebox.showerror("Некоректні дані", "Вкажи логін учасника.")
                 return
+
+            if any(user.username == username for user in current_users_by_id.values()):
+                messagebox.showerror("Помилка", "Цей учасник уже в групі.")
+                return
+
             try:
                 with session_scope() as session:
-                    AuthController(session=session).create_personal_user(
-                        company_id=company_id,
-                        username=username,
-                        password=password,
+                    auth_controller = AuthController(session=session)
+                    company_users = auth_controller.list_company_users(company_id=company_id)
+                    company_personals = {item.username: item for item in company_users if item.role == UserRole.PERSONAL}
+                    available_personals = {
+                        item.username: item
+                        for item in auth_controller.list_available_personal_users_for_company(company_id=company_id)
+                    }
+
+                    user = company_personals.get(username) or available_personals.get(username)
+                    if user is None:
+                        raise ValueError("Особистий акаунт із таким логіном не знайдено.")
+
+                    if user.company_id != company_id:
+                        auth_controller.reassign_personal_user_company(user_id=user.id, company_id=company_id)
+
+                    auth_controller.update_user_membership(
+                        user.id,
                         resource_id=int(group_id),
                         subgroup_id=None,
                     )
             except Exception as exc:
                 messagebox.showerror("Не вдалося додати учасника", str(exc))
                 return
+
             participant_username_var.set("")
-            participant_password_var.set("")
             load_group_detail()
             render_group_cards()
-    
+
         def on_create_subgroup() -> None:
             group_id = group_state["id"]
             group_name = group_state["name"]
@@ -1118,18 +1415,22 @@ class ScheduleMainWindow:
                 return
             subgroup_name_var.set("")
             load_group_detail()
-    
+
         def on_delete_subgroup() -> None:
             group_id = group_state["id"]
             if group_id is None:
                 return
-            selection = subgroups_list.curselection()
+            selection = subgroup_tree.selection()
             if not selection:
                 messagebox.showerror("Помилка", "Обери підгрупу для видалення.")
                 return
-            raw = subgroups_list.get(selection[0])
-            subgroup_id = int(raw.split("|", maxsplit=1)[0].strip())
-            subgroup_name = raw.split("|", maxsplit=1)[1].strip()
+            selected_iid = selection[0]
+            subgroup_id = tree_subgroup_id_by_iid.get(selected_iid)
+            if subgroup_id is None:
+                messagebox.showerror("Помилка", "Обери саме підгрупу, а не учасника.")
+                return
+
+            subgroup_name = subgroup_tree.item(selected_iid, "text")
             if not messagebox.askyesno("Підтвердження", f"Видалити підгрупу '{subgroup_name}'?"):
                 return
             try:
@@ -1148,20 +1449,49 @@ class ScheduleMainWindow:
                 messagebox.showerror("Не вдалося видалити підгрупу", str(exc))
                 return
             load_group_detail()
-    
-        def on_assign_subgroup() -> None:
+
+        def on_detail_tree_press(event: tk.Event) -> None:
+            item = subgroup_tree.identify_row(event.y)
+            if item.startswith("user_"):
+                tree_drag_state["item"] = item
+                tree_drag_state["active"] = False
+            else:
+                tree_drag_state["item"] = None
+                tree_drag_state["active"] = False
+
+        def on_detail_tree_motion(event: tk.Event) -> None:
+            item = tree_drag_state["item"]
+            if item is None:
+                return
+            tree_drag_state["active"] = True
+            target = subgroup_tree.identify_row(event.y)
+            if target:
+                subgroup_tree.selection_set(target)
+
+        def on_detail_tree_release(event: tk.Event) -> None:
+            item = tree_drag_state["item"]
+            if item is None:
+                return
+
+            target = subgroup_tree.identify_row(event.y)
+            if not target:
+                selected = subgroup_tree.selection()
+                target = selected[0] if selected else "sg_none"
+            if target.startswith("user_"):
+                target = subgroup_tree.parent(target)
+            if target not in tree_subgroup_id_by_iid:
+                target = "sg_none"
+
+            user_id = int(item.split("_", maxsplit=1)[1])
+            subgroup_id = tree_subgroup_id_by_iid.get(target)
             group_id = group_state["id"]
-            if group_id is None:
+
+            tree_drag_state["item"] = None
+            was_drag = bool(tree_drag_state["active"])
+            tree_drag_state["active"] = False
+            if not was_drag or group_id is None:
                 return
-            user_raw = participant_select_var.get().strip()
-            subgroup_raw = subgroup_select_var.get().strip()
-            if not user_raw:
-                messagebox.showerror("Помилка", "Обери учасника.")
-                return
-            user_id = int(user_raw.split("|", maxsplit=1)[0].strip())
-            subgroup_id = int(subgroup_raw.split("|", maxsplit=1)[0].strip()) if subgroup_raw else 0
-            if subgroup_id == 0:
-                subgroup_id = None
+
             try:
                 with session_scope() as session:
                     AuthController(session=session).update_user_membership(
@@ -1172,8 +1502,12 @@ class ScheduleMainWindow:
             except Exception as exc:
                 messagebox.showerror("Не вдалося оновити підгрупу", str(exc))
                 return
+
             load_group_detail()
-            render_group_cards()
+
+        subgroup_tree.bind("<ButtonPress-1>", on_detail_tree_press)
+        subgroup_tree.bind("<B1-Motion>", on_detail_tree_motion)
+        subgroup_tree.bind("<ButtonRelease-1>", on_detail_tree_release)
     
         def open_create_group_modal() -> None:
             with session_scope() as session:
@@ -1229,7 +1563,12 @@ class ScheduleMainWindow:
             tree_container.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
             tree = ttk.Treeview(tree_container, show="tree", height=10)
             tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-            tree_scroll = ttk.Scrollbar(tree_container, orient=tk.VERTICAL, command=tree.yview)
+            tree_scroll = ttk.Scrollbar(
+                tree_container,
+                orient=tk.VERTICAL,
+                command=tree.yview,
+                style="App.Vertical.TScrollbar",
+            )
             tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
             tree.configure(yscrollcommand=tree_scroll.set)
     
@@ -1424,28 +1763,215 @@ class ScheduleMainWindow:
             refresh_suggestions()
     
         back_button.command = open_main_view
-        main_tab_button.command = open_main_view
-        subgroup_tab_button.command = lambda: load_group_detail()
         open_main_view()
     
     def _build_company_settings_view(self, parent: ttk.Frame, company_id: int, username: str) -> None:
-        ttk.Label(parent, text="Налаштування", style="CardTitle.TLabel").pack(anchor="w", pady=(0, 8))
-
-        with session_scope() as session:
-            company = AuthController(session=session).get_company(company_id)
-        company_name = company.name if company else f"Компанія #{company_id}"
-
-        ttk.Label(parent, text=f"Компанія: {company_name}", style="Card.TLabel").pack(anchor="w")
-        ttk.Label(parent, text=f"Акаунт: {username}", style="Card.TLabel").pack(anchor="w", pady=(0, 10))
-
-        ttk.Separator(parent).pack(fill=tk.X, pady=(2, 10))
-
-        ttk.Label(parent, text="Створити шаблон розкладу", style="Card.TLabel").pack(anchor="w", pady=(0, 2))
+        ttk.Label(parent, text="Налаштування", style="CardTitle.TLabel").pack(anchor="w", pady=(0, 4))
         ttk.Label(
             parent,
-            text="Період буде створений разом із блоками часу.",
+            text="Керуй профілем компанії, шаблонами та системними параметрами.",
             style="CardSubtle.TLabel",
-        ).pack(anchor="w", pady=(0, 6))
+        ).pack(anchor="w", pady=(0, 10))
+
+        tabs_bar = ttk.Frame(parent, style="Card.TFrame")
+        tabs_bar.pack(fill=tk.X, pady=(0, 10))
+
+        content = ttk.Frame(parent, style="Card.TFrame")
+        content.pack(fill=tk.BOTH, expand=True)
+
+        views: dict[str, ttk.Frame] = {
+            "profile": ttk.Frame(content, style="Card.TFrame"),
+            "templates": ttk.Frame(content, style="Card.TFrame"),
+            "system": ttk.Frame(content, style="Card.TFrame"),
+        }
+        nav_buttons: dict[str, RoundedMotionButton] = {}
+
+        def _set_nav_button_state(button: RoundedMotionButton, *, active: bool) -> None:
+            if active:
+                button.fill = self.theme.ACCENT
+                button.hover_fill = self.theme.ACCENT_HOVER
+                button.pressed_fill = self.theme.ACCENT_HOVER
+                button.text_color = self.theme.TEXT_LIGHT
+                button.shadow_color = "#cfd8e3"
+            else:
+                button.fill = self.theme.SURFACE_ALT
+                button.hover_fill = "#e7eef7"
+                button.pressed_fill = "#dfe7f0"
+                button.text_color = self.theme.TEXT_PRIMARY
+                button.shadow_color = "#d8e0eb"
+            button._draw()
+
+        def open_tab(name: str) -> None:
+            for frame in views.values():
+                frame.pack_forget()
+            views[name].pack(fill=tk.BOTH, expand=True)
+            for key, button in nav_buttons.items():
+                _set_nav_button_state(button, active=key == name)
+
+        tab_specs = (
+            ("profile", "Профіль"),
+            ("templates", "Шаблони"),
+            ("system", "Система"),
+        )
+        for key, label in tab_specs:
+            button = self._motion_button(
+                tabs_bar,
+                text=label,
+                command=lambda selected=key: open_tab(selected),
+                primary=False,
+                width=150,
+                height=40,
+            )
+            button.pack(side=tk.LEFT, padx=(0, 8))
+            nav_buttons[key] = button
+
+        self._build_company_settings_profile_tab(
+            views["profile"],
+            company_id=company_id,
+            username=username,
+        )
+        self._build_company_settings_templates_tab(views["templates"], company_id=company_id)
+        self._build_company_settings_system_tab(views["system"], company_id=company_id, username=username)
+
+        open_tab("profile")
+
+    def _build_company_settings_profile_tab(self, parent: ttk.Frame, *, company_id: int, username: str) -> None:
+        with session_scope() as session:
+            controller = AuthController(session=session)
+            company = controller.get_company(company_id)
+            profile = controller.get_company_profile(company_id)
+
+        company_name_default = company.name if company is not None else f"Компанія #{company_id}"
+        timezone_default = (profile.timezone or "Europe/Kyiv").strip()
+        language_default = "Українська" if profile.language == "uk" else profile.language
+        theme_default = (profile.theme or UiTheme.DEFAULT_VARIANT).strip().lower()
+
+        company_name_var = tk.StringVar(value=company_name_default)
+        timezone_var = tk.StringVar(value=timezone_default)
+        language_var = tk.StringVar(value=language_default)
+        logo_var = tk.StringVar(value=profile.logo_path or "Завантаження лого буде доступне пізніше")
+        status_var = tk.StringVar(value="Готово.")
+
+        theme_label_by_key = {
+            "ocean": "Океан",
+            "graphite": "Графіт",
+            "sunrise": "Світанок",
+        }
+        theme_key_by_label = {label: key for key, label in theme_label_by_key.items()}
+        theme_var = tk.StringVar(value=theme_label_by_key.get(theme_default, theme_label_by_key["ocean"]))
+
+        timezone_options = [
+            "Europe/Kyiv",
+            "Europe/Warsaw",
+            "Europe/Berlin",
+            "Europe/London",
+            "UTC",
+        ]
+        if timezone_default not in timezone_options:
+            timezone_options.append(timezone_default)
+
+        ttk.Label(parent, text="Профіль компанії", style="CardTitle.TLabel").pack(anchor="w", pady=(0, 2))
+        ttk.Label(
+            parent,
+            text="Зміни назву, часовий пояс і тему. Мова та лого поки що в режимі перегляду.",
+            style="CardSubtle.TLabel",
+        ).pack(anchor="w", pady=(0, 10))
+
+        form = ttk.Frame(parent, style="Card.TFrame")
+        form.pack(fill=tk.X)
+        form.grid_columnconfigure(1, weight=1)
+
+        ttk.Label(form, text="Назва компанії", style="Card.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
+        ttk.Entry(form, textvariable=company_name_var).grid(row=0, column=1, sticky="ew", pady=(0, 6))
+
+        ttk.Label(form, text="Лого", style="Card.TLabel").grid(row=1, column=0, sticky="w", pady=(0, 6))
+        logo_row = ttk.Frame(form, style="Card.TFrame")
+        logo_row.grid(row=1, column=1, sticky="ew", pady=(0, 6))
+        logo_row.grid_columnconfigure(0, weight=1)
+        logo_entry = ttk.Entry(logo_row, textvariable=logo_var, state="disabled")
+        logo_entry.grid(row=0, column=0, sticky="ew")
+        logo_action = ttk.Button(logo_row, text="Змінити (скоро)", state="disabled")
+        logo_action.grid(row=0, column=1, padx=(8, 0))
+
+        ttk.Label(form, text="Часовий пояс", style="Card.TLabel").grid(row=2, column=0, sticky="w", pady=(0, 6))
+        timezone_box = ttk.Combobox(form, textvariable=timezone_var, values=timezone_options, state="readonly")
+        timezone_box.grid(row=2, column=1, sticky="ew", pady=(0, 6))
+
+        ttk.Label(form, text="Мова", style="Card.TLabel").grid(row=3, column=0, sticky="w", pady=(0, 6))
+        language_box = ttk.Combobox(form, textvariable=language_var, values=["Українська"], state="disabled")
+        language_box.grid(row=3, column=1, sticky="ew", pady=(0, 6))
+
+        ttk.Label(form, text="Тема", style="Card.TLabel").grid(row=4, column=0, sticky="w", pady=(0, 6))
+        theme_box = ttk.Combobox(
+            form,
+            textvariable=theme_var,
+            values=[theme_label_by_key[key] for key in ("ocean", "graphite", "sunrise")],
+            state="readonly",
+        )
+        theme_box.grid(row=4, column=1, sticky="ew", pady=(0, 6))
+
+        ttk.Label(form, text=f"Акаунт: {username}", style="CardSubtle.TLabel").grid(
+            row=5,
+            column=0,
+            columnspan=2,
+            sticky="w",
+            pady=(2, 0),
+        )
+
+        def on_reset() -> None:
+            company_name_var.set(company_name_default)
+            timezone_var.set(timezone_default)
+            language_var.set(language_default)
+            theme_var.set(theme_label_by_key.get(theme_default, theme_label_by_key["ocean"]))
+            status_var.set("Дані повернуто до збережених значень.")
+
+        def on_save_profile() -> None:
+            selected_theme = theme_key_by_label.get(theme_var.get().strip(), UiTheme.DEFAULT_VARIANT)
+            try:
+                with session_scope() as session:
+                    controller = AuthController(session=session)
+                    controller.update_company_profile(
+                        company_id=company_id,
+                        company_name=company_name_var.get().strip(),
+                        timezone=timezone_var.get().strip(),
+                        theme=selected_theme,
+                    )
+            except IntegrityError:
+                messagebox.showerror("Не вдалося зберегти", "Компанія з такою назвою вже існує.")
+                return
+            except Exception as exc:
+                messagebox.showerror("Не вдалося зберегти", str(exc))
+                return
+
+            self._show_company_dashboard(initial_view="settings")
+
+        controls = ttk.Frame(parent, style="Card.TFrame")
+        controls.pack(fill=tk.X, pady=(10, 0))
+        self._motion_button(
+            controls,
+            text="Зберегти профіль",
+            command=on_save_profile,
+            primary=True,
+            width=190,
+        ).pack(side=tk.LEFT)
+        self._motion_button(
+            controls,
+            text="Скинути",
+            command=on_reset,
+            primary=False,
+            width=140,
+        ).pack(side=tk.LEFT, padx=(8, 0))
+
+        ttk.Label(parent, textvariable=status_var, anchor="w", style="CardSubtle.TLabel").pack(fill=tk.X, pady=(8, 0))
+
+    def _build_company_settings_templates_tab(self, parent: ttk.Frame, *, company_id: int) -> None:
+        ttk.Label(parent, text="Шаблони розкладу", style="CardTitle.TLabel").pack(anchor="w", pady=(0, 2))
+        ttk.Label(
+            parent,
+            text="Період буде створений разом із базовими блоками часу.",
+            style="CardSubtle.TLabel",
+        ).pack(anchor="w", pady=(0, 8))
+
         start_var = tk.StringVar(value=date.today().isoformat())
         end_var = tk.StringVar(value=(date.today() + timedelta(days=120)).isoformat())
         status_var = tk.StringVar(value="Готово.")
@@ -1480,6 +2006,24 @@ class ScheduleMainWindow:
             width=190,
         ).pack(anchor="w", pady=(10, 0))
         ttk.Label(parent, textvariable=status_var, anchor="w", style="CardSubtle.TLabel").pack(fill=tk.X, pady=(8, 0))
+
+    def _build_company_settings_system_tab(self, parent: ttk.Frame, *, company_id: int, username: str) -> None:
+        ttk.Label(parent, text="Система", style="CardTitle.TLabel").pack(anchor="w", pady=(0, 2))
+        ttk.Label(
+            parent,
+            text="Системні функції будуть розширюватися у наступних фазах.",
+            style="CardSubtle.TLabel",
+        ).pack(anchor="w", pady=(0, 10))
+
+        info = ttk.Frame(parent, style="Card.TFrame")
+        info.pack(fill=tk.X)
+        ttk.Label(info, text=f"Компанія ID: {company_id}", style="Card.TLabel").pack(anchor="w")
+        ttk.Label(info, text=f"Користувач: {username}", style="Card.TLabel").pack(anchor="w", pady=(4, 0))
+        ttk.Label(
+            info,
+            text="Експорт, аудит і розширені нотифікації з'являться тут.",
+            style="CardSubtle.TLabel",
+        ).pack(anchor="w", pady=(8, 0))
 
     def _show_personal_dashboard(self) -> None:
         user = self.current_user

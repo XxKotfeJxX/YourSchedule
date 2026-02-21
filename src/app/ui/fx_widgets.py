@@ -281,3 +281,94 @@ class RoundedMotionButton(tk.Canvas):
             fill=self.text_color,
             font=("Segoe UI", 10, "bold"),
         )
+
+
+class HoverCircleIconButton(tk.Canvas):
+    def __init__(
+        self,
+        master,
+        *,
+        text: str,
+        command,
+        diameter: int = 42,
+        canvas_bg: str = "#ffffff",
+        icon_color: str = "#1f2937",
+        hover_bg: str = "#e6edf6",
+        hover_icon_color: str = "#10243a",
+        pressed_bg: str = "#d9e3ef",
+    ) -> None:
+        super().__init__(
+            master,
+            width=diameter,
+            height=diameter,
+            bd=0,
+            highlightthickness=0,
+            relief=tk.FLAT,
+            bg=canvas_bg,
+            cursor="hand2",
+        )
+        self.command = command
+        self.text = text
+        self.icon_color = icon_color
+        self.hover_bg = hover_bg
+        self.hover_icon_color = hover_icon_color
+        self.pressed_bg = pressed_bg
+        self._state = "normal"
+
+        self.bind("<Enter>", self._on_enter)
+        self.bind("<Leave>", self._on_leave)
+        self.bind("<ButtonPress-1>", self._on_press)
+        self.bind("<ButtonRelease-1>", self._on_release)
+        self.bind("<Configure>", self._on_resize)
+
+        self._draw()
+
+    def _on_resize(self, _event=None) -> None:
+        self._draw()
+
+    def _on_enter(self, _event=None) -> None:
+        self._state = "hover"
+        self._draw()
+
+    def _on_leave(self, _event=None) -> None:
+        self._state = "normal"
+        self._draw()
+
+    def _on_press(self, _event=None) -> None:
+        self._state = "pressed"
+        self._draw()
+
+    def _on_release(self, event=None) -> None:
+        if event is None:
+            return
+        inside = 0 <= event.x <= self.winfo_width() and 0 <= event.y <= self.winfo_height()
+        self._state = "hover" if inside else "normal"
+        self._draw()
+        if inside and self.command is not None:
+            self.command()
+
+    def _draw(self) -> None:
+        width = max(2, self.winfo_width())
+        height = max(2, self.winfo_height())
+        radius = min(width, height) // 2 - 2
+        cx = width // 2
+        cy = height // 2
+
+        self.delete("all")
+        if self._state != "normal":
+            fill = self.hover_bg if self._state == "hover" else self.pressed_bg
+            self.create_oval(
+                cx - radius,
+                cy - radius,
+                cx + radius,
+                cy + radius,
+                fill=fill,
+                outline="",
+            )
+        self.create_text(
+            cx,
+            cy,
+            text=self.text,
+            fill=self.hover_icon_color if self._state != "normal" else self.icon_color,
+            font=("Segoe UI Symbol", 16, "bold"),
+        )
