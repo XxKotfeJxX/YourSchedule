@@ -1,7 +1,7 @@
 from contextlib import contextmanager
 from typing import Iterator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config.settings import settings
@@ -17,12 +17,68 @@ SessionLocal = sessionmaker(
 )
 
 
+def _column_exists(connection, table_name: str, column_name: str) -> bool:
+    inspector = inspect(connection)
+    columns = inspector.get_columns(table_name)
+    return any(column["name"] == column_name for column in columns)
+
+
+def _apply_lightweight_schema_upgrades() -> None:
+    # Dev-friendly schema upgrades for incremental model changes without Alembic.
+    # This prevents runtime crashes when code expects new columns in existing DB.
+    with engine.begin() as connection:
+        dialect = connection.dialect.name
+
+        if not _column_exists(connection, "users", "subgroup_id"):
+            connection.execute(text("ALTER TABLE users ADD COLUMN subgroup_id INTEGER"))
+
+        if not _column_exists(connection, "resources", "parent_group_id"):
+            connection.execute(text("ALTER TABLE resources ADD COLUMN parent_group_id INTEGER"))
+
+        if dialect == "postgresql":
+            connection.execute(
+                text(
+                    """
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1 FROM pg_constraint WHERE conname = 'fk_users_subgroup_id_resources'
+                        ) THEN
+                            ALTER TABLE users
+                            ADD CONSTRAINT fk_users_subgroup_id_resources
+                            FOREIGN KEY (subgroup_id) REFERENCES resources(id) ON DELETE SET NULL;
+                        END IF;
+                    END
+                    $$;
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1 FROM pg_constraint WHERE conname = 'fk_resources_parent_group_id_resources'
+                        ) THEN
+                            ALTER TABLE resources
+                            ADD CONSTRAINT fk_resources_parent_group_id_resources
+                            FOREIGN KEY (parent_group_id) REFERENCES resources(id) ON DELETE CASCADE;
+                        END IF;
+                    END
+                    $$;
+                    """
+                )
+            )
+
+
 def init_db(reset_schema: bool = False) -> None:
     import app.domain.models  # noqa: F401
 
     if reset_schema:
         Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
+    _apply_lightweight_schema_upgrades()
 
 
 @contextmanager

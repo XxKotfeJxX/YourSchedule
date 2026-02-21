@@ -14,8 +14,14 @@ class ResourceRepository:
         name: str,
         resource_type: ResourceType,
         company_id: int | None = None,
+        parent_group_id: int | None = None,
     ) -> Resource:
-        resource = Resource(company_id=company_id, name=name, type=resource_type)
+        resource = Resource(
+            company_id=company_id,
+            parent_group_id=parent_group_id,
+            name=name,
+            type=resource_type,
+        )
         self.session.add(resource)
         self.session.flush()
         return resource
@@ -27,12 +33,15 @@ class ResourceRepository:
         self,
         resource_type: ResourceType | None = None,
         company_id: int | None = None,
+        parent_group_id: int | None = None,
     ) -> list[Resource]:
         statement = select(Resource).order_by(Resource.name.asc(), Resource.id.asc())
         if resource_type is not None:
             statement = statement.where(Resource.type == resource_type)
         if company_id is not None:
             statement = statement.where(Resource.company_id == company_id)
+        if parent_group_id is not None:
+            statement = statement.where(Resource.parent_group_id == parent_group_id)
         return list(self.session.scalars(statement).all())
 
     def update_resource(
@@ -59,5 +68,31 @@ class ResourceRepository:
         if resource is None:
             return False
         self.session.delete(resource)
+        self.session.flush()
+        return True
+
+    def list_subgroups(self, group_id: int, company_id: int | None = None) -> list[Resource]:
+        statement = (
+            select(Resource)
+            .where(
+                Resource.parent_group_id == group_id,
+                Resource.type == ResourceType.SUBGROUP,
+            )
+            .order_by(Resource.name.asc(), Resource.id.asc())
+        )
+        if company_id is not None:
+            statement = statement.where(Resource.company_id == company_id)
+        return list(self.session.scalars(statement).all())
+
+    def delete_group_with_subgroups(self, group_id: int) -> bool:
+        group = self.get_resource(group_id)
+        if group is None:
+            return False
+
+        subgroups = self.list_subgroups(group_id=group_id)
+        for subgroup in subgroups:
+            self.session.delete(subgroup)
+
+        self.session.delete(group)
         self.session.flush()
         return True

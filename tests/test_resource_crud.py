@@ -103,3 +103,32 @@ def test_same_name_allowed_for_different_types(session: Session) -> None:
 
     resources = session.query(Resource).order_by(Resource.id.asc()).all()
     assert len(resources) == 2
+
+
+def test_subgroup_listing_and_group_delete_with_subgroups(session: Session) -> None:
+    controller = ResourceController(session=session)
+    company = Company(name="Test Company D")
+    session.add(company)
+    session.flush()
+
+    group = controller.create_resource(
+        name="Group D",
+        resource_type=ResourceType.GROUP,
+        company_id=company.id,
+    )
+    subgroup = controller.create_resource(
+        name="Group D::Sub 1",
+        resource_type=ResourceType.SUBGROUP,
+        company_id=company.id,
+        parent_group_id=group.id,
+    )
+    session.commit()
+
+    subgroups = controller.list_subgroups(group_id=group.id, company_id=company.id)
+    assert [item.id for item in subgroups] == [subgroup.id]
+
+    deleted = controller.delete_group_with_subgroups(group.id)
+    session.commit()
+    assert deleted is True
+    assert controller.get_resource(group.id) is None
+    assert controller.get_resource(subgroup.id) is None

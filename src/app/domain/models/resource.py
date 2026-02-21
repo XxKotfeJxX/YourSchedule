@@ -15,6 +15,10 @@ class Resource(Base):
         ForeignKey("companies.id", ondelete="CASCADE"),
         nullable=True,
     )
+    parent_group_id: Mapped[int | None] = mapped_column(
+        ForeignKey("resources.id", ondelete="CASCADE"),
+        nullable=True,
+    )
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     type: Mapped[ResourceType] = mapped_column(
         Enum(ResourceType, name="resource_type_enum"),
@@ -24,7 +28,27 @@ class Resource(Base):
         "RequirementResource",
         back_populates="resource",
     )
-    users: Mapped[list["User"]] = relationship("User", back_populates="resource")
+    users: Mapped[list["User"]] = relationship(
+        "User",
+        back_populates="resource",
+        foreign_keys="User.resource_id",
+    )
+    subgroup_users: Mapped[list["User"]] = relationship(
+        "User",
+        back_populates="subgroup",
+        foreign_keys="User.subgroup_id",
+    )
+    parent_group: Mapped["Resource | None"] = relationship(
+        "Resource",
+        remote_side=[id],
+        back_populates="subgroups",
+        foreign_keys=[parent_group_id],
+    )
+    subgroups: Mapped[list["Resource"]] = relationship(
+        "Resource",
+        back_populates="parent_group",
+        foreign_keys=[parent_group_id],
+    )
 
     __table_args__ = (
         UniqueConstraint("company_id", "name", "type", name="uq_resource_company_name_type"),

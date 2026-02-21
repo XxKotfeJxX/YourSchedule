@@ -42,10 +42,23 @@ class User(Base):
         ForeignKey("resources.id", ondelete="SET NULL"),
         nullable=True,
     )
+    subgroup_id: Mapped[int | None] = mapped_column(
+        ForeignKey("resources.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
 
     company: Mapped[Company] = relationship("Company", back_populates="users")
-    resource: Mapped["Resource"] = relationship("Resource", back_populates="users")
+    resource: Mapped["Resource | None"] = relationship(
+        "Resource",
+        back_populates="users",
+        foreign_keys=[resource_id],
+    )
+    subgroup: Mapped["Resource | None"] = relationship(
+        "Resource",
+        back_populates="subgroup_users",
+        foreign_keys=[subgroup_id],
+    )
 
     __table_args__ = (
         UniqueConstraint("company_id", "username", name="uq_user_company_username"),
