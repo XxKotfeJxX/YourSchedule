@@ -47,6 +47,10 @@ Prerequisite: Docker Desktop is running.
 
 - One-click:
   - double-click `run_docker.bat`
+- One-click tests:
+  - double-click `run_docker_tests.bat`
+- One-click template tests:
+  - double-click `run_docker_template_tests.bat`
 - Manual:
   - `docker compose up --build`
 - Tests in Docker:

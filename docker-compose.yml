@@ -38,7 +38,8 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/academic_schedule
-    command: python -m pytest
+      PYTEST_ARGS: ${PYTEST_ARGS:-}
+    command: sh -c "python -m pytest $PYTEST_ARGS"
     profiles:
       - test
 
