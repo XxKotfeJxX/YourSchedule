@@ -1857,7 +1857,7 @@ class ScheduleMainWindow:
         cards_window = cards_canvas.create_window((0, 0), anchor="nw", window=cards_grid)
 
         detail_header = ttk.Frame(detail_view, style="Card.TFrame")
-        detail_header.pack(fill=tk.X, pady=(0, 10))
+        detail_header.pack(fill=tk.X, pady=(0, 6))
         back_button = HoverCircleIconButton(
             detail_header,
             text="←",
@@ -1894,46 +1894,14 @@ class ScheduleMainWindow:
 
         detail_body = ttk.Frame(detail_view, style="Card.TFrame")
         detail_body.pack(fill=tk.BOTH, expand=True)
-        detail_card = RoundedMotionCard(
-            detail_body,
-            bg_color=self.theme.SURFACE,
-            card_color=self.theme.SURFACE_ALT,
-            shadow_color=self.theme.SHADOW_SOFT,
-            radius=16,
-            padding=4,
-            shadow_offset=4,
-            motion_enabled=True,
-            height=120,
-        )
-        detail_card.pack(fill=tk.X, pady=(0, 8))
-        detail_card.content.grid_columnconfigure(0, weight=1)
-        ttk.Label(detail_card.content, text="Аудиторії", style="CardAltTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(2, 2))
-        ttk.Label(
-            detail_card.content,
-            text="Керуйте аудиторіями та фільтруйте список приміщень.",
-            style="CardAltSubtle.TLabel",
-        ).grid(row=1, column=0, sticky="w")
-        ttk.Label(detail_card.content, textvariable=rooms_count_var, style="CardAltSubtle.TLabel").grid(
-            row=2,
-            column=0,
-            sticky="w",
-            pady=(8, 0),
-        )
 
-        filters_card = RoundedMotionCard(
-            detail_body,
-            bg_color=self.theme.SURFACE,
-            card_color=self.theme.SURFACE,
-            shadow_color=self.theme.SHADOW_SOFT,
-            radius=14,
-            padding=4,
-            shadow_offset=3,
-            motion_enabled=True,
-            height=132,
-        )
-        filters_card.pack(fill=tk.X, pady=(2, 8))
-        filters_shell = ttk.Frame(filters_card.content, style="Card.TFrame")
-        filters_shell.pack(fill=tk.BOTH, expand=True)
+        rooms_header = ttk.Frame(detail_body, style="Card.TFrame")
+        rooms_header.pack(fill=tk.X, pady=(0, 4))
+        ttk.Label(rooms_header, text="Аудиторії", style="CardTitle.TLabel").pack(side=tk.LEFT)
+        ttk.Label(rooms_header, textvariable=rooms_count_var, style="CardSubtle.TLabel").pack(side=tk.LEFT, padx=(12, 0), pady=(4, 0))
+
+        filters_shell = ttk.Frame(detail_body, style="Card.TFrame", padding=(2, 2, 2, 2))
+        filters_shell.pack(fill=tk.X, pady=(0, 8))
         filters_shell.grid_columnconfigure(1, weight=1)
 
         ttk.Label(filters_shell, text="Пошук", style="Card.TLabel").grid(row=0, column=0, sticky="w")
@@ -1956,10 +1924,45 @@ class ScheduleMainWindow:
         status_wrap = ttk.Frame(filters_shell, style="Card.TFrame")
         status_wrap.grid(row=1, column=0, columnspan=7, sticky="ew", pady=(12, 0))
         ttk.Label(status_wrap, text="Статус:", style="CardSubtle.TLabel").pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Checkbutton(status_wrap, text="Усі", variable=room_status_all_var).pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Checkbutton(status_wrap, text="Активні", variable=room_status_active_var).pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Checkbutton(status_wrap, text="Архівні", variable=room_status_archived_var).pack(side=tk.LEFT, padx=(0, 8))
-        ttk.Checkbutton(status_wrap, text="Бронь", variable=room_status_booked_var).pack(side=tk.LEFT)
+        status_buttons_wrap = ttk.Frame(status_wrap, style="Card.TFrame")
+        status_buttons_wrap.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        status_chip_specs: list[tuple[str, str, tk.BooleanVar, int]] = [
+            ("all", "Усі", room_status_all_var, 74),
+            ("active", "Активні", room_status_active_var, 94),
+            ("archived", "Архівні", room_status_archived_var, 90),
+            ("booked", "Бронь", room_status_booked_var, 82),
+        ]
+        status_chip_buttons: dict[str, RoundedMotionButton] = {}
+        for key, label, variable, width in status_chip_specs:
+            chip_button = self._motion_button(
+                status_buttons_wrap,
+                text=label,
+                command=lambda var=variable: var.set(not bool(var.get())),
+                primary=False,
+                width=width,
+                height=30,
+            )
+            chip_button.pack(side=tk.LEFT, padx=(0, 6))
+            status_chip_buttons[key] = chip_button
+
+        def refresh_status_chips() -> None:
+            for key, label, variable, _width in status_chip_specs:
+                chip_button = status_chip_buttons[key]
+                active = bool(variable.get())
+                if active:
+                    chip_button.fill = self.theme.ACCENT
+                    chip_button.hover_fill = self.theme.ACCENT_HOVER
+                    chip_button.pressed_fill = self.theme.ACCENT_PRESSED
+                    chip_button.text_color = self.theme.TEXT_LIGHT
+                    chip_button.shadow_color = self.theme.SHADOW_SOFT
+                    chip_button.set_text(f"✓ {label}")
+                else:
+                    chip_button.fill = self.theme.SURFACE_ALT
+                    chip_button.hover_fill = self.theme.SECONDARY_HOVER
+                    chip_button.pressed_fill = self.theme.SECONDARY_PRESSED
+                    chip_button.text_color = self.theme.TEXT_PRIMARY
+                    chip_button.shadow_color = self.theme.SHADOW_SOFT
+                    chip_button.set_text(label)
 
         def on_filter_panel_resize(_event=None) -> None:
             width = max(1, filters_shell.winfo_width())
@@ -1981,12 +1984,12 @@ class ScheduleMainWindow:
                 status_wrap.grid_configure(row=1, column=0, columnspan=7, pady=(12, 0))
 
         rooms_table_wrap = ttk.Frame(detail_body, style="Card.TFrame")
-        rooms_table_wrap.pack(fill=tk.BOTH, expand=True)
+        rooms_table_wrap.pack(fill=tk.BOTH, expand=True, pady=(2, 0))
         rooms_table = ttk.Treeview(
             rooms_table_wrap,
             columns=("name", "type", "capacity", "floor", "status"),
             show="headings",
-            height=12,
+            height=18,
         )
         rooms_table.heading("name", text="Назва")
         rooms_table.heading("type", text="Тип")
@@ -2028,6 +2031,7 @@ class ScheduleMainWindow:
             room_status_archived_var.set(True)
             room_status_booked_var.set(True)
             room_filter_sync_state["busy"] = False
+            refresh_status_chips()
             load_rooms()
             list_view.pack_forget()
             detail_view.pack(fill=tk.BOTH, expand=True)
@@ -2086,6 +2090,7 @@ class ScheduleMainWindow:
             room_status_archived_var.set(value)
             room_status_booked_var.set(value)
             room_filter_sync_state["busy"] = False
+            refresh_status_chips()
             schedule_room_filter_reload(delay_ms=0)
 
         def on_room_status_partial_changed(*_args) -> None:
@@ -2097,6 +2102,7 @@ class ScheduleMainWindow:
             room_filter_sync_state["busy"] = True
             room_status_all_var.set(all_selected)
             room_filter_sync_state["busy"] = False
+            refresh_status_chips()
             schedule_room_filter_reload(delay_ms=0)
 
         def get_selected_room() -> object | None:
@@ -2810,6 +2816,7 @@ class ScheduleMainWindow:
             room_status_archived_var.set(True)
             room_status_booked_var.set(True)
             room_filter_sync_state["busy"] = False
+            refresh_status_chips()
             load_rooms()
 
         room_action_buttons: list[object] = []
@@ -2819,7 +2826,8 @@ class ScheduleMainWindow:
             text="+ Нова аудиторія",
             command=lambda: open_room_modal(room=None),
             primary=True,
-            width=150,
+            width=138,
+            height=38,
         )
         room_action_buttons.append(button_new_room)
         button_bulk_create = self._motion_button(
@@ -2827,7 +2835,8 @@ class ScheduleMainWindow:
             text="+ Масове додавання",
             command=open_bulk_create_rooms_modal,
             primary=False,
-            width=170,
+            width=152,
+            height=38,
         )
         room_action_buttons.append(button_bulk_create)
         button_edit_room = self._motion_button(
@@ -2839,7 +2848,8 @@ class ScheduleMainWindow:
                 parent=self.root,
             ),
             primary=False,
-            width=96,
+            width=112,
+            height=38,
         )
         room_action_buttons.append(button_edit_room)
         archive_toggle_button = self._motion_button(
@@ -2847,7 +2857,8 @@ class ScheduleMainWindow:
             text="Архівувати",
             command=toggle_archive_selected_room,
             primary=False,
-            width=120,
+            width=124,
+            height=38,
         )
         room_action_buttons.append(archive_toggle_button)
         button_book_room = self._motion_button(
@@ -2855,7 +2866,8 @@ class ScheduleMainWindow:
             text="Забронювати",
             command=lambda: open_book_room_modal(room=None),
             primary=False,
-            width=120,
+            width=124,
+            height=38,
         )
         room_action_buttons.append(button_book_room)
         button_delete_room = self._motion_button(
@@ -2863,7 +2875,8 @@ class ScheduleMainWindow:
             text="Видалити",
             command=delete_selected_room,
             primary=False,
-            width=100,
+            width=108,
+            height=38,
             fill="#e11d48",
             hover_fill="#be123c",
             pressed_fill="#9f1239",
@@ -2873,15 +2886,15 @@ class ScheduleMainWindow:
 
         def relayout_room_actions(_event=None) -> None:
             width = max(1, detail_actions.winfo_width())
-            if width >= 1250:
+            if width >= 860:
                 columns = 6
-            elif width >= 1050:
+            elif width >= 740:
                 columns = 5
-            elif width >= 820:
+            elif width >= 610:
                 columns = 4
-            elif width >= 620:
+            elif width >= 470:
                 columns = 3
-            elif width >= 420:
+            elif width >= 340:
                 columns = 2
             else:
                 columns = 1
@@ -2938,6 +2951,7 @@ class ScheduleMainWindow:
             height=34,
         )
         on_filter_panel_resize()
+        refresh_status_chips()
 
         room_search_var.trace_add("write", lambda *_args: schedule_room_filter_reload())
         room_min_capacity_var.trace_add("write", lambda *_args: schedule_room_filter_reload())
