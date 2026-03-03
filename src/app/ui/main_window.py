@@ -2,24 +2,31 @@ from __future__ import annotations
 
 from datetime import date, timedelta
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 from uuid import uuid4
 
+from PIL import Image, ImageDraw, ImageTk, UnidentifiedImageError
 from sqlalchemy.exc import IntegrityError
 
 from app.config.database import session_scope
 from app.controllers.auth_controller import AuthController
+from app.controllers.building_controller import BuildingController
 from app.controllers.calendar_controller import CalendarController
 from app.controllers.requirement_controller import RequirementController
 from app.controllers.resource_controller import ResourceController
+from app.controllers.room_controller import RoomController
 from app.controllers.schedule_validation_controller import ScheduleValidationController
 from app.controllers.schedule_view_controller import ScheduleViewController
 from app.controllers.scheduler_controller import SchedulerController
-from app.domain.enums import MarkKind, ResourceType, UserRole
+from app.domain.enums import MarkKind, ResourceType, RoomType, UserRole
 from app.domain.models import User
 from app.repositories.calendar_repository import CalendarRepository
+from app.services.avatar_storage import AvatarStorageService
 from app.services.schedule_visualization import WEEKDAY_LABELS
+from app.ui.avatar_template import draw_default_company_avatar
 from app.ui.fx_widgets import HoverCircleIconButton, RoundedMotionButton, RoundedMotionCard
+from app.ui.profile_data import DEFAULT_LANGUAGE_CODE, DEFAULT_TIMEZONE, LANGUAGE_OPTIONS, all_timezones
+from app.ui.templates import CompanyTemplatesTab
 from app.ui.theme import UiTheme
 
 
@@ -71,7 +78,7 @@ class ScheduleMainWindow:
         art.create_text(
             34,
             82,
-            text="Smart schedule studio",
+            text="Розумне планування розкладу",
             fill="#d5e7f8",
             anchor="nw",
             font=("Segoe UI", 12),
@@ -96,7 +103,7 @@ class ScheduleMainWindow:
             page,
             bg_color=self.theme.APP_BG,
             card_color=self.theme.SURFACE,
-            shadow_color="#cfd8e3",
+            shadow_color=self.theme.SHADOW_SOFT,
             radius=22,
             padding=6,
             shadow_offset=5,
@@ -134,15 +141,15 @@ class ScheduleMainWindow:
         if primary:
             fill = fill or self.theme.ACCENT
             hover_fill = hover_fill or self.theme.ACCENT_HOVER
-            pressed_fill = pressed_fill or "#0d5f58"
+            pressed_fill = pressed_fill or self.theme.ACCENT_PRESSED
             text_color = text_color or self.theme.TEXT_LIGHT
-            shadow_color = shadow_color or "#cfdae6"
+            shadow_color = shadow_color or self.theme.SHADOW_SOFT
         else:
             fill = fill or self.theme.SURFACE_ALT
-            hover_fill = hover_fill or "#e8eff8"
-            pressed_fill = pressed_fill or "#dfe8f3"
+            hover_fill = hover_fill or self.theme.SECONDARY_HOVER
+            pressed_fill = pressed_fill or self.theme.SECONDARY_PRESSED
             text_color = text_color or self.theme.TEXT_PRIMARY
-            shadow_color = shadow_color or "#d8e0eb"
+            shadow_color = shadow_color or self.theme.SHADOW_SOFT
 
         return RoundedMotionButton(
             parent,
@@ -185,6 +192,25 @@ class ScheduleMainWindow:
             if profile.theme:
                 theme_name = profile.theme
         self._apply_theme_variant(theme_name)
+
+    def _build_rounded_avatar_photo(self, image_path: str, size: int) -> ImageTk.PhotoImage | None:
+        try:
+            with Image.open(image_path) as image:
+                rgb = image.convert("RGB")
+                min_side = min(rgb.width, rgb.height)
+                left = (rgb.width - min_side) // 2
+                top = (rgb.height - min_side) // 2
+                square = rgb.crop((left, top, left + min_side, top + min_side))
+                resized = square.resize((size, size), Image.Resampling.LANCZOS)
+
+                mask = Image.new("L", (size, size), 0)
+                ImageDraw.Draw(mask).ellipse((0, 0, size - 1, size - 1), fill=255)
+
+                rounded = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+                rounded.paste(resized, (0, 0), mask)
+        except (FileNotFoundError, OSError, UnidentifiedImageError):
+            return None
+        return ImageTk.PhotoImage(rounded)
 
     def _create_default_template_period(
         self,
@@ -386,14 +412,14 @@ class ScheduleMainWindow:
             relief=tk.FLAT,
         )
         hero.pack(fill=tk.X, pady=(0, 12))
-        hero.create_oval(-60, -120, 220, 120, fill="#d7f2ee", outline="")
-        hero.create_oval(200, -60, 520, 180, fill="#dfeaf8", outline="")
-        hero.create_oval(500, -100, 900, 180, fill="#e9e2fb", outline="")
+        hero.create_oval(-60, -120, 220, 120, fill=self.theme.HERO_BLOB_1, outline="")
+        hero.create_oval(200, -60, 520, 180, fill=self.theme.HERO_BLOB_2, outline="")
+        hero.create_oval(500, -100, 900, 180, fill=self.theme.HERO_BLOB_3, outline="")
         hero.create_text(
             22,
             18,
             text="Компанійний простір",
-            fill="#1f2937",
+            fill=self.theme.HERO_TITLE,
             anchor="nw",
             font=("Segoe UI", 16, "bold"),
         )
@@ -401,7 +427,7 @@ class ScheduleMainWindow:
             22,
             48,
             text="Керуйте групами, підгрупами та розкладом в одному місці.",
-            fill="#57657a",
+            fill=self.theme.HERO_SUBTITLE,
             anchor="nw",
             font=("Segoe UI", 10),
         )
@@ -410,7 +436,7 @@ class ScheduleMainWindow:
             content,
             bg_color=self.theme.APP_BG,
             card_color=self.theme.SURFACE,
-            shadow_color="#cfd8e3",
+            shadow_color=self.theme.SHADOW_SOFT,
             radius=18,
             padding=4,
             shadow_offset=5,
@@ -428,7 +454,7 @@ class ScheduleMainWindow:
         ttk.Label(sidebar, text=company_name, style="SidebarMeta.TLabel").pack(anchor="w", pady=(0, 16))
 
         views: dict[str, ttk.Frame] = {}
-        for key in ("schedule", "groups", "settings"):
+        for key in ("schedule", "groups", "rooms", "settings"):
             frame = ttk.Frame(views_container, style="Card.TFrame", padding=18)
             views[key] = frame
 
@@ -445,11 +471,11 @@ class ScheduleMainWindow:
             width=224,
             height=44,
             canvas_bg=self.theme.SIDEBAR_BG,
-            fill="#1f4563",
-            hover_fill="#295676",
-            pressed_fill="#173b56",
-            text_color="#edf5ff",
-            shadow_color="#11263a",
+            fill=self.theme.SIDEBAR_BUTTON_FILL,
+            hover_fill=self.theme.SIDEBAR_BUTTON_HOVER,
+            pressed_fill=self.theme.SIDEBAR_BUTTON_PRESSED,
+            text_color=self.theme.SIDEBAR_BUTTON_TEXT,
+            shadow_color=self.theme.SIDEBAR_BUTTON_SHADOW,
         ).pack(pady=(0, 6), anchor="w")
         self._motion_button(
             sidebar,
@@ -459,11 +485,25 @@ class ScheduleMainWindow:
             width=224,
             height=44,
             canvas_bg=self.theme.SIDEBAR_BG,
-            fill="#1f4563",
-            hover_fill="#295676",
-            pressed_fill="#173b56",
-            text_color="#edf5ff",
-            shadow_color="#11263a",
+            fill=self.theme.SIDEBAR_BUTTON_FILL,
+            hover_fill=self.theme.SIDEBAR_BUTTON_HOVER,
+            pressed_fill=self.theme.SIDEBAR_BUTTON_PRESSED,
+            text_color=self.theme.SIDEBAR_BUTTON_TEXT,
+            shadow_color=self.theme.SIDEBAR_BUTTON_SHADOW,
+        ).pack(pady=(0, 6), anchor="w")
+        self._motion_button(
+            sidebar,
+            text="Приміщення",
+            command=lambda: open_view("rooms"),
+            primary=True,
+            width=224,
+            height=44,
+            canvas_bg=self.theme.SIDEBAR_BG,
+            fill=self.theme.SIDEBAR_BUTTON_FILL,
+            hover_fill=self.theme.SIDEBAR_BUTTON_HOVER,
+            pressed_fill=self.theme.SIDEBAR_BUTTON_PRESSED,
+            text_color=self.theme.SIDEBAR_BUTTON_TEXT,
+            shadow_color=self.theme.SIDEBAR_BUTTON_SHADOW,
         ).pack(pady=(0, 6), anchor="w")
         self._motion_button(
             sidebar,
@@ -473,11 +513,11 @@ class ScheduleMainWindow:
             width=224,
             height=44,
             canvas_bg=self.theme.SIDEBAR_BG,
-            fill="#1f4563",
-            hover_fill="#295676",
-            pressed_fill="#173b56",
-            text_color="#edf5ff",
-            shadow_color="#11263a",
+            fill=self.theme.SIDEBAR_BUTTON_FILL,
+            hover_fill=self.theme.SIDEBAR_BUTTON_HOVER,
+            pressed_fill=self.theme.SIDEBAR_BUTTON_PRESSED,
+            text_color=self.theme.SIDEBAR_BUTTON_TEXT,
+            shadow_color=self.theme.SIDEBAR_BUTTON_SHADOW,
         ).pack(pady=(0, 6), anchor="w")
 
         ttk.Frame(sidebar, style="Sidebar.TFrame").pack(fill=tk.BOTH, expand=True)
@@ -489,15 +529,16 @@ class ScheduleMainWindow:
             width=224,
             height=44,
             canvas_bg=self.theme.SIDEBAR_BG,
-            fill="#be123c",
-            hover_fill="#9f1239",
-            pressed_fill="#881337",
-            text_color="#fff1f2",
-            shadow_color="#5a0f23",
+            fill=self.theme.DANGER,
+            hover_fill=self.theme.DANGER_HOVER,
+            pressed_fill=self.theme.DANGER_HOVER,
+            text_color=self.theme.TEXT_LIGHT,
+            shadow_color=self.theme.SIDEBAR_BUTTON_SHADOW,
         ).pack(anchor="w")
 
         self._build_company_schedule_view(views["schedule"], user.company_id)
         self._build_company_groups_view(views["groups"], user.company_id)
+        self._build_company_rooms_view(views["rooms"], user.company_id)
         self._build_company_settings_view(views["settings"], user.company_id, user.username)
 
         selected_view = initial_view if initial_view in views else "schedule"
@@ -862,9 +903,9 @@ class ScheduleMainWindow:
             diameter=44,
             canvas_bg=self.theme.SURFACE,
             icon_color=self.theme.TEXT_PRIMARY,
-            hover_bg="#e8eff8",
-            hover_icon_color="#163554",
-            pressed_bg="#dfe8f4",
+            hover_bg=self.theme.SECONDARY_HOVER,
+            hover_icon_color=self.theme.TEXT_PRIMARY,
+            pressed_bg=self.theme.SECONDARY_PRESSED,
         )
         back_button.pack(side=tk.LEFT)
         ttk.Label(detail_nav, textvariable=detail_title_var, style="CardTitle.TLabel").pack(side=tk.LEFT, padx=(10, 0))
@@ -1212,8 +1253,8 @@ class ScheduleMainWindow:
                 card = RoundedMotionCard(
                     cards_container,
                     bg_color=self.theme.SURFACE,
-                    card_color="#f7fbff",
-                    shadow_color="#d4dee9",
+                    card_color=self.theme.SURFACE_ALT,
+                    shadow_color=self.theme.SHADOW_SOFT,
                     radius=16,
                     padding=4,
                     shadow_offset=4,
@@ -1223,9 +1264,9 @@ class ScheduleMainWindow:
                 )
                 card.grid(row=row, column=column, padx=8, pady=8, sticky="nsew")
                 card.content.grid_columnconfigure(0, weight=1)
-                title = ttk.Label(card.content, text=group_name, style="CardTitle.TLabel")
+                title = ttk.Label(card.content, text=group_name, style="CardAltTitle.TLabel")
                 title.grid(row=0, column=0, sticky="w", pady=(4, 2))
-                count = ttk.Label(card.content, text=f"Учасників: {user_count}", style="CardSubtle.TLabel")
+                count = ttk.Label(card.content, text=f"Учасників: {user_count}", style="CardAltSubtle.TLabel")
                 count.grid(row=1, column=0, sticky="w")
     
                 for widget in (card, card.canvas, card.content, title, count):
@@ -1260,8 +1301,8 @@ class ScheduleMainWindow:
                 card = RoundedMotionCard(
                     participants_cards_frame,
                     bg_color=self.theme.SURFACE,
-                    card_color="#f7fbff",
-                    shadow_color="#d8e2ee",
+                    card_color=self.theme.SURFACE_ALT,
+                    shadow_color=self.theme.SHADOW_SOFT,
                     radius=14,
                     padding=3,
                     shadow_offset=3,
@@ -1270,10 +1311,10 @@ class ScheduleMainWindow:
                 )
                 card.pack(fill=tk.X, pady=(0, 8))
                 card.content.grid_columnconfigure(0, weight=1)
-                username_label = ttk.Label(card.content, text=user.username, style="CardTitle.TLabel")
+                username_label = ttk.Label(card.content, text=user.username, style="CardAltTitle.TLabel")
                 username_label.grid(row=0, column=0, sticky="w")
-                badge_color = "#dff4ef" if user.subgroup_id is not None else "#e9eef5"
-                badge_fg = "#0f766e" if user.subgroup_id is not None else "#516174"
+                badge_color = self.theme.SECONDARY_HOVER if user.subgroup_id is not None else self.theme.SURFACE
+                badge_fg = self.theme.ACCENT if user.subgroup_id is not None else self.theme.TEXT_MUTED
                 badge_label = tk.Label(
                     card.content,
                     text=subgroup_label,
@@ -1531,7 +1572,7 @@ class ScheduleMainWindow:
             ttk.Label(root, text="Нова група", style="CardTitle.TLabel").pack(anchor="w")
             ttk.Label(
                 root,
-                text="Вкажи назву, додай учасників за логіном, створи підгрупи і розподіли drag & drop.",
+                text="Вкажи назву, додай учасників за логіном, створи підгрупи і розподіли перетягуванням.",
                 style="CardSubtle.TLabel",
             ).pack(anchor="w", pady=(2, 10))
     
@@ -1764,19 +1805,953 @@ class ScheduleMainWindow:
     
         back_button.command = open_main_view
         open_main_view()
-    
-    def _build_company_settings_view(self, parent: ttk.Frame, company_id: int, username: str) -> None:
-        ttk.Label(parent, text="Налаштування", style="CardTitle.TLabel").pack(anchor="w", pady=(0, 4))
+
+    def _build_company_rooms_view(self, parent: ttk.Frame, company_id: int) -> None:
+        buildings_state: dict[str, list[object]] = {"items": []}
+        columns_state = {"value": 4}
+        selected_building = {"item": None}
+        rooms_state: dict[str, list[object]] = {"items": []}
+        room_type_options: list[tuple[str, RoomType | None]] = [
+            ("Усі", None),
+            ("Лекційна аудиторія", RoomType.LECTURE_HALL),
+            ("Клас", RoomType.CLASSROOM),
+            ("Лабораторія", RoomType.LAB),
+            ("Комп'ютерна лабораторія", RoomType.COMPUTER_LAB),
+            ("Викладацька", RoomType.TEACHERS_OFFICE),
+            ("Технічне", RoomType.TECHNICAL),
+            ("Інше", RoomType.OTHER),
+        ]
+        room_type_by_label = {label: room_type for label, room_type in room_type_options if room_type is not None}
+        room_type_label_by_enum = {room_type: label for label, room_type in room_type_options if room_type is not None}
+        room_type_choices = [label for label, room_type in room_type_options if room_type is not None]
+
+        list_view = ttk.Frame(parent, style="Card.TFrame")
+        list_view.pack(fill=tk.BOTH, expand=True)
+
+        detail_view = ttk.Frame(parent, style="Card.TFrame")
+        detail_view.pack(fill=tk.BOTH, expand=True)
+        detail_view.pack_forget()
+
+        header = ttk.Frame(list_view, style="Card.TFrame")
+        header.pack(fill=tk.X, pady=(0, 10))
+        titles = ttk.Frame(header, style="Card.TFrame")
+        titles.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ttk.Label(titles, text="Приміщення", style="CardTitle.TLabel").pack(anchor="w")
         ttk.Label(
-            parent,
-            text="Керуй профілем компанії, шаблонами та системними параметрами.",
+            titles,
+            text="Керуйте корпусами й аудиторіями. Натисніть картку корпусу, щоб відкрити деталі.",
             style="CardSubtle.TLabel",
-        ).pack(anchor="w", pady=(0, 10))
+        ).pack(anchor="w", pady=(2, 0))
 
-        tabs_bar = ttk.Frame(parent, style="Card.TFrame")
-        tabs_bar.pack(fill=tk.X, pady=(0, 10))
+        cards_shell = ttk.Frame(list_view, style="Card.TFrame")
+        cards_shell.pack(fill=tk.BOTH, expand=True)
+        cards_canvas = tk.Canvas(
+            cards_shell,
+            bg=self.theme.SURFACE,
+            bd=0,
+            highlightthickness=0,
+            relief=tk.FLAT,
+        )
+        cards_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        cards_scroll = ttk.Scrollbar(
+            cards_shell,
+            orient=tk.VERTICAL,
+            command=cards_canvas.yview,
+            style="App.Vertical.TScrollbar",
+        )
+        cards_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        cards_canvas.configure(yscrollcommand=cards_scroll.set)
 
-        content = ttk.Frame(parent, style="Card.TFrame")
+        cards_grid = ttk.Frame(cards_canvas, style="Card.TFrame")
+        cards_window = cards_canvas.create_window((0, 0), anchor="nw", window=cards_grid)
+
+        detail_header = ttk.Frame(detail_view, style="Card.TFrame")
+        detail_header.pack(fill=tk.X, pady=(0, 10))
+        back_button = HoverCircleIconButton(
+            detail_header,
+            text="←",
+            command=lambda: open_list_view(),
+            diameter=42,
+            canvas_bg=self.theme.SURFACE,
+            icon_color=self.theme.TEXT_PRIMARY,
+            hover_bg=self.theme.SECONDARY_HOVER,
+            hover_icon_color=self.theme.TEXT_PRIMARY,
+            pressed_bg=self.theme.SECONDARY_PRESSED,
+        )
+        back_button.pack(side=tk.LEFT)
+
+        detail_title_var = tk.StringVar(value="")
+        detail_address_var = tk.StringVar(value="")
+        detail_titles = ttk.Frame(detail_header, style="Card.TFrame")
+        detail_titles.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 0))
+        ttk.Label(detail_titles, textvariable=detail_title_var, style="CardTitle.TLabel").pack(anchor="w")
+        ttk.Label(detail_titles, textvariable=detail_address_var, style="CardSubtle.TLabel").pack(anchor="w", pady=(2, 0))
+
+        detail_actions = ttk.Frame(detail_header, style="Card.TFrame")
+        detail_actions.pack(side=tk.RIGHT)
+
+        room_search_var = tk.StringVar(value="")
+        room_type_filter_var = tk.StringVar(value="Усі")
+        room_min_capacity_var = tk.StringVar(value="")
+        room_include_archived_var = tk.BooleanVar(value=False)
+        rooms_count_var = tk.StringVar(value="Аудиторій: 0")
+
+        detail_body = ttk.Frame(detail_view, style="Card.TFrame")
+        detail_body.pack(fill=tk.BOTH, expand=True)
+        detail_card = RoundedMotionCard(
+            detail_body,
+            bg_color=self.theme.SURFACE,
+            card_color=self.theme.SURFACE_ALT,
+            shadow_color=self.theme.SHADOW_SOFT,
+            radius=16,
+            padding=4,
+            shadow_offset=4,
+            motion_enabled=True,
+            height=120,
+        )
+        detail_card.pack(fill=tk.X, pady=(0, 8))
+        detail_card.content.grid_columnconfigure(0, weight=1)
+        ttk.Label(detail_card.content, text="Аудиторії", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(2, 2))
+        ttk.Label(
+            detail_card.content,
+            text="Керуйте аудиторіями та фільтруйте список приміщень.",
+            style="CardSubtle.TLabel",
+        ).grid(row=1, column=0, sticky="w")
+        ttk.Label(detail_card.content, textvariable=rooms_count_var, style="CardSubtle.TLabel").grid(
+            row=2,
+            column=0,
+            sticky="w",
+            pady=(8, 0),
+        )
+
+        filters_row = ttk.Frame(detail_body, style="Card.TFrame")
+        filters_row.pack(fill=tk.X, pady=(2, 8))
+        ttk.Label(filters_row, text="Пошук", style="Card.TLabel").pack(side=tk.LEFT)
+        room_search_entry = ttk.Entry(filters_row, textvariable=room_search_var, width=26)
+        room_search_entry.pack(side=tk.LEFT, padx=(6, 10))
+        ttk.Label(filters_row, text="Тип", style="Card.TLabel").pack(side=tk.LEFT)
+        room_type_box = ttk.Combobox(
+            filters_row,
+            textvariable=room_type_filter_var,
+            values=[label for label, _ in room_type_options],
+            state="readonly",
+            width=16,
+        )
+        room_type_box.pack(side=tk.LEFT, padx=(6, 10))
+        ttk.Label(filters_row, text="Мін. місткість", style="Card.TLabel").pack(side=tk.LEFT)
+        room_capacity_entry = ttk.Entry(filters_row, textvariable=room_min_capacity_var, width=8)
+        room_capacity_entry.pack(side=tk.LEFT, padx=(6, 10))
+        ttk.Checkbutton(
+            filters_row,
+            text="Показати архівні",
+            variable=room_include_archived_var,
+        ).pack(side=tk.LEFT)
+
+        rooms_table_wrap = ttk.Frame(detail_body, style="Card.TFrame")
+        rooms_table_wrap.pack(fill=tk.BOTH, expand=True)
+        rooms_table = ttk.Treeview(
+            rooms_table_wrap,
+            columns=("name", "type", "capacity", "floor", "status"),
+            show="headings",
+            height=12,
+        )
+        rooms_table.heading("name", text="Назва")
+        rooms_table.heading("type", text="Тип")
+        rooms_table.heading("capacity", text="Місткість")
+        rooms_table.heading("floor", text="Поверх")
+        rooms_table.heading("status", text="Статус")
+        rooms_table.column("name", width=280, anchor="w")
+        rooms_table.column("type", width=150, anchor="center")
+        rooms_table.column("capacity", width=110, anchor="center")
+        rooms_table.column("floor", width=110, anchor="center")
+        rooms_table.column("status", width=130, anchor="center")
+        rooms_table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        rooms_table_scroll = ttk.Scrollbar(
+            rooms_table_wrap,
+            orient=tk.VERTICAL,
+            command=rooms_table.yview,
+            style="App.Vertical.TScrollbar",
+        )
+        rooms_table_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        rooms_table.configure(yscrollcommand=rooms_table_scroll.set)
+
+        def open_list_view() -> None:
+            detail_view.pack_forget()
+            list_view.pack(fill=tk.BOTH, expand=True)
+
+        def open_building_view(building) -> None:
+            selected_building["item"] = building
+            detail_title_var.set(str(building.name))
+            detail_address_var.set(str(building.address or "Адресу не вказано"))
+            room_search_var.set("")
+            room_type_filter_var.set("Усі")
+            room_min_capacity_var.set("")
+            room_include_archived_var.set(False)
+            load_rooms()
+            list_view.pack_forget()
+            detail_view.pack(fill=tk.BOTH, expand=True)
+
+        def parse_optional_int(raw: str, *, field_name: str, allow_negative: bool = False) -> int | None:
+            text = raw.strip()
+            if not text:
+                return None
+            try:
+                value = int(text)
+            except ValueError as exc:
+                raise ValueError(f"Поле '{field_name}' має бути цілим числом.") from exc
+            if not allow_negative and value < 0:
+                raise ValueError(f"Поле '{field_name}' не може бути від'ємним.")
+            return value
+
+        def get_selected_room() -> object | None:
+            selected = rooms_table.selection()
+            if not selected:
+                return None
+            item_id = selected[0]
+            for room in rooms_state["items"]:
+                if str(room.id) == str(item_id):
+                    return room
+            return None
+
+        def render_rooms() -> None:
+            for item in rooms_table.get_children():
+                rooms_table.delete(item)
+
+            items = rooms_state["items"]
+            rooms_count_var.set(f"Аудиторій: {len(items)}")
+            for room in items:
+                rooms_table.insert(
+                    "",
+                    tk.END,
+                    iid=str(room.id),
+                    values=(
+                        str(room.name),
+                        room_type_label_by_enum.get(room.room_type, "Інше"),
+                        "" if room.capacity is None else str(room.capacity),
+                        "" if room.floor is None else str(room.floor),
+                        "Архівна" if bool(room.is_archived) else "Активна",
+                    ),
+                )
+
+        def load_rooms() -> None:
+            building = selected_building["item"]
+            if building is None:
+                rooms_state["items"] = []
+                render_rooms()
+                return
+
+            selected_type_label = room_type_filter_var.get().strip() or "Усі"
+            room_type_filter = None
+            if selected_type_label != "Усі":
+                room_type_filter = room_type_by_label.get(selected_type_label)
+                if room_type_filter is None:
+                    messagebox.showerror("Некоректний фільтр", "Невідомий тип аудиторії.", parent=self.root)
+                    return
+
+            try:
+                min_capacity = parse_optional_int(
+                    room_min_capacity_var.get(),
+                    field_name="Мін. місткість",
+                    allow_negative=False,
+                )
+            except ValueError as exc:
+                messagebox.showerror("Некоректний фільтр", str(exc), parent=self.root)
+                return
+
+            with session_scope() as session:
+                controller = RoomController(session=session)
+                rooms = controller.list_rooms(
+                    building_id=building.id,
+                    include_archived=room_include_archived_var.get(),
+                    search=room_search_var.get().strip() or None,
+                    room_type=room_type_filter,
+                    min_capacity=min_capacity,
+                )
+            rooms_state["items"] = rooms
+            render_rooms()
+
+        def open_room_modal(room=None) -> None:
+            building = selected_building["item"]
+            if building is None:
+                messagebox.showerror("Аудиторія", "Спочатку виберіть корпус.", parent=self.root)
+                return
+
+            is_edit = room is not None
+            modal = tk.Toplevel(self.root)
+            modal.title("Редагування аудиторії" if is_edit else "Створення аудиторії")
+            modal.transient(self.root)
+            modal.resizable(False, False)
+            modal.grab_set()
+
+            shell = ttk.Frame(modal, style="Card.TFrame", padding=14)
+            shell.pack(fill=tk.BOTH, expand=True)
+            ttk.Label(shell, text="Редагування аудиторії" if is_edit else "Створення аудиторії", style="CardTitle.TLabel").pack(anchor="w")
+            ttk.Label(shell, text=f"Корпус: {building.name}", style="CardSubtle.TLabel").pack(anchor="w", pady=(2, 10))
+
+            name_var = tk.StringVar(value=str(room.name) if is_edit else "")
+            type_var = tk.StringVar(value=room_type_label_by_enum.get(room.room_type, "Клас") if is_edit else "Клас")
+            capacity_var = tk.StringVar(value="" if (not is_edit or room.capacity is None) else str(room.capacity))
+            floor_var = tk.StringVar(value="" if (not is_edit or room.floor is None) else str(room.floor))
+
+            ttk.Label(shell, text="Назва", style="Card.TLabel").pack(anchor="w")
+            name_entry = ttk.Entry(shell, textvariable=name_var, width=38)
+            name_entry.pack(fill=tk.X, pady=(6, 10))
+
+            ttk.Label(shell, text="Тип", style="Card.TLabel").pack(anchor="w")
+            ttk.Combobox(
+                shell,
+                textvariable=type_var,
+                values=room_type_choices,
+                state="readonly",
+                width=24,
+            ).pack(fill=tk.X, pady=(6, 10))
+
+            row = ttk.Frame(shell, style="Card.TFrame")
+            row.pack(fill=tk.X, pady=(0, 12))
+            ttk.Label(row, text="Місткість", style="Card.TLabel").pack(side=tk.LEFT)
+            ttk.Entry(row, textvariable=capacity_var, width=10).pack(side=tk.LEFT, padx=(6, 14))
+            ttk.Label(row, text="Поверх", style="Card.TLabel").pack(side=tk.LEFT)
+            ttk.Entry(row, textvariable=floor_var, width=10).pack(side=tk.LEFT, padx=(6, 0))
+
+            actions = ttk.Frame(shell, style="Card.TFrame")
+            actions.pack(fill=tk.X)
+
+            def on_submit() -> None:
+                clean_name = name_var.get().strip()
+                if not clean_name:
+                    messagebox.showerror("Некоректні дані", "Назва аудиторії обов'язкова.", parent=modal)
+                    return
+
+                selected_type = room_type_by_label.get(type_var.get().strip())
+                if selected_type is None:
+                    messagebox.showerror("Некоректні дані", "Оберіть тип аудиторії зі списку.", parent=modal)
+                    return
+
+                try:
+                    capacity = parse_optional_int(capacity_var.get(), field_name="Місткість", allow_negative=False)
+                    floor = parse_optional_int(floor_var.get(), field_name="Поверх", allow_negative=True)
+                except ValueError as exc:
+                    messagebox.showerror("Некоректні дані", str(exc), parent=modal)
+                    return
+
+                try:
+                    with session_scope() as session:
+                        controller = RoomController(session=session)
+                        if is_edit:
+                            controller.update_room(
+                                room.id,
+                                name=clean_name,
+                                room_type=selected_type,
+                                capacity=capacity,
+                                floor=floor,
+                                is_archived=False,
+                            )
+                        else:
+                            controller.create_room(
+                                building_id=building.id,
+                                name=clean_name,
+                                room_type=selected_type,
+                                capacity=capacity,
+                                floor=floor,
+                                company_id=company_id,
+                            )
+                except IntegrityError:
+                    messagebox.showerror(
+                        "Не вдалося зберегти аудиторію",
+                        "Аудиторія з такою назвою вже існує в цьому корпусі.",
+                        parent=modal,
+                    )
+                    return
+                except Exception as exc:
+                    messagebox.showerror("Не вдалося зберегти аудиторію", str(exc), parent=modal)
+                    return
+
+                modal.destroy()
+                load_rooms()
+
+            self._motion_button(actions, text="Скасувати", command=modal.destroy, primary=False, width=130).pack(side=tk.RIGHT)
+            self._motion_button(actions, text="Зберегти", command=on_submit, primary=True, width=130).pack(
+                side=tk.RIGHT,
+                padx=(0, 8),
+            )
+
+            name_entry.focus_set()
+            modal.update_idletasks()
+            modal.geometry(f"+{self.root.winfo_rootx() + 220}+{self.root.winfo_rooty() + 120}")
+
+        def archive_selected_room() -> None:
+            room = get_selected_room()
+            if room is None:
+                messagebox.showerror("Архівація аудиторії", "Оберіть аудиторію у списку.", parent=self.root)
+                return
+            if not messagebox.askyesno("Архівація аудиторії", f"Архівувати аудиторію '{room.name}'?", parent=self.root):
+                return
+            with session_scope() as session:
+                controller = RoomController(session=session)
+                controller.archive_room(room.id)
+            load_rooms()
+
+        def delete_selected_room() -> None:
+            room = get_selected_room()
+            if room is None:
+                messagebox.showerror("Видалення аудиторії", "Оберіть аудиторію у списку.", parent=self.root)
+                return
+            if not messagebox.askyesno("Видалення аудиторії", f"Видалити аудиторію '{room.name}' назавжди?", parent=self.root):
+                return
+            try:
+                with session_scope() as session:
+                    controller = RoomController(session=session)
+                    was_deleted = controller.delete_room(room.id)
+                if not was_deleted:
+                    messagebox.showerror("Видалення аудиторії", "Аудиторію не знайдено.", parent=self.root)
+                    return
+            except IntegrityError:
+                messagebox.showerror(
+                    "Видалення аудиторії",
+                    "Аудиторію використано в пов'язаних даних і її не можна видалити.",
+                    parent=self.root,
+                )
+                return
+            except Exception as exc:
+                messagebox.showerror("Видалення аудиторії", str(exc), parent=self.root)
+                return
+            load_rooms()
+
+        def open_bulk_create_rooms_modal() -> None:
+            building = selected_building["item"]
+            if building is None:
+                messagebox.showerror("Масове створення", "Спочатку виберіть корпус.", parent=self.root)
+                return
+
+            modal = tk.Toplevel(self.root)
+            modal.title("Масове створення аудиторій")
+            modal.transient(self.root)
+            modal.resizable(False, False)
+            modal.grab_set()
+
+            shell = ttk.Frame(modal, style="Card.TFrame", padding=14)
+            shell.pack(fill=tk.BOTH, expand=True)
+            ttk.Label(shell, text="Масове створення аудиторій", style="CardTitle.TLabel").pack(anchor="w")
+            ttk.Label(shell, text=f"Корпус: {building.name}", style="CardSubtle.TLabel").pack(anchor="w", pady=(2, 10))
+
+            mode_var = tk.StringVar(value="range")
+            ttk.Radiobutton(shell, text="Діапазон", value="range", variable=mode_var).pack(side=tk.LEFT, padx=(0, 10))
+            ttk.Radiobutton(shell, text="Список", value="list", variable=mode_var).pack(side=tk.LEFT)
+
+            prefix_var = tk.StringVar(value=f"{building.name}-")
+            start_var = tk.StringVar(value="101")
+            end_var = tk.StringVar(value="120")
+            step_var = tk.StringVar(value="1")
+            exclude_var = tk.StringVar(value="")
+            list_text = tk.Text(
+                shell,
+                height=6,
+                width=48,
+                bg=self.theme.SURFACE_ALT,
+                fg=self.theme.TEXT_PRIMARY,
+                insertbackground=self.theme.TEXT_PRIMARY,
+                relief=tk.FLAT,
+                highlightthickness=1,
+                highlightbackground=self.theme.BORDER,
+                highlightcolor=self.theme.ACCENT,
+            )
+
+            grid = ttk.Frame(shell, style="Card.TFrame")
+            grid.pack(fill=tk.X, pady=(8, 4))
+            ttk.Label(grid, text="Префікс", style="Card.TLabel").grid(row=0, column=0, sticky="w")
+            ttk.Entry(grid, textvariable=prefix_var, width=14).grid(row=1, column=0, sticky="w", pady=(4, 8))
+            ttk.Label(grid, text="Початок", style="Card.TLabel").grid(row=0, column=1, sticky="w", padx=(10, 0))
+            ttk.Entry(grid, textvariable=start_var, width=8).grid(row=1, column=1, sticky="w", padx=(10, 0), pady=(4, 8))
+            ttk.Label(grid, text="Кінець", style="Card.TLabel").grid(row=0, column=2, sticky="w", padx=(10, 0))
+            ttk.Entry(grid, textvariable=end_var, width=8).grid(row=1, column=2, sticky="w", padx=(10, 0), pady=(4, 8))
+            ttk.Label(grid, text="Крок", style="Card.TLabel").grid(row=0, column=3, sticky="w", padx=(10, 0))
+            ttk.Entry(grid, textvariable=step_var, width=8).grid(row=1, column=3, sticky="w", padx=(10, 0), pady=(4, 8))
+            ttk.Label(grid, text="Виключити (через кому)", style="CardSubtle.TLabel").grid(
+                row=2,
+                column=0,
+                columnspan=4,
+                sticky="w",
+            )
+            ttk.Entry(grid, textvariable=exclude_var, width=40).grid(row=3, column=0, columnspan=4, sticky="ew", pady=(4, 0))
+
+            ttk.Label(shell, text="Список назв: одна назва аудиторії на рядок", style="CardSubtle.TLabel").pack(anchor="w", pady=(4, 0))
+            list_text.pack(fill=tk.BOTH, expand=True, pady=(4, 10))
+
+            settings_row = ttk.Frame(shell, style="Card.TFrame")
+            settings_row.pack(fill=tk.X, pady=(0, 10))
+            type_var = tk.StringVar(value="Клас")
+            capacity_var = tk.StringVar(value="")
+            floor_var = tk.StringVar(value="")
+            policy_var = tk.StringVar(value="Пропустити дублікати")
+
+            ttk.Label(settings_row, text="Тип", style="Card.TLabel").pack(side=tk.LEFT)
+            ttk.Combobox(settings_row, textvariable=type_var, values=room_type_choices, state="readonly", width=16).pack(
+                side=tk.LEFT,
+                padx=(6, 10),
+            )
+            ttk.Label(settings_row, text="Місткість", style="Card.TLabel").pack(side=tk.LEFT)
+            ttk.Entry(settings_row, textvariable=capacity_var, width=8).pack(side=tk.LEFT, padx=(6, 10))
+            ttk.Label(settings_row, text="Поверх", style="Card.TLabel").pack(side=tk.LEFT)
+            ttk.Entry(settings_row, textvariable=floor_var, width=8).pack(side=tk.LEFT, padx=(6, 10))
+            ttk.Label(settings_row, text="Дублікати", style="Card.TLabel").pack(side=tk.LEFT)
+            ttk.Combobox(
+                settings_row,
+                textvariable=policy_var,
+                values=["Пропустити дублікати", "Зупинити при дублікаті", "Оновити наявні"],
+                state="readonly",
+                width=17,
+            ).pack(side=tk.LEFT, padx=(6, 0))
+
+            footer = ttk.Frame(shell, style="Card.TFrame")
+            footer.pack(fill=tk.X)
+
+            def on_submit_bulk() -> None:
+                selected_type = room_type_by_label.get(type_var.get().strip())
+                if selected_type is None:
+                    messagebox.showerror("Некоректні дані", "Оберіть тип аудиторії зі списку.", parent=modal)
+                    return
+
+                policy = {
+                    "Пропустити дублікати": "skip",
+                    "Зупинити при дублікаті": "fail",
+                    "Оновити наявні": "update",
+                }.get(policy_var.get().strip())
+                if policy is None:
+                    messagebox.showerror("Некоректні дані", "Оберіть коректну політику дублікатів.", parent=modal)
+                    return
+
+                try:
+                    capacity = parse_optional_int(capacity_var.get(), field_name="Місткість", allow_negative=False)
+                    floor = parse_optional_int(floor_var.get(), field_name="Поверх", allow_negative=True)
+                except ValueError as exc:
+                    messagebox.showerror("Некоректні дані", str(exc), parent=modal)
+                    return
+
+                if mode_var.get() == "list":
+                    names = [line.strip() for line in list_text.get("1.0", "end").splitlines() if line.strip()]
+                else:
+                    try:
+                        start = int(start_var.get().strip())
+                        end = int(end_var.get().strip())
+                        step = int(step_var.get().strip())
+                    except ValueError:
+                        messagebox.showerror("Некоректні дані", "Початок, кінець і крок мають бути цілими числами.", parent=modal)
+                        return
+                    if step <= 0 or end < start:
+                        messagebox.showerror("Некоректні дані", "Діапазон номерів некоректний.", parent=modal)
+                        return
+                    excluded = set()
+                    raw_excluded = exclude_var.get().strip()
+                    if raw_excluded:
+                        try:
+                            excluded = {
+                                int(token.strip())
+                                for token in raw_excluded.replace(";", ",").split(",")
+                                if token.strip()
+                            }
+                        except ValueError:
+                            messagebox.showerror("Некоректні дані", "Список виключень має містити лише числа.", parent=modal)
+                            return
+                    prefix = prefix_var.get().strip()
+                    names = [f"{prefix}{number}" for number in range(start, end + 1, step) if number not in excluded]
+
+                if not names:
+                    messagebox.showerror("Некоректні дані", "Немає назв аудиторій для створення.", parent=modal)
+                    return
+
+                try:
+                    with session_scope() as session:
+                        controller = RoomController(session=session)
+                        result = controller.bulk_create_rooms(
+                            building_id=building.id,
+                            names=names,
+                            room_type=selected_type,
+                            capacity=capacity,
+                            floor=floor,
+                            company_id=company_id,
+                            duplicate_policy=policy,
+                        )
+                except IntegrityError:
+                    messagebox.showerror("Не вдалося створити аудиторії", "Сталася помилка цілісності даних.", parent=modal)
+                    return
+                except Exception as exc:
+                    messagebox.showerror("Не вдалося створити аудиторії", str(exc), parent=modal)
+                    return
+
+                modal.destroy()
+                load_rooms()
+                messagebox.showinfo(
+                    "Масове створення",
+                    f"Створено: {result['created']}\nОновлено: {result['updated']}\nПропущено: {result['skipped']}",
+                    parent=self.root,
+                )
+
+            self._motion_button(footer, text="Скасувати", command=modal.destroy, primary=False, width=130).pack(side=tk.RIGHT)
+            self._motion_button(footer, text="Створити", command=on_submit_bulk, primary=True, width=130).pack(
+                side=tk.RIGHT,
+                padx=(0, 8),
+            )
+
+            modal.update_idletasks()
+            modal.geometry(f"+{self.root.winfo_rootx() + 210}+{self.root.winfo_rooty() + 90}")
+
+        def sync_cards_scroll(_event=None) -> None:
+            viewport_width = max(1, cards_canvas.winfo_width())
+            cards_canvas.itemconfigure(cards_window, width=viewport_width)
+            bbox = cards_canvas.bbox("all")
+            if bbox is not None:
+                cards_canvas.configure(scrollregion=bbox)
+
+        def compute_columns(width: int) -> int:
+            if width >= 1280:
+                return 4
+            if width >= 980:
+                return 3
+            if width >= 680:
+                return 2
+            return 1
+
+        def render_buildings() -> None:
+            for child in cards_grid.winfo_children():
+                child.destroy()
+
+            items = buildings_state["items"]
+            if not items:
+                empty = ttk.Label(
+                    cards_grid,
+                    text="Ще немає корпусів. Додайте перший корпус.",
+                    style="CardSubtle.TLabel",
+                )
+                empty.grid(row=0, column=0, sticky="w", padx=8, pady=8)
+                sync_cards_scroll()
+                return
+
+            columns = max(1, int(columns_state["value"]))
+            for col in range(columns):
+                cards_grid.grid_columnconfigure(col, weight=1, uniform="building-col")
+
+            for index, building in enumerate(items):
+                row = index // columns
+                col = index % columns
+                card = RoundedMotionCard(
+                    cards_grid,
+                    bg_color=self.theme.SURFACE,
+                    card_color=self.theme.SURFACE_ALT,
+                    shadow_color=self.theme.SHADOW_SOFT,
+                    radius=16,
+                    padding=4,
+                    shadow_offset=4,
+                    motion_enabled=True,
+                    height=150,
+                )
+                card.grid(row=row, column=col, sticky="nsew", padx=8, pady=8)
+                card.content.grid_columnconfigure(0, weight=1)
+
+                title_label = tk.Label(
+                    card.content,
+                    text=str(building.name),
+                    bg=self.theme.SURFACE_ALT,
+                    fg=self.theme.TEXT_PRIMARY,
+                    font=("Segoe UI", 12, "bold"),
+                    anchor="w",
+                    justify=tk.LEFT,
+                    wraplength=220,
+                )
+                title_label.grid(row=0, column=0, sticky="ew", pady=(2, 2))
+                address_label = tk.Label(
+                    card.content,
+                    text=str(building.address or "Адресу не вказано"),
+                    bg=self.theme.SURFACE_ALT,
+                    fg=self.theme.TEXT_MUTED,
+                    font=("Segoe UI", 10),
+                    anchor="w",
+                    justify=tk.LEFT,
+                    wraplength=220,
+                )
+                address_label.grid(row=1, column=0, sticky="ew", pady=(2, 0))
+                meta_label = tk.Label(
+                    card.content,
+                    text=f"ID корпусу: {building.id}",
+                    bg=self.theme.SURFACE_ALT,
+                    fg=self.theme.TEXT_MUTED,
+                    font=("Segoe UI", 9, "bold"),
+                    anchor="w",
+                )
+                meta_label.grid(row=2, column=0, sticky="w", pady=(8, 0))
+
+                def on_card_resize(
+                    event: tk.Event,
+                    name_ref: tk.Label = title_label,
+                    addr_ref: tk.Label = address_label,
+                ) -> None:
+                    wrap = max(120, event.width - 28)
+                    name_ref.configure(wraplength=wrap)
+                    addr_ref.configure(wraplength=wrap)
+
+                card.content.bind("<Configure>", on_card_resize, add="+")
+
+                for widget in (card, card.canvas, card.content, title_label, address_label, meta_label):
+                    widget.bind("<Button-1>", lambda _e, b=building: open_building_view(b), add="+")
+
+            sync_cards_scroll()
+
+        def load_buildings() -> None:
+            with session_scope() as session:
+                controller = BuildingController(session=session)
+                buildings = controller.list_buildings(company_id=company_id, include_archived=False)
+            buildings_state["items"] = buildings
+
+        def on_cards_resize(_event=None) -> None:
+            sync_cards_scroll()
+            new_columns = compute_columns(cards_canvas.winfo_width())
+            if new_columns == columns_state["value"]:
+                return
+            columns_state["value"] = new_columns
+            render_buildings()
+
+        cards_grid.bind("<Configure>", sync_cards_scroll, add="+")
+        cards_canvas.bind("<Configure>", on_cards_resize, add="+")
+
+        def on_reset_room_filters() -> None:
+            room_search_var.set("")
+            room_type_filter_var.set("Усі")
+            room_min_capacity_var.set("")
+            room_include_archived_var.set(False)
+            load_rooms()
+
+        self._motion_button(
+            detail_actions,
+            text="+ Нова аудиторія",
+            command=lambda: open_room_modal(room=None),
+            primary=True,
+            width=150,
+        ).pack(side=tk.RIGHT)
+        self._motion_button(
+            detail_actions,
+            text="+ Масове додавання",
+            command=open_bulk_create_rooms_modal,
+            primary=False,
+            width=170,
+        ).pack(side=tk.RIGHT, padx=(0, 8))
+        self._motion_button(
+            detail_actions,
+            text="Редагувати",
+            command=lambda: open_room_modal(room=get_selected_room()) if get_selected_room() is not None else messagebox.showerror(
+                "Редагування аудиторії",
+                "Оберіть аудиторію у списку.",
+                parent=self.root,
+            ),
+            primary=False,
+            width=96,
+        ).pack(side=tk.RIGHT, padx=(0, 8))
+        self._motion_button(
+            detail_actions,
+            text="Архівувати",
+            command=archive_selected_room,
+            primary=False,
+            width=110,
+        ).pack(side=tk.RIGHT, padx=(0, 8))
+        self._motion_button(
+            detail_actions,
+            text="Видалити",
+            command=delete_selected_room,
+            primary=False,
+            width=100,
+            fill="#e11d48",
+            hover_fill="#be123c",
+            pressed_fill="#9f1239",
+            text_color=self.theme.TEXT_LIGHT,
+        ).pack(side=tk.RIGHT, padx=(0, 8))
+
+        self._motion_button(
+            filters_row,
+            text="Застосувати",
+            command=load_rooms,
+            primary=False,
+            width=104,
+            height=34,
+        ).pack(side=tk.RIGHT)
+        self._motion_button(
+            filters_row,
+            text="Скинути",
+            command=on_reset_room_filters,
+            primary=False,
+            width=104,
+            height=34,
+        ).pack(side=tk.RIGHT, padx=(0, 8))
+
+        room_search_entry.bind("<Return>", lambda _e: load_rooms(), add="+")
+        room_capacity_entry.bind("<Return>", lambda _e: load_rooms(), add="+")
+        room_type_box.bind("<<ComboboxSelected>>", lambda _e: load_rooms(), add="+")
+
+        def open_create_building_modal() -> None:
+            modal = tk.Toplevel(self.root)
+            modal.title("Новий корпус")
+            modal.transient(self.root)
+            modal.resizable(False, False)
+            modal.grab_set()
+
+            shell = ttk.Frame(modal, style="Card.TFrame", padding=14)
+            shell.pack(fill=tk.BOTH, expand=True)
+            ttk.Label(shell, text="Створення корпусу", style="CardTitle.TLabel").pack(anchor="w")
+            ttk.Label(
+                shell,
+                text="Назва обов'язкова. Адреса необов'язкова.",
+                style="CardSubtle.TLabel",
+            ).pack(anchor="w", pady=(2, 10))
+
+            name_var = tk.StringVar()
+            address_var = tk.StringVar()
+
+            ttk.Label(shell, text="Назва", style="Card.TLabel").pack(anchor="w")
+            name_entry = ttk.Entry(shell, textvariable=name_var, width=44)
+            name_entry.pack(fill=tk.X, pady=(6, 10))
+            ttk.Label(shell, text="Адреса", style="Card.TLabel").pack(anchor="w")
+            ttk.Entry(shell, textvariable=address_var, width=44).pack(fill=tk.X, pady=(6, 12))
+
+            buttons = ttk.Frame(shell, style="Card.TFrame")
+            buttons.pack(fill=tk.X, pady=(2, 0))
+
+            def on_submit() -> None:
+                clean_name = name_var.get().strip()
+                clean_address = address_var.get().strip()
+                if not clean_name:
+                    messagebox.showerror("Некоректні дані", "Назва корпусу обов'язкова.", parent=modal)
+                    return
+                try:
+                    with session_scope() as session:
+                        controller = BuildingController(session=session)
+                        controller.create_building(
+                            name=clean_name,
+                            address=clean_address or None,
+                            company_id=company_id,
+                        )
+                except IntegrityError:
+                    messagebox.showerror(
+                        "Не вдалося створити корпус",
+                        "Корпус з такою назвою вже існує.",
+                        parent=modal,
+                    )
+                    return
+                except Exception as exc:
+                    messagebox.showerror("Не вдалося створити корпус", str(exc), parent=modal)
+                    return
+
+                modal.destroy()
+                load_buildings()
+                render_buildings()
+
+            self._motion_button(
+                buttons,
+                text="Скасувати",
+                command=modal.destroy,
+                primary=False,
+                width=140,
+            ).pack(side=tk.RIGHT)
+            self._motion_button(
+                buttons,
+                text="Створити",
+                command=on_submit,
+                primary=True,
+                width=140,
+            ).pack(side=tk.RIGHT, padx=(0, 8))
+
+            name_entry.focus_set()
+            modal.update_idletasks()
+            modal.geometry(
+                f"+{self.root.winfo_rootx() + 180}+{self.root.winfo_rooty() + 110}"
+            )
+
+        self._motion_button(
+            header,
+            text="+ Створити корпус",
+            command=open_create_building_modal,
+            primary=True,
+            width=190,
+        ).pack(side=tk.RIGHT)
+
+        load_buildings()
+        columns_state["value"] = compute_columns(max(1, cards_canvas.winfo_width()))
+        render_buildings()
+        render_rooms()
+
+    def _build_company_settings_view(self, parent: ttk.Frame, company_id: int, username: str) -> None:
+        settings_shell = ttk.Frame(parent, style="Card.TFrame")
+        settings_shell.pack(fill=tk.BOTH, expand=True)
+
+        settings_canvas = tk.Canvas(
+            settings_shell,
+            bg=self.theme.SURFACE,
+            bd=0,
+            highlightthickness=0,
+            relief=tk.FLAT,
+        )
+        settings_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        settings_scroll = ttk.Scrollbar(
+            settings_shell,
+            orient=tk.VERTICAL,
+            command=settings_canvas.yview,
+            style="App.Vertical.TScrollbar",
+        )
+        settings_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        settings_canvas.configure(yscrollcommand=settings_scroll.set)
+
+        body = ttk.Frame(settings_canvas, style="Card.TFrame")
+        body_window = settings_canvas.create_window((0, 0), anchor="nw", window=body)
+
+        def _sync_settings_scroll(_event=None) -> None:
+            viewport_width = max(1, settings_canvas.winfo_width())
+            viewport_height = max(1, settings_canvas.winfo_height())
+            requested_height = max(1, body.winfo_reqheight())
+            settings_canvas.itemconfigure(
+                body_window,
+                width=viewport_width,
+                height=max(viewport_height, requested_height),
+            )
+            bbox = settings_canvas.bbox("all")
+            if bbox is not None:
+                settings_canvas.configure(scrollregion=bbox)
+
+        def _scroll_settings(step_units: int) -> str:
+            first, last = settings_canvas.yview()
+            visible = float(last) - float(first)
+            if visible >= 0.999:
+                return "break"
+            if step_units < 0 and float(first) <= 0.0001:
+                return "break"
+            if step_units > 0 and float(last) >= 0.9999:
+                return "break"
+            settings_canvas.yview_scroll(step_units, "units")
+            return "break"
+
+        body.bind("<Configure>", _sync_settings_scroll)
+        settings_canvas.bind("<Configure>", _sync_settings_scroll)
+
+        def _on_settings_wheel(event: tk.Event) -> str:
+            delta = getattr(event, "delta", 0)
+            if not delta:
+                return "break"
+            direction = -1 if delta > 0 else 1
+            steps = max(1, int(abs(delta) / 120))
+            for _ in range(steps):
+                _scroll_settings(direction)
+            return "break"
+
+        def _on_settings_up(_event: tk.Event) -> str:
+            return _scroll_settings(-1)
+
+        def _on_settings_down(_event: tk.Event) -> str:
+            return _scroll_settings(1)
+
+        for widget in (settings_canvas, body):
+            widget.bind("<MouseWheel>", _on_settings_wheel, add="+")
+            widget.bind("<Button-4>", _on_settings_up, add="+")
+            widget.bind("<Button-5>", _on_settings_down, add="+")
+
+        tabs_bar = ttk.Frame(body, style="Card.TFrame")
+        tabs_bar.pack(fill=tk.X, pady=(0, 8))
+
+        content = ttk.Frame(body, style="Card.TFrame")
         content.pack(fill=tk.BOTH, expand=True)
 
         views: dict[str, ttk.Frame] = {
@@ -1790,15 +2765,15 @@ class ScheduleMainWindow:
             if active:
                 button.fill = self.theme.ACCENT
                 button.hover_fill = self.theme.ACCENT_HOVER
-                button.pressed_fill = self.theme.ACCENT_HOVER
+                button.pressed_fill = self.theme.ACCENT_PRESSED
                 button.text_color = self.theme.TEXT_LIGHT
-                button.shadow_color = "#cfd8e3"
+                button.shadow_color = self.theme.SHADOW_SOFT
             else:
                 button.fill = self.theme.SURFACE_ALT
-                button.hover_fill = "#e7eef7"
-                button.pressed_fill = "#dfe7f0"
+                button.hover_fill = self.theme.SECONDARY_HOVER
+                button.pressed_fill = self.theme.SECONDARY_PRESSED
                 button.text_color = self.theme.TEXT_PRIMARY
-                button.shadow_color = "#d8e0eb"
+                button.shadow_color = self.theme.SHADOW_SOFT
             button._draw()
 
         def open_tab(name: str) -> None:
@@ -1842,92 +2817,269 @@ class ScheduleMainWindow:
             profile = controller.get_company_profile(company_id)
 
         company_name_default = company.name if company is not None else f"Компанія #{company_id}"
-        timezone_default = (profile.timezone or "Europe/Kyiv").strip()
-        language_default = "Українська" if profile.language == "uk" else profile.language
+        timezone_default = (profile.timezone or DEFAULT_TIMEZONE).strip()
+        language_default_code = (profile.language or DEFAULT_LANGUAGE_CODE).strip().lower()
         theme_default = (profile.theme or UiTheme.DEFAULT_VARIANT).strip().lower()
+        logo_default = profile.logo_path
 
         company_name_var = tk.StringVar(value=company_name_default)
         timezone_var = tk.StringVar(value=timezone_default)
-        language_var = tk.StringVar(value=language_default)
-        logo_var = tk.StringVar(value=profile.logo_path or "Завантаження лого буде доступне пізніше")
-        status_var = tk.StringVar(value="Готово.")
+        avatar_storage = AvatarStorageService()
+        avatar_state = {
+            "current_logo_path": logo_default,
+            "pending_source_path": None,
+            "remove_current": False,
+            "hover": False,
+            "image": None,
+        }
 
         theme_label_by_key = {
             "ocean": "Океан",
             "graphite": "Графіт",
             "sunrise": "Світанок",
+            "aurora": "Аврора",
+            "sand": "Пісок",
+            "berry": "Ягідна",
         }
         theme_key_by_label = {label: key for key, label in theme_label_by_key.items()}
         theme_var = tk.StringVar(value=theme_label_by_key.get(theme_default, theme_label_by_key["ocean"]))
 
-        timezone_options = [
-            "Europe/Kyiv",
-            "Europe/Warsaw",
-            "Europe/Berlin",
-            "Europe/London",
-            "UTC",
-        ]
+        timezone_options = all_timezones()
         if timezone_default not in timezone_options:
             timezone_options.append(timezone_default)
+            timezone_options = sorted(timezone_options)
 
-        ttk.Label(parent, text="Профіль компанії", style="CardTitle.TLabel").pack(anchor="w", pady=(0, 2))
-        ttk.Label(
+        language_label_by_code = {code: f"{label} ({code})" for code, label in LANGUAGE_OPTIONS}
+        language_code_by_label = {value: key for key, value in language_label_by_code.items()}
+        language_var = tk.StringVar(
+            value=language_label_by_code.get(
+                language_default_code,
+                language_label_by_code[DEFAULT_LANGUAGE_CODE],
+            )
+        )
+
+        header_shell = RoundedMotionCard(
             parent,
-            text="Зміни назву, часовий пояс і тему. Мова та лого поки що в режимі перегляду.",
-            style="CardSubtle.TLabel",
-        ).pack(anchor="w", pady=(0, 10))
+            bg_color=self.theme.SURFACE,
+            card_color=self.theme.SURFACE,
+            shadow_color=self.theme.SHADOW_SOFT,
+            radius=18,
+            padding=4,
+            shadow_offset=4,
+            motion_enabled=True,
+            height=170,
+        )
+        header_shell.pack(fill=tk.X, pady=(0, 10))
+        header_shell.pack_propagate(False)
+        header = ttk.Frame(header_shell.content, style="Card.TFrame", padding=8)
+        header.pack(fill=tk.BOTH, expand=True)
+        header.grid_columnconfigure(1, weight=1)
 
-        form = ttk.Frame(parent, style="Card.TFrame")
-        form.pack(fill=tk.X)
-        form.grid_columnconfigure(1, weight=1)
+        avatar_canvas = tk.Canvas(
+            header,
+            width=132,
+            height=132,
+            bg=self.theme.SURFACE,
+            bd=0,
+            highlightthickness=0,
+            relief=tk.FLAT,
+            cursor="hand2",
+        )
+        avatar_canvas.grid(row=0, column=0, rowspan=4, sticky="nw", padx=(0, 16))
 
-        ttk.Label(form, text="Назва компанії", style="Card.TLabel").grid(row=0, column=0, sticky="w", pady=(0, 6))
-        ttk.Entry(form, textvariable=company_name_var).grid(row=0, column=1, sticky="ew", pady=(0, 6))
+        ttk.Label(header, text="Назва компанії", style="Card.TLabel").grid(row=0, column=1, sticky="w")
+        ttk.Entry(header, textvariable=company_name_var).grid(row=1, column=1, sticky="ew", pady=(6, 8))
+        ttk.Label(header, text=f"Акаунт: {username}", style="CardSubtle.TLabel").grid(row=2, column=1, sticky="w", pady=(0, 2))
 
-        ttk.Label(form, text="Лого", style="Card.TLabel").grid(row=1, column=0, sticky="w", pady=(0, 6))
-        logo_row = ttk.Frame(form, style="Card.TFrame")
-        logo_row.grid(row=1, column=1, sticky="ew", pady=(0, 6))
-        logo_row.grid_columnconfigure(0, weight=1)
-        logo_entry = ttk.Entry(logo_row, textvariable=logo_var, state="disabled")
-        logo_entry.grid(row=0, column=0, sticky="ew")
-        logo_action = ttk.Button(logo_row, text="Змінити (скоро)", state="disabled")
-        logo_action.grid(row=0, column=1, padx=(8, 0))
+        avatar_actions = ttk.Frame(header, style="Card.TFrame")
+        avatar_actions.grid(row=3, column=1, sticky="w", pady=(2, 0))
+        self._motion_button(
+            avatar_actions,
+            text="Скинути фото",
+            command=lambda: on_remove_avatar(),
+            primary=False,
+            width=140,
+            height=38,
+        ).pack(side=tk.LEFT)
 
-        ttk.Label(form, text="Часовий пояс", style="Card.TLabel").grid(row=2, column=0, sticky="w", pady=(0, 6))
-        timezone_box = ttk.Combobox(form, textvariable=timezone_var, values=timezone_options, state="readonly")
-        timezone_box.grid(row=2, column=1, sticky="ew", pady=(0, 6))
+        details_shell = RoundedMotionCard(
+            parent,
+            bg_color=self.theme.SURFACE,
+            card_color=self.theme.SURFACE,
+            shadow_color=self.theme.SHADOW_SOFT,
+            radius=16,
+            padding=4,
+            shadow_offset=4,
+            motion_enabled=True,
+            height=128,
+        )
+        details_shell.pack(fill=tk.X)
+        details_shell.pack_propagate(False)
+        details = ttk.Frame(details_shell.content, style="Card.TFrame", padding=4)
+        details.pack(fill=tk.BOTH, expand=True)
+        details.grid_columnconfigure(0, weight=1)
+        details.grid_columnconfigure(1, weight=1)
+        details.grid_columnconfigure(2, weight=1)
 
-        ttk.Label(form, text="Мова", style="Card.TLabel").grid(row=3, column=0, sticky="w", pady=(0, 6))
-        language_box = ttk.Combobox(form, textvariable=language_var, values=["Українська"], state="disabled")
-        language_box.grid(row=3, column=1, sticky="ew", pady=(0, 6))
+        timezone_col = ttk.Frame(details, style="Card.TFrame")
+        timezone_col.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        ttk.Label(timezone_col, text="Часовий пояс", style="Card.TLabel").pack(anchor="w", pady=(0, 4))
+        timezone_box = ttk.Combobox(timezone_col, textvariable=timezone_var, values=timezone_options, state="readonly")
+        timezone_box.pack(fill=tk.X)
 
-        ttk.Label(form, text="Тема", style="Card.TLabel").grid(row=4, column=0, sticky="w", pady=(0, 6))
-        theme_box = ttk.Combobox(
-            form,
-            textvariable=theme_var,
-            values=[theme_label_by_key[key] for key in ("ocean", "graphite", "sunrise")],
+        language_col = ttk.Frame(details, style="Card.TFrame")
+        language_col.grid(row=0, column=1, sticky="nsew", padx=(0, 8))
+        ttk.Label(language_col, text="Мова", style="Card.TLabel").pack(anchor="w", pady=(0, 4))
+        language_box = ttk.Combobox(
+            language_col,
+            textvariable=language_var,
+            values=[language_label_by_code[code] for code, _ in LANGUAGE_OPTIONS],
             state="readonly",
         )
-        theme_box.grid(row=4, column=1, sticky="ew", pady=(0, 6))
+        language_box.pack(fill=tk.X)
 
-        ttk.Label(form, text=f"Акаунт: {username}", style="CardSubtle.TLabel").grid(
-            row=5,
-            column=0,
-            columnspan=2,
-            sticky="w",
-            pady=(2, 0),
+        theme_col = ttk.Frame(details, style="Card.TFrame")
+        theme_col.grid(row=0, column=2, sticky="nsew")
+        ttk.Label(theme_col, text="Тема", style="Card.TLabel").pack(anchor="w", pady=(0, 4))
+        theme_box = ttk.Combobox(
+            theme_col,
+            textvariable=theme_var,
+            values=[theme_label_by_key[key] for key in ("ocean", "graphite", "sunrise", "aurora", "sand", "berry")],
+            state="readonly",
         )
+        theme_box.pack(fill=tk.X)
+
+        def _resolve_preview_path() -> str | None:
+            pending_source = avatar_state["pending_source_path"]
+            if pending_source:
+                return str(pending_source)
+            if avatar_state["remove_current"]:
+                return None
+            current_logo_path = avatar_state["current_logo_path"]
+            if not current_logo_path:
+                return None
+            return str(current_logo_path)
+
+        def _draw_avatar() -> None:
+            avatar_canvas.delete("all")
+            center_x = 66
+            center_y = 66
+            size = 110
+            image_path = _resolve_preview_path()
+            photo = self._build_rounded_avatar_photo(image_path, size) if image_path else None
+            avatar_state["image"] = photo
+
+            if photo is None:
+                draw_default_company_avatar(
+                    avatar_canvas,
+                    x=center_x,
+                    y=center_y,
+                    size=size,
+                    circle_fill=self.theme.AVATAR_CIRCLE_BG,
+                    building_fill=self.theme.AVATAR_BUILDING,
+                    window_fill=self.theme.AVATAR_WINDOW,
+                    outline=self.theme.AVATAR_CIRCLE_BORDER,
+                )
+            else:
+                avatar_canvas.create_oval(
+                    center_x - size // 2 - 2,
+                    center_y - size // 2 - 2,
+                    center_x + size // 2 + 2,
+                    center_y + size // 2 + 2,
+                    fill=self.theme.AVATAR_CIRCLE_BG,
+                    outline=self.theme.AVATAR_CIRCLE_BORDER,
+                    width=2,
+                )
+                avatar_canvas.create_image(center_x, center_y, image=photo)
+
+            if avatar_state["hover"]:
+                avatar_canvas.create_oval(
+                    center_x - size // 2,
+                    center_y - size // 2,
+                    center_x + size // 2,
+                    center_y + size // 2,
+                    fill=self.theme.AVATAR_OVERLAY,
+                    outline="",
+                    stipple="gray50",
+                )
+                avatar_canvas.create_text(
+                    center_x,
+                    center_y,
+                    text="Змінити фото",
+                    fill=self.theme.TEXT_LIGHT,
+                    font=("Segoe UI", 10, "bold"),
+                )
+
+        def on_pick_avatar() -> None:
+            selected = filedialog.askopenfilename(
+                title="Оберіть фото профілю",
+                filetypes=[
+                    ("Зображення", "*.png;*.jpg;*.jpeg;*.webp;*.bmp"),
+                    ("Усі файли", "*.*"),
+                ],
+            )
+            if not selected:
+                return
+            avatar_state["pending_source_path"] = selected
+            avatar_state["remove_current"] = False
+            _draw_avatar()
+
+        def on_remove_avatar() -> None:
+            avatar_state["pending_source_path"] = None
+            avatar_state["remove_current"] = True
+            _draw_avatar()
+
+        def on_avatar_enter(_event=None) -> None:
+            avatar_state["hover"] = True
+            _draw_avatar()
+
+        def on_avatar_leave(_event=None) -> None:
+            avatar_state["hover"] = False
+            _draw_avatar()
+
+        avatar_canvas.bind("<Enter>", on_avatar_enter, add="+")
+        avatar_canvas.bind("<Leave>", on_avatar_leave, add="+")
+        avatar_canvas.bind("<Button-1>", lambda _e: on_pick_avatar(), add="+")
+
+        _draw_avatar()
 
         def on_reset() -> None:
             company_name_var.set(company_name_default)
             timezone_var.set(timezone_default)
-            language_var.set(language_default)
+            language_var.set(
+                language_label_by_code.get(
+                    language_default_code,
+                    language_label_by_code[DEFAULT_LANGUAGE_CODE],
+                )
+            )
             theme_var.set(theme_label_by_key.get(theme_default, theme_label_by_key["ocean"]))
-            status_var.set("Дані повернуто до збережених значень.")
+            avatar_state["pending_source_path"] = None
+            avatar_state["remove_current"] = False
+            avatar_state["current_logo_path"] = logo_default
+            _draw_avatar()
 
         def on_save_profile() -> None:
             selected_theme = theme_key_by_label.get(theme_var.get().strip(), UiTheme.DEFAULT_VARIANT)
+            selected_language = language_code_by_label.get(language_var.get().strip(), DEFAULT_LANGUAGE_CODE)
+            existing_logo_path = str(avatar_state["current_logo_path"]) if avatar_state["current_logo_path"] else None
+            pending_source = str(avatar_state["pending_source_path"]) if avatar_state["pending_source_path"] else None
+            remove_current = bool(avatar_state["remove_current"])
+            new_logo_path: str | None = existing_logo_path
+            update_logo = False
+            generated_logo_path: str | None = None
+
             try:
+                if pending_source:
+                    generated_logo_path = avatar_storage.save_company_avatar(
+                        company_id=company_id,
+                        source_path=pending_source,
+                    )
+                    new_logo_path = generated_logo_path
+                    update_logo = True
+                elif remove_current:
+                    new_logo_path = None
+                    update_logo = True
+
                 with session_scope() as session:
                     controller = AuthController(session=session)
                     controller.update_company_profile(
@@ -1935,13 +3087,23 @@ class ScheduleMainWindow:
                         company_name=company_name_var.get().strip(),
                         timezone=timezone_var.get().strip(),
                         theme=selected_theme,
+                        language=selected_language,
+                        logo_path=new_logo_path,
+                        update_logo_path=update_logo,
                     )
             except IntegrityError:
+                if generated_logo_path:
+                    avatar_storage.delete_avatar(generated_logo_path)
                 messagebox.showerror("Не вдалося зберегти", "Компанія з такою назвою вже існує.")
                 return
             except Exception as exc:
+                if generated_logo_path:
+                    avatar_storage.delete_avatar(generated_logo_path)
                 messagebox.showerror("Не вдалося зберегти", str(exc))
                 return
+
+            if update_logo and existing_logo_path and existing_logo_path != new_logo_path:
+                avatar_storage.delete_avatar(existing_logo_path)
 
             self._show_company_dashboard(initial_view="settings")
 
@@ -1949,10 +3111,10 @@ class ScheduleMainWindow:
         controls.pack(fill=tk.X, pady=(10, 0))
         self._motion_button(
             controls,
-            text="Зберегти профіль",
+            text="Зберегти зміни",
             command=on_save_profile,
             primary=True,
-            width=190,
+            width=200,
         ).pack(side=tk.LEFT)
         self._motion_button(
             controls,
@@ -1962,50 +3124,13 @@ class ScheduleMainWindow:
             width=140,
         ).pack(side=tk.LEFT, padx=(8, 0))
 
-        ttk.Label(parent, textvariable=status_var, anchor="w", style="CardSubtle.TLabel").pack(fill=tk.X, pady=(8, 0))
-
     def _build_company_settings_templates_tab(self, parent: ttk.Frame, *, company_id: int) -> None:
-        ttk.Label(parent, text="Шаблони розкладу", style="CardTitle.TLabel").pack(anchor="w", pady=(0, 2))
-        ttk.Label(
-            parent,
-            text="Період буде створений разом із базовими блоками часу.",
-            style="CardSubtle.TLabel",
-        ).pack(anchor="w", pady=(0, 8))
-
-        start_var = tk.StringVar(value=date.today().isoformat())
-        end_var = tk.StringVar(value=(date.today() + timedelta(days=120)).isoformat())
-        status_var = tk.StringVar(value="Готово.")
-
-        box = ttk.Frame(parent, style="Card.TFrame")
-        box.pack(anchor="w")
-        ttk.Label(box, text="Початок", style="Card.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Entry(box, textvariable=start_var, width=12).grid(row=0, column=1, sticky="w", padx=(6, 12))
-        ttk.Label(box, text="Кінець", style="Card.TLabel").grid(row=0, column=2, sticky="w")
-        ttk.Entry(box, textvariable=end_var, width=12).grid(row=0, column=3, sticky="w", padx=(6, 12))
-
-        def on_create_template() -> None:
-            try:
-                start = date.fromisoformat(start_var.get().strip())
-                end = date.fromisoformat(end_var.get().strip())
-                if end < start:
-                    raise ValueError("Дата завершення має бути не раніше дати початку.")
-                period_id = self._create_default_template_period(
-                    company_id=company_id,
-                    start=start,
-                    end=end,
-                )
-                status_var.set(f"Шаблон створено. ID періоду: {period_id}")
-            except Exception as exc:
-                messagebox.showerror("Не вдалося створити шаблон", str(exc))
-
-        self._motion_button(
-            parent,
-            text="Створити шаблон",
-            command=on_create_template,
-            primary=True,
-            width=190,
-        ).pack(anchor="w", pady=(10, 0))
-        ttk.Label(parent, textvariable=status_var, anchor="w", style="CardSubtle.TLabel").pack(fill=tk.X, pady=(8, 0))
+        CompanyTemplatesTab(
+            parent=parent,
+            company_id=company_id,
+            theme=self.theme,
+            motion_button_factory=self._motion_button,
+        ).build()
 
     def _build_company_settings_system_tab(self, parent: ttk.Frame, *, company_id: int, username: str) -> None:
         ttk.Label(parent, text="Система", style="CardTitle.TLabel").pack(anchor="w", pady=(0, 2))
@@ -2017,7 +3142,7 @@ class ScheduleMainWindow:
 
         info = ttk.Frame(parent, style="Card.TFrame")
         info.pack(fill=tk.X)
-        ttk.Label(info, text=f"Компанія ID: {company_id}", style="Card.TLabel").pack(anchor="w")
+        ttk.Label(info, text=f"ID компанії: {company_id}", style="Card.TLabel").pack(anchor="w")
         ttk.Label(info, text=f"Користувач: {username}", style="Card.TLabel").pack(anchor="w", pady=(4, 0))
         ttk.Label(
             info,
@@ -2191,3 +3316,5 @@ class ScheduleMainWindow:
         open_tab("home")
         if period_var.get():
             load_personal_schedule()
+
+

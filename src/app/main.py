@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 import argparse
-import tkinter as tk
 
 from app.config.database import init_db
-from app.ui import ScheduleMainWindow
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Academic Schedule Generator")
+    parser = argparse.ArgumentParser(description="Запуск застосунку розкладу")
     parser.add_argument(
         "--init-only",
         action="store_true",
@@ -22,18 +20,29 @@ def main() -> None:
     args = parser.parse_args()
 
     init_db(reset_schema=args.reset_schema)
-    print("Database schema initialized.")
+    print("Схему бази даних ініціалізовано.")
 
     if args.init_only:
         return
 
     try:
+        import tkinter as tk
+    except Exception as exc:
+        print(
+            "Не вдалося запустити Tkinter-інтерфейс. "
+            "Якщо запускаєш у Docker/headless режимі, використай: python -m app.main --init-only"
+        )
+        raise SystemExit(1) from exc
+
+    try:
+        from app.ui import ScheduleMainWindow
+
         window = ScheduleMainWindow()
         window.run()
     except tk.TclError as exc:
         print(
-            "Unable to start Tkinter UI. "
-            "If you run in Docker/headless mode use: python -m app.main --init-only"
+            "Не вдалося запустити Tkinter-інтерфейс. "
+            "Якщо запускаєш у Docker/headless режимі, використай: python -m app.main --init-only"
         )
         raise SystemExit(1) from exc
 
