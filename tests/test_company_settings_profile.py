@@ -99,7 +99,9 @@ def test_update_company_profile_keeps_language_and_logo_if_not_provided(session:
         timezone="UTC",
         theme="ocean",
         language="en",
+        update_language=True,
         logo_path="assets/logo.png",
+        update_logo_path=True,
     )
     session.commit()
 
@@ -117,3 +119,46 @@ def test_update_company_profile_keeps_language_and_logo_if_not_provided(session:
     assert profile.logo_path == "assets/logo.png"
     assert profile.theme == "graphite"
     assert profile.timezone == "Europe/Kyiv"
+
+
+def test_update_company_profile_updates_language(session: Session) -> None:
+    company_id = _bootstrap_company(session, company_name="Language Org", username="lang_admin")
+    controller = AuthController(session=session)
+
+    _, profile = controller.update_company_profile(
+        company_id=company_id,
+        company_name="Language Org",
+        timezone="UTC",
+        theme="ocean",
+        language="de",
+    )
+    session.commit()
+
+    assert profile.language == "de"
+
+
+def test_update_company_profile_can_clear_logo(session: Session) -> None:
+    company_id = _bootstrap_company(session, company_name="Logo Org", username="logo_admin")
+    repository = AuthRepository(session=session)
+    repository.update_company_profile(
+        company_id=company_id,
+        timezone="UTC",
+        theme="ocean",
+        logo_path="storage/avatars/company_1/test.webp",
+        update_logo_path=True,
+    )
+    session.commit()
+
+    controller = AuthController(session=session)
+    controller.update_company_profile(
+        company_id=company_id,
+        company_name="Logo Org",
+        timezone="UTC",
+        theme="ocean",
+        update_logo_path=True,
+        logo_path=None,
+    )
+    session.commit()
+
+    profile = controller.get_company_profile(company_id)
+    assert profile.logo_path is None
