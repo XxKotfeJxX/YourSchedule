@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.domain.enums import ResourceType, RoomType
-from app.domain.models import Building, Resource, RoomProfile
+from app.domain.models import Building, Resource, RoomBooking, RoomProfile
 
 _UNSET = object()
 
@@ -147,6 +149,79 @@ class RoomRepository:
 
     def archive_room(self, room_id: int) -> RoomProfile:
         return self.update_room(room_id, is_archived=True)
+
+    def unarchive_room(self, room_id: int) -> RoomProfile:
+        return self.update_room(room_id, is_archived=False)
+
+    def create_room_booking(
+        self,
+        *,
+        room_id: int,
+        starts_at: datetime,
+        ends_at: datetime,
+        title: str | None = None,
+    ) -> RoomBooking:
+        room = self.get_room(room_id)
+        if room is None:
+            raise ValueError(f"Room with id={room_id} was not found")
+        if room.is_archived:
+            raise ValueError("Cannot book an archived room")
+        if ends_at <= starts_at:
+            raise ValueError("Booking end time must be after start time")
+
+        overlapping = self.session.scalar(
+            select(RoomBooking.id).where(
+                and_(
+                    RoomBooking.room_id == room_id,
+                    RoomBooking.is_cancelled.is_(False),
+                    RoomBooking.starts_at < ends_at,
+                    RoomBooking.ends_at > starts_at,
+                )
+            )
+        )
+        if overlapping is not None:
+            raise ValueError("Room is already booked for the selected time range")
+
+        booking = RoomBooking(
+            room_id=room_id,
+            title=(title or "").strip() or None,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            is_cancelled=False,
+        )
+        self.session.add(booking)
+        self.session.flush()
+        return booking
+
+    def upcoming_booking_map(
+        self,
+        room_ids: list[int],
+        *,
+        reference_time: datetime | None = None,
+    ) -> dict[int, RoomBooking]:
+        if not room_ids:
+            return {}
+
+        now = reference_time or datetime.utcnow()
+        bookings = list(
+            self.session.scalars(
+                select(RoomBooking)
+                .where(
+                    and_(
+                        RoomBooking.room_id.in_(room_ids),
+                        RoomBooking.is_cancelled.is_(False),
+                        RoomBooking.ends_at >= now,
+                    )
+                )
+                .order_by(RoomBooking.room_id.asc(), RoomBooking.starts_at.asc(), RoomBooking.id.asc())
+            ).all()
+        )
+
+        result: dict[int, RoomBooking] = {}
+        for booking in bookings:
+            if booking.room_id not in result:
+                result[booking.room_id] = booking
+        return result
 
     def delete_room(self, room_id: int) -> bool:
         room = self.get_room(room_id)

@@ -1,4 +1,5 @@
 import pytest
+from datetime import datetime, timedelta
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -151,3 +152,68 @@ def test_bulk_create_rooms_with_duplicate_policies(session: Session) -> None:
     assert refreshed.room_type == RoomType.LAB
     assert refreshed.capacity == 12
     assert refreshed.floor == 3
+
+
+def test_room_archive_toggle_and_manual_booking(session: Session) -> None:
+    company = Company(name="Bookings")
+    session.add(company)
+    session.commit()
+
+    building = BuildingController(session=session).create_building(
+        name="B",
+        address=None,
+        company_id=company.id,
+    )
+    session.commit()
+
+    controller = RoomController(session=session)
+    room = controller.create_room(
+        building_id=building.id,
+        name="301",
+        room_type=RoomType.CLASSROOM,
+        company_id=company.id,
+    )
+    session.commit()
+
+    controller.archive_room(room.id)
+    session.commit()
+    archived = controller.get_room(room.id)
+    assert archived is not None
+    assert archived.is_archived is True
+
+    with pytest.raises(ValueError):
+        controller.create_room_booking(
+            room_id=room.id,
+            starts_at=datetime.utcnow() + timedelta(hours=1),
+            ends_at=datetime.utcnow() + timedelta(hours=2),
+            title="Cannot book archived",
+        )
+
+    controller.unarchive_room(room.id)
+    session.commit()
+    active = controller.get_room(room.id)
+    assert active is not None
+    assert active.is_archived is False
+
+    starts_at = datetime.utcnow() + timedelta(hours=1)
+    ends_at = starts_at + timedelta(hours=2)
+    created_booking = controller.create_room_booking(
+        room_id=room.id,
+        starts_at=starts_at,
+        ends_at=ends_at,
+        title="Event",
+    )
+    session.commit()
+    assert created_booking.id is not None
+
+    with pytest.raises(ValueError):
+        controller.create_room_booking(
+            room_id=room.id,
+            starts_at=starts_at + timedelta(minutes=30),
+            ends_at=ends_at + timedelta(minutes=30),
+            title="Overlap",
+        )
+
+    booking_map = controller.upcoming_booking_map([room.id], reference_time=datetime.utcnow())
+    assert room.id in booking_map
+    assert booking_map[room.id].id == created_booking.id

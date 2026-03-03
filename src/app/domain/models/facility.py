@@ -82,3 +82,30 @@ class RoomProfile(Base):
         UniqueConstraint("building_id", "name", name="uq_room_profile_building_name"),
         CheckConstraint("capacity IS NULL OR capacity >= 0", name="ck_room_profile_capacity_non_negative"),
     )
+
+
+class RoomBooking(Base):
+    __tablename__ = "room_bookings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    room_id: Mapped[int] = mapped_column(
+        ForeignKey("room_profiles.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    title: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    starts_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    ends_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    is_cancelled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+        nullable=False,
+    )
+
+    room: Mapped[RoomProfile] = relationship("RoomProfile")
+
+    __table_args__ = (
+        CheckConstraint("ends_at > starts_at", name="ck_room_booking_range"),
+    )

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from uuid import uuid4
@@ -458,67 +458,57 @@ class ScheduleMainWindow:
             frame = ttk.Frame(views_container, style="Card.TFrame", padding=18)
             views[key] = frame
 
+        nav_buttons: dict[str, RoundedMotionButton] = {}
+
+        def _set_nav_button_active(button: RoundedMotionButton, *, active: bool) -> None:
+            if active:
+                button.fill = self.theme.ACCENT
+                button.hover_fill = self.theme.ACCENT_HOVER
+                button.pressed_fill = self.theme.ACCENT_PRESSED
+                button.text_color = self.theme.TEXT_LIGHT
+                button.shadow_color = self.theme.SIDEBAR_BUTTON_SHADOW
+            else:
+                button.fill = self.theme.SIDEBAR_BUTTON_FILL
+                button.hover_fill = self.theme.SIDEBAR_BUTTON_HOVER
+                button.pressed_fill = self.theme.SIDEBAR_BUTTON_PRESSED
+                button.text_color = self.theme.SIDEBAR_BUTTON_TEXT
+                button.shadow_color = self.theme.SIDEBAR_BUTTON_SHADOW
+            button._state = "normal"
+            button._lift = 0
+            button._draw()
+
+        def _refresh_nav_buttons(active_name: str) -> None:
+            for key, button in nav_buttons.items():
+                _set_nav_button_active(button, active=(key == active_name))
+
         def open_view(name: str) -> None:
             for frame in views.values():
                 frame.pack_forget()
             views[name].pack(fill=tk.BOTH, expand=True)
+            _refresh_nav_buttons(name)
 
-        self._motion_button(
-            sidebar,
-            text="Розклад",
-            command=lambda: open_view("schedule"),
-            primary=True,
-            width=224,
-            height=44,
-            canvas_bg=self.theme.SIDEBAR_BG,
-            fill=self.theme.SIDEBAR_BUTTON_FILL,
-            hover_fill=self.theme.SIDEBAR_BUTTON_HOVER,
-            pressed_fill=self.theme.SIDEBAR_BUTTON_PRESSED,
-            text_color=self.theme.SIDEBAR_BUTTON_TEXT,
-            shadow_color=self.theme.SIDEBAR_BUTTON_SHADOW,
-        ).pack(pady=(0, 6), anchor="w")
-        self._motion_button(
-            sidebar,
-            text="Групи",
-            command=lambda: open_view("groups"),
-            primary=True,
-            width=224,
-            height=44,
-            canvas_bg=self.theme.SIDEBAR_BG,
-            fill=self.theme.SIDEBAR_BUTTON_FILL,
-            hover_fill=self.theme.SIDEBAR_BUTTON_HOVER,
-            pressed_fill=self.theme.SIDEBAR_BUTTON_PRESSED,
-            text_color=self.theme.SIDEBAR_BUTTON_TEXT,
-            shadow_color=self.theme.SIDEBAR_BUTTON_SHADOW,
-        ).pack(pady=(0, 6), anchor="w")
-        self._motion_button(
-            sidebar,
-            text="Приміщення",
-            command=lambda: open_view("rooms"),
-            primary=True,
-            width=224,
-            height=44,
-            canvas_bg=self.theme.SIDEBAR_BG,
-            fill=self.theme.SIDEBAR_BUTTON_FILL,
-            hover_fill=self.theme.SIDEBAR_BUTTON_HOVER,
-            pressed_fill=self.theme.SIDEBAR_BUTTON_PRESSED,
-            text_color=self.theme.SIDEBAR_BUTTON_TEXT,
-            shadow_color=self.theme.SIDEBAR_BUTTON_SHADOW,
-        ).pack(pady=(0, 6), anchor="w")
-        self._motion_button(
-            sidebar,
-            text="Налаштування",
-            command=lambda: open_view("settings"),
-            primary=True,
-            width=224,
-            height=44,
-            canvas_bg=self.theme.SIDEBAR_BG,
-            fill=self.theme.SIDEBAR_BUTTON_FILL,
-            hover_fill=self.theme.SIDEBAR_BUTTON_HOVER,
-            pressed_fill=self.theme.SIDEBAR_BUTTON_PRESSED,
-            text_color=self.theme.SIDEBAR_BUTTON_TEXT,
-            shadow_color=self.theme.SIDEBAR_BUTTON_SHADOW,
-        ).pack(pady=(0, 6), anchor="w")
+        def _add_nav_button(*, key: str, label: str) -> None:
+            button = self._motion_button(
+                sidebar,
+                text=label,
+                command=lambda tab=key: open_view(tab),
+                primary=True,
+                width=224,
+                height=44,
+                canvas_bg=self.theme.SIDEBAR_BG,
+                fill=self.theme.SIDEBAR_BUTTON_FILL,
+                hover_fill=self.theme.SIDEBAR_BUTTON_HOVER,
+                pressed_fill=self.theme.SIDEBAR_BUTTON_PRESSED,
+                text_color=self.theme.SIDEBAR_BUTTON_TEXT,
+                shadow_color=self.theme.SIDEBAR_BUTTON_SHADOW,
+            )
+            button.pack(pady=(0, 6), anchor="w")
+            nav_buttons[key] = button
+
+        _add_nav_button(key="schedule", label="Розклад")
+        _add_nav_button(key="groups", label="Групи")
+        _add_nav_button(key="rooms", label="Приміщення")
+        _add_nav_button(key="settings", label="Налаштування")
 
         ttk.Frame(sidebar, style="Sidebar.TFrame").pack(fill=tk.BOTH, expand=True)
         self._motion_button(
@@ -1811,6 +1801,7 @@ class ScheduleMainWindow:
         columns_state = {"value": 4}
         selected_building = {"item": None}
         rooms_state: dict[str, list[object]] = {"items": []}
+        room_booking_state: dict[int, object] = {}
         room_type_options: list[tuple[str, RoomType | None]] = [
             ("Усі", None),
             ("Лекційна аудиторія", RoomType.LECTURE_HALL),
@@ -1887,13 +1878,18 @@ class ScheduleMainWindow:
         ttk.Label(detail_titles, textvariable=detail_title_var, style="CardTitle.TLabel").pack(anchor="w")
         ttk.Label(detail_titles, textvariable=detail_address_var, style="CardSubtle.TLabel").pack(anchor="w", pady=(2, 0))
 
-        detail_actions = ttk.Frame(detail_header, style="Card.TFrame")
-        detail_actions.pack(side=tk.RIGHT)
+        detail_actions = ttk.Frame(detail_view, style="Card.TFrame")
+        detail_actions.pack(fill=tk.X, pady=(0, 8))
 
         room_search_var = tk.StringVar(value="")
         room_type_filter_var = tk.StringVar(value="Усі")
         room_min_capacity_var = tk.StringVar(value="")
-        room_include_archived_var = tk.BooleanVar(value=False)
+        room_status_all_var = tk.BooleanVar(value=True)
+        room_status_active_var = tk.BooleanVar(value=True)
+        room_status_archived_var = tk.BooleanVar(value=True)
+        room_status_booked_var = tk.BooleanVar(value=True)
+        room_filter_sync_state = {"busy": False}
+        room_filter_reload_job = {"id": None}
         rooms_count_var = tk.StringVar(value="Аудиторій: 0")
 
         detail_body = ttk.Frame(detail_view, style="Card.TFrame")
@@ -1911,41 +1907,78 @@ class ScheduleMainWindow:
         )
         detail_card.pack(fill=tk.X, pady=(0, 8))
         detail_card.content.grid_columnconfigure(0, weight=1)
-        ttk.Label(detail_card.content, text="Аудиторії", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(2, 2))
+        ttk.Label(detail_card.content, text="Аудиторії", style="CardAltTitle.TLabel").grid(row=0, column=0, sticky="w", pady=(2, 2))
         ttk.Label(
             detail_card.content,
             text="Керуйте аудиторіями та фільтруйте список приміщень.",
-            style="CardSubtle.TLabel",
+            style="CardAltSubtle.TLabel",
         ).grid(row=1, column=0, sticky="w")
-        ttk.Label(detail_card.content, textvariable=rooms_count_var, style="CardSubtle.TLabel").grid(
+        ttk.Label(detail_card.content, textvariable=rooms_count_var, style="CardAltSubtle.TLabel").grid(
             row=2,
             column=0,
             sticky="w",
             pady=(8, 0),
         )
 
-        filters_row = ttk.Frame(detail_body, style="Card.TFrame")
-        filters_row.pack(fill=tk.X, pady=(2, 8))
-        ttk.Label(filters_row, text="Пошук", style="Card.TLabel").pack(side=tk.LEFT)
-        room_search_entry = ttk.Entry(filters_row, textvariable=room_search_var, width=26)
-        room_search_entry.pack(side=tk.LEFT, padx=(6, 10))
-        ttk.Label(filters_row, text="Тип", style="Card.TLabel").pack(side=tk.LEFT)
+        filters_card = RoundedMotionCard(
+            detail_body,
+            bg_color=self.theme.SURFACE,
+            card_color=self.theme.SURFACE,
+            shadow_color=self.theme.SHADOW_SOFT,
+            radius=14,
+            padding=4,
+            shadow_offset=3,
+            motion_enabled=True,
+            height=132,
+        )
+        filters_card.pack(fill=tk.X, pady=(2, 8))
+        filters_shell = ttk.Frame(filters_card.content, style="Card.TFrame")
+        filters_shell.pack(fill=tk.BOTH, expand=True)
+        filters_shell.grid_columnconfigure(1, weight=1)
+
+        ttk.Label(filters_shell, text="Пошук", style="Card.TLabel").grid(row=0, column=0, sticky="w")
+        room_search_entry = ttk.Entry(filters_shell, textvariable=room_search_var)
+        room_search_entry.grid(row=0, column=1, sticky="ew", padx=(8, 12))
+
+        ttk.Label(filters_shell, text="Тип", style="Card.TLabel").grid(row=0, column=2, sticky="w")
         room_type_box = ttk.Combobox(
-            filters_row,
+            filters_shell,
             textvariable=room_type_filter_var,
             values=[label for label, _ in room_type_options],
             state="readonly",
             width=16,
         )
-        room_type_box.pack(side=tk.LEFT, padx=(6, 10))
-        ttk.Label(filters_row, text="Мін. місткість", style="Card.TLabel").pack(side=tk.LEFT)
-        room_capacity_entry = ttk.Entry(filters_row, textvariable=room_min_capacity_var, width=8)
-        room_capacity_entry.pack(side=tk.LEFT, padx=(6, 10))
-        ttk.Checkbutton(
-            filters_row,
-            text="Показати архівні",
-            variable=room_include_archived_var,
-        ).pack(side=tk.LEFT)
+        room_type_box.grid(row=0, column=3, sticky="w", padx=(8, 12))
+        ttk.Label(filters_shell, text="Мін. місткість", style="Card.TLabel").grid(row=0, column=4, sticky="w")
+        room_capacity_entry = ttk.Entry(filters_shell, textvariable=room_min_capacity_var, width=8)
+        room_capacity_entry.grid(row=0, column=5, sticky="w", padx=(8, 12))
+
+        status_wrap = ttk.Frame(filters_shell, style="Card.TFrame")
+        status_wrap.grid(row=1, column=0, columnspan=7, sticky="ew", pady=(12, 0))
+        ttk.Label(status_wrap, text="Статус:", style="CardSubtle.TLabel").pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Checkbutton(status_wrap, text="Усі", variable=room_status_all_var).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Checkbutton(status_wrap, text="Активні", variable=room_status_active_var).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Checkbutton(status_wrap, text="Архівні", variable=room_status_archived_var).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Checkbutton(status_wrap, text="Бронь", variable=room_status_booked_var).pack(side=tk.LEFT)
+
+        def on_filter_panel_resize(_event=None) -> None:
+            width = max(1, filters_shell.winfo_width())
+            compact = width < 980
+            if compact:
+                filters_shell.grid_columnconfigure(1, weight=0)
+                room_search_entry.grid_configure(columnspan=1)
+                room_search_entry.grid(row=1, column=0, columnspan=2, sticky="ew", padx=(0, 12), pady=(6, 0))
+                room_type_box.grid(row=1, column=2, sticky="w", padx=(8, 12), pady=(6, 0))
+                room_capacity_entry.grid(row=1, column=4, sticky="w", padx=(8, 12), pady=(6, 0))
+                reset_filters_button.grid_configure(row=1, column=6, sticky="e", padx=(0, 0), pady=(6, 0))
+                status_wrap.grid_configure(row=2, column=0, columnspan=7, pady=(10, 0))
+            else:
+                filters_shell.grid_columnconfigure(1, weight=1)
+                room_search_entry.grid_configure(row=0, column=1, columnspan=1, sticky="ew", padx=(8, 12), pady=(0, 0))
+                room_type_box.grid_configure(row=0, column=3, sticky="w", padx=(8, 12), pady=(0, 0))
+                room_capacity_entry.grid_configure(row=0, column=5, sticky="w", padx=(8, 12), pady=(0, 0))
+                reset_filters_button.grid_configure(row=0, column=6, sticky="e", padx=(0, 0), pady=(0, 0))
+                status_wrap.grid_configure(row=1, column=0, columnspan=7, pady=(12, 0))
 
         rooms_table_wrap = ttk.Frame(detail_body, style="Card.TFrame")
         rooms_table_wrap.pack(fill=tk.BOTH, expand=True)
@@ -1964,7 +1997,10 @@ class ScheduleMainWindow:
         rooms_table.column("type", width=150, anchor="center")
         rooms_table.column("capacity", width=110, anchor="center")
         rooms_table.column("floor", width=110, anchor="center")
-        rooms_table.column("status", width=130, anchor="center")
+        rooms_table.column("status", width=210, anchor="center")
+        rooms_table.tag_configure("room_archived", background="#f4e8ef")
+        rooms_table.tag_configure("room_booked", background="#e8f0ff")
+        rooms_table.tag_configure("room_archived_booked", background="#efe6f8")
         rooms_table.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         rooms_table_scroll = ttk.Scrollbar(
             rooms_table_wrap,
@@ -1983,10 +2019,15 @@ class ScheduleMainWindow:
             selected_building["item"] = building
             detail_title_var.set(str(building.name))
             detail_address_var.set(str(building.address or "Адресу не вказано"))
+            room_filter_sync_state["busy"] = True
             room_search_var.set("")
             room_type_filter_var.set("Усі")
             room_min_capacity_var.set("")
-            room_include_archived_var.set(False)
+            room_status_all_var.set(True)
+            room_status_active_var.set(True)
+            room_status_archived_var.set(True)
+            room_status_booked_var.set(True)
+            room_filter_sync_state["busy"] = False
             load_rooms()
             list_view.pack_forget()
             detail_view.pack(fill=tk.BOTH, expand=True)
@@ -2002,6 +2043,61 @@ class ScheduleMainWindow:
             if not allow_negative and value < 0:
                 raise ValueError(f"Поле '{field_name}' не може бути від'ємним.")
             return value
+
+        def parse_datetime_input(raw: str, *, field_name: str) -> datetime:
+            value = raw.strip()
+            if not value:
+                raise ValueError(f"Поле '{field_name}' обов'язкове.")
+            for fmt in ("%Y-%m-%d %H:%M", "%d.%m.%Y %H:%M"):
+                try:
+                    return datetime.strptime(value, fmt)
+                except ValueError:
+                    continue
+            try:
+                return datetime.fromisoformat(value)
+            except ValueError as exc:
+                raise ValueError(
+                    f"Поле '{field_name}' має бути у форматі YYYY-MM-DD HH:MM або DD.MM.YYYY HH:MM."
+                ) from exc
+
+        def schedule_room_filter_reload(delay_ms: int = 220) -> None:
+            if room_filter_sync_state["busy"]:
+                return
+            job_id = room_filter_reload_job["id"]
+            if job_id is not None:
+                try:
+                    self.root.after_cancel(job_id)
+                except ValueError:
+                    pass
+                room_filter_reload_job["id"] = None
+
+            def _execute_reload() -> None:
+                room_filter_reload_job["id"] = None
+                load_rooms()
+
+            room_filter_reload_job["id"] = self.root.after(delay_ms, _execute_reload)
+
+        def on_room_status_all_changed(*_args) -> None:
+            if room_filter_sync_state["busy"]:
+                return
+            value = bool(room_status_all_var.get())
+            room_filter_sync_state["busy"] = True
+            room_status_active_var.set(value)
+            room_status_archived_var.set(value)
+            room_status_booked_var.set(value)
+            room_filter_sync_state["busy"] = False
+            schedule_room_filter_reload(delay_ms=0)
+
+        def on_room_status_partial_changed(*_args) -> None:
+            if room_filter_sync_state["busy"]:
+                return
+            all_selected = bool(room_status_active_var.get()) and bool(room_status_archived_var.get()) and bool(
+                room_status_booked_var.get()
+            )
+            room_filter_sync_state["busy"] = True
+            room_status_all_var.set(all_selected)
+            room_filter_sync_state["busy"] = False
+            schedule_room_filter_reload(delay_ms=0)
 
         def get_selected_room() -> object | None:
             selected = rooms_table.selection()
@@ -2019,7 +2115,30 @@ class ScheduleMainWindow:
 
             items = rooms_state["items"]
             rooms_count_var.set(f"Аудиторій: {len(items)}")
+            now = datetime.utcnow()
             for room in items:
+                booking = room_booking_state.get(int(room.id))
+                is_booked = booking is not None
+                if is_booked:
+                    starts_at = booking.starts_at
+                    ends_at = booking.ends_at
+                    if starts_at <= now <= ends_at:
+                        status_text = f"Заброньована до {ends_at.strftime('%d.%m %H:%M')}"
+                    else:
+                        status_text = f"Бронь з {starts_at.strftime('%d.%m %H:%M')}"
+                else:
+                    status_text = "Активна"
+                if bool(room.is_archived):
+                    status_text = "Архівна" if not is_booked else f"Архівна • {status_text}"
+
+                row_tags: tuple[str, ...] = ()
+                if bool(room.is_archived) and is_booked:
+                    row_tags = ("room_archived_booked",)
+                elif bool(room.is_archived):
+                    row_tags = ("room_archived",)
+                elif is_booked:
+                    row_tags = ("room_booked",)
+
                 rooms_table.insert(
                     "",
                     tk.END,
@@ -2029,8 +2148,9 @@ class ScheduleMainWindow:
                         room_type_label_by_enum.get(room.room_type, "Інше"),
                         "" if room.capacity is None else str(room.capacity),
                         "" if room.floor is None else str(room.floor),
-                        "Архівна" if bool(room.is_archived) else "Активна",
+                        status_text,
                     ),
+                    tags=row_tags,
                 )
 
         def load_rooms() -> None:
@@ -2048,27 +2168,47 @@ class ScheduleMainWindow:
                     messagebox.showerror("Некоректний фільтр", "Невідомий тип аудиторії.", parent=self.root)
                     return
 
-            try:
-                min_capacity = parse_optional_int(
-                    room_min_capacity_var.get(),
-                    field_name="Мін. місткість",
-                    allow_negative=False,
-                )
-            except ValueError as exc:
-                messagebox.showerror("Некоректний фільтр", str(exc), parent=self.root)
-                return
+            min_capacity = None
+            raw_capacity = room_min_capacity_var.get().strip()
+            if raw_capacity:
+                if not raw_capacity.isdigit():
+                    return
+                min_capacity = int(raw_capacity)
 
             with session_scope() as session:
                 controller = RoomController(session=session)
                 rooms = controller.list_rooms(
                     building_id=building.id,
-                    include_archived=room_include_archived_var.get(),
+                    include_archived=True,
                     search=room_search_var.get().strip() or None,
                     room_type=room_type_filter,
                     min_capacity=min_capacity,
                 )
-            rooms_state["items"] = rooms
+                room_booking_state.clear()
+                room_booking_state.update(
+                    controller.upcoming_booking_map([int(room.id) for room in rooms])
+                )
+
+            show_active = bool(room_status_active_var.get())
+            show_archived = bool(room_status_archived_var.get())
+            show_booked = bool(room_status_booked_var.get())
+
+            filtered_rooms: list[object] = []
+            for room in rooms:
+                room_id = int(room.id)
+                is_archived = bool(room.is_archived)
+                is_booked = room_id in room_booking_state
+                include_room = (
+                    (show_active and (not is_archived and not is_booked))
+                    or (show_archived and is_archived)
+                    or (show_booked and is_booked)
+                )
+                if include_room:
+                    filtered_rooms.append(room)
+
+            rooms_state["items"] = filtered_rooms
             render_rooms()
+            refresh_room_action_state()
 
         def open_room_modal(room=None) -> None:
             building = selected_building["item"]
@@ -2179,17 +2319,109 @@ class ScheduleMainWindow:
             modal.update_idletasks()
             modal.geometry(f"+{self.root.winfo_rootx() + 220}+{self.root.winfo_rooty() + 120}")
 
-        def archive_selected_room() -> None:
+        def toggle_archive_selected_room() -> None:
             room = get_selected_room()
             if room is None:
-                messagebox.showerror("Архівація аудиторії", "Оберіть аудиторію у списку.", parent=self.root)
+                messagebox.showerror("Статус аудиторії", "Оберіть аудиторію у списку.", parent=self.root)
                 return
-            if not messagebox.askyesno("Архівація аудиторії", f"Архівувати аудиторію '{room.name}'?", parent=self.root):
+
+            is_archived = bool(room.is_archived)
+            action_title = "Розархівування аудиторії" if is_archived else "Архівація аудиторії"
+            question = (
+                f"Розархівувати аудиторію '{room.name}'?"
+                if is_archived
+                else f"Архівувати аудиторію '{room.name}'?"
+            )
+            if not messagebox.askyesno(action_title, question, parent=self.root):
                 return
+
             with session_scope() as session:
                 controller = RoomController(session=session)
-                controller.archive_room(room.id)
+                if is_archived:
+                    controller.unarchive_room(room.id)
+                else:
+                    controller.archive_room(room.id)
             load_rooms()
+
+        def open_book_room_modal(room=None) -> None:
+            target = room if room is not None else get_selected_room()
+            if target is None:
+                messagebox.showerror("Бронювання аудиторії", "Оберіть аудиторію у списку.", parent=self.root)
+                return
+            if bool(target.is_archived):
+                messagebox.showerror(
+                    "Бронювання аудиторії",
+                    "Архівовану аудиторію не можна забронювати. Спочатку розархівуйте її.",
+                    parent=self.root,
+                )
+                return
+
+            now = datetime.now().replace(second=0, microsecond=0)
+            default_start = now + timedelta(minutes=30 - (now.minute % 30 or 30))
+            default_end = default_start + timedelta(hours=1)
+
+            modal = tk.Toplevel(self.root)
+            modal.title("Бронювання аудиторії")
+            modal.transient(self.root)
+            modal.resizable(False, False)
+            modal.grab_set()
+
+            shell = ttk.Frame(modal, style="Card.TFrame", padding=14)
+            shell.pack(fill=tk.BOTH, expand=True)
+            ttk.Label(shell, text="Бронювання аудиторії", style="CardTitle.TLabel").pack(anchor="w")
+            ttk.Label(shell, text=f"Аудиторія: {target.name}", style="CardSubtle.TLabel").pack(anchor="w", pady=(2, 10))
+
+            title_var = tk.StringVar(value="")
+            starts_var = tk.StringVar(value=default_start.strftime("%Y-%m-%d %H:%M"))
+            ends_var = tk.StringVar(value=default_end.strftime("%Y-%m-%d %H:%M"))
+
+            ttk.Label(shell, text="Назва / примітка", style="Card.TLabel").pack(anchor="w")
+            ttk.Entry(shell, textvariable=title_var, width=42).pack(fill=tk.X, pady=(6, 10))
+            ttk.Label(shell, text="Початок", style="Card.TLabel").pack(anchor="w")
+            ttk.Entry(shell, textvariable=starts_var, width=24).pack(fill=tk.X, pady=(6, 10))
+            ttk.Label(shell, text="Кінець", style="Card.TLabel").pack(anchor="w")
+            ttk.Entry(shell, textvariable=ends_var, width=24).pack(fill=tk.X, pady=(6, 4))
+            ttk.Label(
+                shell,
+                text="Формат: YYYY-MM-DD HH:MM або DD.MM.YYYY HH:MM",
+                style="CardSubtle.TLabel",
+            ).pack(anchor="w", pady=(0, 10))
+
+            actions = ttk.Frame(shell, style="Card.TFrame")
+            actions.pack(fill=tk.X)
+
+            def on_submit_booking() -> None:
+                try:
+                    starts_at = parse_datetime_input(starts_var.get(), field_name="Початок")
+                    ends_at = parse_datetime_input(ends_var.get(), field_name="Кінець")
+                except ValueError as exc:
+                    messagebox.showerror("Некоректні дані", str(exc), parent=modal)
+                    return
+
+                try:
+                    with session_scope() as session:
+                        controller = RoomController(session=session)
+                        controller.create_room_booking(
+                            room_id=int(target.id),
+                            starts_at=starts_at,
+                            ends_at=ends_at,
+                            title=title_var.get().strip() or None,
+                        )
+                except Exception as exc:
+                    messagebox.showerror("Бронювання аудиторії", str(exc), parent=modal)
+                    return
+
+                modal.destroy()
+                load_rooms()
+
+            self._motion_button(actions, text="Скасувати", command=modal.destroy, primary=False, width=130).pack(side=tk.RIGHT)
+            self._motion_button(actions, text="Забронювати", command=on_submit_booking, primary=True, width=130).pack(
+                side=tk.RIGHT,
+                padx=(0, 8),
+            )
+
+            modal.update_idletasks()
+            modal.geometry(f"+{self.root.winfo_rootx() + 250}+{self.root.winfo_rooty() + 130}")
 
         def delete_selected_room() -> None:
             room = get_selected_room()
@@ -2235,17 +2467,62 @@ class ScheduleMainWindow:
             ttk.Label(shell, text=f"Корпус: {building.name}", style="CardSubtle.TLabel").pack(anchor="w", pady=(2, 10))
 
             mode_var = tk.StringVar(value="range")
-            ttk.Radiobutton(shell, text="Діапазон", value="range", variable=mode_var).pack(side=tk.LEFT, padx=(0, 10))
-            ttk.Radiobutton(shell, text="Список", value="list", variable=mode_var).pack(side=tk.LEFT)
+            mode_buttons: dict[str, tk.Button] = {}
+
+            tabs_shell = ttk.Frame(shell, style="Card.TFrame")
+            tabs_shell.pack(fill=tk.X, pady=(0, 8))
+            tabs_shell.grid_columnconfigure(0, weight=1)
+            tabs_shell.grid_columnconfigure(1, weight=1)
+
+            def set_bulk_mode(mode: str) -> None:
+                mode_var.set(mode)
+                refresh_mode_tabs()
+                render_mode_panel()
+
+            def refresh_mode_tabs() -> None:
+                active_mode = mode_var.get()
+                for mode_name, button in mode_buttons.items():
+                    is_active = mode_name == active_mode
+                    button.configure(
+                        bg=self.theme.ACCENT if is_active else self.theme.SURFACE_ALT,
+                        fg=self.theme.TEXT_LIGHT if is_active else self.theme.TEXT_PRIMARY,
+                        activebackground=self.theme.ACCENT_HOVER if is_active else self.theme.SECONDARY_HOVER,
+                        activeforeground=self.theme.TEXT_LIGHT if is_active else self.theme.TEXT_PRIMARY,
+                        relief=tk.FLAT,
+                        bd=0,
+                        cursor="hand2",
+                    )
+
+            def make_tab_button(*, label: str, mode: str, column: int) -> None:
+                button = tk.Button(
+                    tabs_shell,
+                    text=label,
+                    font=("Segoe UI", 10, "bold"),
+                    padx=12,
+                    pady=8,
+                    command=lambda m=mode: set_bulk_mode(m),
+                )
+                button.grid(row=0, column=column, sticky="ew", padx=(0, 6) if column == 0 else (6, 0))
+                mode_buttons[mode] = button
+
+            make_tab_button(label="Діапазон", mode="range", column=0)
+            make_tab_button(label="Список", mode="list", column=1)
 
             prefix_var = tk.StringVar(value=f"{building.name}-")
             start_var = tk.StringVar(value="101")
             end_var = tk.StringVar(value="120")
             step_var = tk.StringVar(value="1")
             exclude_var = tk.StringVar(value="")
+
+            mode_panel = ttk.Frame(shell, style="Card.TFrame")
+            mode_panel.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+
+            range_panel = ttk.Frame(mode_panel, style="Card.TFrame")
+            list_panel = ttk.Frame(mode_panel, style="Card.TFrame")
+
             list_text = tk.Text(
-                shell,
-                height=6,
+                list_panel,
+                height=8,
                 width=48,
                 bg=self.theme.SURFACE_ALT,
                 fg=self.theme.TEXT_PRIMARY,
@@ -2256,8 +2533,8 @@ class ScheduleMainWindow:
                 highlightcolor=self.theme.ACCENT,
             )
 
-            grid = ttk.Frame(shell, style="Card.TFrame")
-            grid.pack(fill=tk.X, pady=(8, 4))
+            grid = ttk.Frame(range_panel, style="Card.TFrame")
+            grid.pack(fill=tk.X)
             ttk.Label(grid, text="Префікс", style="Card.TLabel").grid(row=0, column=0, sticky="w")
             ttk.Entry(grid, textvariable=prefix_var, width=14).grid(row=1, column=0, sticky="w", pady=(4, 8))
             ttk.Label(grid, text="Початок", style="Card.TLabel").grid(row=0, column=1, sticky="w", padx=(10, 0))
@@ -2274,8 +2551,19 @@ class ScheduleMainWindow:
             )
             ttk.Entry(grid, textvariable=exclude_var, width=40).grid(row=3, column=0, columnspan=4, sticky="ew", pady=(4, 0))
 
-            ttk.Label(shell, text="Список назв: одна назва аудиторії на рядок", style="CardSubtle.TLabel").pack(anchor="w", pady=(4, 0))
-            list_text.pack(fill=tk.BOTH, expand=True, pady=(4, 10))
+            ttk.Label(list_panel, text="Список назв: одна назва аудиторії на рядок", style="CardSubtle.TLabel").pack(anchor="w")
+            list_text.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
+
+            def render_mode_panel() -> None:
+                range_panel.pack_forget()
+                list_panel.pack_forget()
+                if mode_var.get() == "list":
+                    list_panel.pack(fill=tk.BOTH, expand=True)
+                else:
+                    range_panel.pack(fill=tk.X)
+
+            refresh_mode_tabs()
+            render_mode_panel()
 
             settings_row = ttk.Frame(shell, style="Card.TFrame")
             settings_row.pack(fill=tk.X, pady=(0, 10))
@@ -2513,27 +2801,36 @@ class ScheduleMainWindow:
         cards_canvas.bind("<Configure>", on_cards_resize, add="+")
 
         def on_reset_room_filters() -> None:
+            room_filter_sync_state["busy"] = True
             room_search_var.set("")
             room_type_filter_var.set("Усі")
             room_min_capacity_var.set("")
-            room_include_archived_var.set(False)
+            room_status_all_var.set(True)
+            room_status_active_var.set(True)
+            room_status_archived_var.set(True)
+            room_status_booked_var.set(True)
+            room_filter_sync_state["busy"] = False
             load_rooms()
 
-        self._motion_button(
+        room_action_buttons: list[object] = []
+
+        button_new_room = self._motion_button(
             detail_actions,
             text="+ Нова аудиторія",
             command=lambda: open_room_modal(room=None),
             primary=True,
             width=150,
-        ).pack(side=tk.RIGHT)
-        self._motion_button(
+        )
+        room_action_buttons.append(button_new_room)
+        button_bulk_create = self._motion_button(
             detail_actions,
             text="+ Масове додавання",
             command=open_bulk_create_rooms_modal,
             primary=False,
             width=170,
-        ).pack(side=tk.RIGHT, padx=(0, 8))
-        self._motion_button(
+        )
+        room_action_buttons.append(button_bulk_create)
+        button_edit_room = self._motion_button(
             detail_actions,
             text="Редагувати",
             command=lambda: open_room_modal(room=get_selected_room()) if get_selected_room() is not None else messagebox.showerror(
@@ -2543,15 +2840,25 @@ class ScheduleMainWindow:
             ),
             primary=False,
             width=96,
-        ).pack(side=tk.RIGHT, padx=(0, 8))
-        self._motion_button(
+        )
+        room_action_buttons.append(button_edit_room)
+        archive_toggle_button = self._motion_button(
             detail_actions,
             text="Архівувати",
-            command=archive_selected_room,
+            command=toggle_archive_selected_room,
             primary=False,
-            width=110,
-        ).pack(side=tk.RIGHT, padx=(0, 8))
-        self._motion_button(
+            width=120,
+        )
+        room_action_buttons.append(archive_toggle_button)
+        button_book_room = self._motion_button(
+            detail_actions,
+            text="Забронювати",
+            command=lambda: open_book_room_modal(room=None),
+            primary=False,
+            width=120,
+        )
+        room_action_buttons.append(button_book_room)
+        button_delete_room = self._motion_button(
             detail_actions,
             text="Видалити",
             command=delete_selected_room,
@@ -2561,28 +2868,90 @@ class ScheduleMainWindow:
             hover_fill="#be123c",
             pressed_fill="#9f1239",
             text_color=self.theme.TEXT_LIGHT,
-        ).pack(side=tk.RIGHT, padx=(0, 8))
+        )
+        room_action_buttons.append(button_delete_room)
 
-        self._motion_button(
-            filters_row,
-            text="Застосувати",
-            command=load_rooms,
-            primary=False,
-            width=104,
-            height=34,
-        ).pack(side=tk.RIGHT)
-        self._motion_button(
-            filters_row,
+        def relayout_room_actions(_event=None) -> None:
+            width = max(1, detail_actions.winfo_width())
+            if width >= 1250:
+                columns = 6
+            elif width >= 1050:
+                columns = 5
+            elif width >= 820:
+                columns = 4
+            elif width >= 620:
+                columns = 3
+            elif width >= 420:
+                columns = 2
+            else:
+                columns = 1
+            max_columns = 6
+            for col in range(max_columns):
+                if col < columns:
+                    detail_actions.grid_columnconfigure(col, weight=1, uniform="room-action-col")
+                else:
+                    detail_actions.grid_columnconfigure(col, weight=0, uniform="")
+            for index, button in enumerate(room_action_buttons):
+                row = index // columns
+                col = index % columns
+                button.grid(row=row, column=col, sticky="ew", padx=4, pady=4)
+
+        def refresh_room_action_state(_event=None) -> None:
+            room = get_selected_room()
+            if room is not None and bool(room.is_archived):
+                archive_toggle_button.set_text("Розархівувати")
+            else:
+                archive_toggle_button.set_text("Архівувати")
+
+        room_context_menu = tk.Menu(self.root, tearoff=0)
+
+        def on_rooms_table_context_menu(event: tk.Event) -> str:
+            row_id = rooms_table.identify_row(event.y)
+            if not row_id:
+                return "break"
+            rooms_table.selection_set(row_id)
+            refresh_room_action_state()
+
+            room = get_selected_room()
+            if room is None:
+                return "break"
+
+            room_context_menu.delete(0, tk.END)
+            room_context_menu.add_command(label="Редагувати", command=lambda: open_room_modal(room=room))
+            room_context_menu.add_command(
+                label="Розархівувати" if bool(room.is_archived) else "Архівувати",
+                command=toggle_archive_selected_room,
+            )
+            room_context_menu.add_command(label="Забронювати", command=lambda: open_book_room_modal(room=room))
+            room_context_menu.add_separator()
+            room_context_menu.add_command(label="Видалити", command=delete_selected_room)
+            room_context_menu.tk_popup(event.x_root, event.y_root)
+            room_context_menu.grab_release()
+            return "break"
+
+        reset_filters_button = self._motion_button(
+            filters_shell,
             text="Скинути",
             command=on_reset_room_filters,
             primary=False,
-            width=104,
+            width=108,
             height=34,
-        ).pack(side=tk.RIGHT, padx=(0, 8))
+        )
+        on_filter_panel_resize()
 
-        room_search_entry.bind("<Return>", lambda _e: load_rooms(), add="+")
-        room_capacity_entry.bind("<Return>", lambda _e: load_rooms(), add="+")
+        room_search_var.trace_add("write", lambda *_args: schedule_room_filter_reload())
+        room_min_capacity_var.trace_add("write", lambda *_args: schedule_room_filter_reload())
+        room_status_all_var.trace_add("write", on_room_status_all_changed)
+        room_status_active_var.trace_add("write", on_room_status_partial_changed)
+        room_status_archived_var.trace_add("write", on_room_status_partial_changed)
+        room_status_booked_var.trace_add("write", on_room_status_partial_changed)
         room_type_box.bind("<<ComboboxSelected>>", lambda _e: load_rooms(), add="+")
+        filters_shell.bind("<Configure>", on_filter_panel_resize, add="+")
+        detail_actions.bind("<Configure>", relayout_room_actions, add="+")
+        relayout_room_actions()
+
+        rooms_table.bind("<<TreeviewSelect>>", refresh_room_action_state, add="+")
+        rooms_table.bind("<Button-3>", on_rooms_table_context_menu, add="+")
 
         def open_create_building_modal() -> None:
             modal = tk.Toplevel(self.root)

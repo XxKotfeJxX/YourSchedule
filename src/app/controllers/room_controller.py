@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy.orm import Session
 
 from app.domain.enums import RoomType
-from app.domain.models import RoomProfile
+from app.domain.models import RoomBooking, RoomProfile
 from app.repositories.room_repository import RoomRepository
 
 _UNSET = object()
@@ -144,6 +146,35 @@ class RoomController:
 
     def archive_room(self, room_id: int) -> RoomProfile:
         return self.repository.archive_room(room_id)
+
+    def unarchive_room(self, room_id: int) -> RoomProfile:
+        return self.repository.unarchive_room(room_id)
+
+    def create_room_booking(
+        self,
+        *,
+        room_id: int,
+        starts_at: datetime,
+        ends_at: datetime,
+        title: str | None = None,
+    ) -> RoomBooking:
+        return self.repository.create_room_booking(
+            room_id=room_id,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            title=title,
+        )
+
+    def upcoming_booking_map(
+        self,
+        room_ids: list[int],
+        *,
+        reference_time: datetime | None = None,
+    ) -> dict[int, RoomBooking]:
+        return self.repository.upcoming_booking_map(
+            room_ids=room_ids,
+            reference_time=reference_time,
+        )
 
     def delete_room(self, room_id: int) -> bool:
         return self.repository.delete_room(room_id)
