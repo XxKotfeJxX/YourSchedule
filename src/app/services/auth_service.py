@@ -12,7 +12,7 @@ from app.repositories.auth_repository import AuthRepository
 
 
 class AuthService:
-    ALLOWED_THEMES = {"ocean", "graphite", "sunrise"}
+    ALLOWED_THEMES = {"ocean", "graphite", "sunrise", "aurora", "sand", "berry"}
 
     def __init__(self, repository_cls: type[AuthRepository] = AuthRepository) -> None:
         self.repository_cls = repository_cls
@@ -161,16 +161,22 @@ class AuthService:
         company_name: str,
         timezone: str,
         theme: str,
+        language: str | None = None,
+        logo_path: str | None = None,
+        update_logo_path: bool = False,
     ) -> tuple[Company, CompanyProfile]:
         cleaned_name = company_name.strip()
         cleaned_timezone = timezone.strip()
         cleaned_theme = theme.strip().lower()
+        cleaned_language = language.strip().lower() if language is not None else None
         if not cleaned_name:
             raise ValueError("Назва компанії обов'язкова.")
         if not cleaned_timezone:
             raise ValueError("Часовий пояс обов'язковий.")
         if cleaned_theme not in self.ALLOWED_THEMES:
             raise ValueError("Невідома тема оформлення.")
+        if cleaned_language is not None and not cleaned_language:
+            raise ValueError("Мова інтерфейсу обов'язкова.")
 
         repository = self.repository_cls(session)
         company = repository.update_company_name(company_id=company_id, name=cleaned_name)
@@ -178,6 +184,10 @@ class AuthService:
             company_id=company_id,
             timezone=cleaned_timezone,
             theme=cleaned_theme,
+            language=cleaned_language,
+            update_language=cleaned_language is not None,
+            logo_path=logo_path,
+            update_logo_path=update_logo_path,
         )
         return company, profile
 

@@ -124,6 +124,9 @@ class AuthController:
         company_name: str,
         timezone: str,
         theme: str,
+        language: str | None = None,
+        logo_path: str | None = None,
+        update_logo_path: bool = False,
     ) -> tuple[Company, CompanyProfile]:
         return self.auth_service.update_company_profile(
             session=self.session,
@@ -131,4 +134,7 @@ class AuthController:
             company_name=company_name,
             timezone=timezone,
             theme=theme,
+            language=language,
+            logo_path=logo_path,
+            update_logo_path=update_logo_path,
         )

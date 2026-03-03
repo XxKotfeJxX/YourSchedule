@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import CheckConstraint, Date, DateTime, Enum, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, Date, DateTime, Enum, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.base import Base
@@ -23,6 +23,7 @@ class MarkType(Base):
         nullable=False,
     )
     duration_minutes: Mapped[int] = mapped_column(Integer, nullable=False)
+    is_archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     __table_args__ = (
         UniqueConstraint("company_id", "name", name="uq_mark_type_company_name"),
@@ -39,6 +40,7 @@ class DayPattern(Base):
         nullable=True,
     )
     name: Mapped[str] = mapped_column(String(100), nullable=False)
+    is_archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     items: Mapped[list[DayPatternItem]] = relationship(
         "DayPatternItem",
@@ -87,6 +89,8 @@ class WeekPattern(Base):
         ForeignKey("companies.id", ondelete="CASCADE"),
         nullable=True,
     )
+    name: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    is_archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     monday_pattern_id: Mapped[int] = mapped_column(
         ForeignKey("day_patterns.id", ondelete="RESTRICT"),

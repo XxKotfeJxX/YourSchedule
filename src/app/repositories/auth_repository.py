@@ -50,14 +50,16 @@ class AuthRepository:
         timezone: str,
         theme: str,
         language: str | None = None,
+        update_language: bool = False,
         logo_path: str | None = None,
+        update_logo_path: bool = False,
     ) -> CompanyProfile:
         profile = self.get_or_create_company_profile(company_id=company_id)
         profile.timezone = timezone
         profile.theme = theme
-        if language is not None:
+        if update_language and language is not None:
             profile.language = language
-        if logo_path is not None:
+        if update_logo_path:
             profile.logo_path = logo_path
         self.session.flush()
         return profile

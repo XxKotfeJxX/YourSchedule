@@ -13,6 +13,17 @@ from app.services.schedule_validator import (
     ValidationReport,
 )
 from app.services.time_block_generator import TimeBlockGeneratorService
+from app.services.avatar_storage import AvatarStorageService
+from app.services.empty_day_template_service import EmptyDayTemplateService
+from app.services.template_service import TemplateService
+from app.services.template_models import (
+    DayTemplateOverview,
+    DayTemplatePreview,
+    MarkTypeOverview,
+    TemplatesOverview,
+    WeekTemplateOverview,
+    WeekTemplatePreview,
+)
 
 __all__ = [
     "AuthService",
@@ -25,4 +36,13 @@ __all__ = [
     "ScheduleValidatorService",
     "ValidationIssue",
     "ValidationReport",
+    "AvatarStorageService",
+    "EmptyDayTemplateService",
+    "TemplateService",
+    "TemplatesOverview",
+    "MarkTypeOverview",
+    "DayTemplateOverview",
+    "DayTemplatePreview",
+    "WeekTemplateOverview",
+    "WeekTemplatePreview",
 ]

@@ -23,6 +23,16 @@ class ResourceType(str, Enum):
     SUBGROUP = "SUBGROUP"
 
 
+class RoomType(str, Enum):
+    LECTURE_HALL = "LECTURE_HALL"
+    CLASSROOM = "CLASSROOM"
+    LAB = "LAB"
+    COMPUTER_LAB = "COMPUTER_LAB"
+    TEACHERS_OFFICE = "TEACHERS_OFFICE"
+    TECHNICAL = "TECHNICAL"
+    OTHER = "OTHER"
+
+
 class UserRole(str, Enum):
     COMPANY = "COMPANY"
     PERSONAL = "PERSONAL"

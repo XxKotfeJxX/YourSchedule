@@ -35,6 +35,24 @@ def _apply_lightweight_schema_upgrades() -> None:
         if not _column_exists(connection, "resources", "parent_group_id"):
             connection.execute(text("ALTER TABLE resources ADD COLUMN parent_group_id INTEGER"))
 
+        if not _column_exists(connection, "mark_types", "is_archived"):
+            connection.execute(
+                text("ALTER TABLE mark_types ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT FALSE")
+            )
+
+        if not _column_exists(connection, "day_patterns", "is_archived"):
+            connection.execute(
+                text("ALTER TABLE day_patterns ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT FALSE")
+            )
+
+        if not _column_exists(connection, "week_patterns", "is_archived"):
+            connection.execute(
+                text("ALTER TABLE week_patterns ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT FALSE")
+            )
+
+        if not _column_exists(connection, "week_patterns", "name"):
+            connection.execute(text("ALTER TABLE week_patterns ADD COLUMN name VARCHAR(120)"))
+
         if dialect == "postgresql":
             connection.execute(
                 text(
