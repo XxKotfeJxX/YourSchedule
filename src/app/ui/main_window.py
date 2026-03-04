@@ -9,6 +9,7 @@ from PIL import Image, ImageDraw, ImageTk, UnidentifiedImageError
 from sqlalchemy.exc import IntegrityError
 
 from app.config.database import session_scope
+from app.controllers.academic_controller import AcademicController
 from app.controllers.auth_controller import AuthController
 from app.controllers.building_controller import BuildingController
 from app.controllers.calendar_controller import CalendarController
@@ -545,7 +546,9 @@ class ScheduleMainWindow:
         subject_sessions_var = tk.StringVar(value="4")
         subject_max_week_var = tk.StringVar(value="2")
         subject_teacher_var = tk.StringVar()
+        subject_target_var = tk.StringVar(value="Група")
         subject_group_var = tk.StringVar()
+        subject_stream_var = tk.StringVar()
 
         header = ttk.Frame(parent, style="Card.TFrame")
         header.pack(fill=tk.X, pady=(0, 8))
@@ -595,9 +598,21 @@ class ScheduleMainWindow:
         ttk.Label(subject_box, text="Викладач").grid(row=1, column=0, sticky="w", pady=(8, 0))
         teacher_box = ttk.Combobox(subject_box, textvariable=subject_teacher_var, width=20, state="readonly")
         teacher_box.grid(row=1, column=1, sticky="w", padx=(6, 12), pady=(8, 0))
-        ttk.Label(subject_box, text="Група").grid(row=1, column=2, sticky="w", pady=(8, 0))
+        ttk.Label(subject_box, text="Ціль").grid(row=1, column=2, sticky="w", pady=(8, 0))
+        subject_target_box = ttk.Combobox(
+            subject_box,
+            textvariable=subject_target_var,
+            values=["Група", "Потік"],
+            width=10,
+            state="readonly",
+        )
+        subject_target_box.grid(row=1, column=3, sticky="w", padx=(6, 12), pady=(8, 0))
+        ttk.Label(subject_box, text="Група").grid(row=1, column=4, sticky="w", pady=(8, 0))
         subject_group_box = ttk.Combobox(subject_box, textvariable=subject_group_var, width=20, state="readonly")
-        subject_group_box.grid(row=1, column=3, sticky="w", padx=(6, 12), pady=(8, 0))
+        subject_group_box.grid(row=1, column=5, sticky="w", padx=(6, 12), pady=(8, 0))
+        ttk.Label(subject_box, text="Потік").grid(row=1, column=6, sticky="w", pady=(8, 0))
+        subject_stream_box = ttk.Combobox(subject_box, textvariable=subject_stream_var, width=22, state="readonly")
+        subject_stream_box.grid(row=1, column=7, sticky="w", padx=(6, 0), pady=(8, 0))
 
         buttons = ttk.Frame(parent, style="Card.TFrame")
         buttons.pack(fill=tk.X, pady=(8, 8))
@@ -635,6 +650,24 @@ class ScheduleMainWindow:
                 raise ValueError("Оберіть групу для предмета.")
             return int(raw.split("|", maxsplit=1)[0].strip())
 
+        def selected_subject_stream_id() -> int:
+            raw = subject_stream_var.get().strip()
+            if not raw:
+                raise ValueError("Оберіть потік для предмета.")
+            return int(raw.split("|", maxsplit=1)[0].strip())
+
+        def selected_subject_target() -> str:
+            normalized = subject_target_var.get().strip().lower()
+            value = {"група": "GROUP", "потік": "STREAM"}.get(normalized)
+            if value is None:
+                raise ValueError("Оберіть ціль предмета: група або потік.")
+            return value
+
+        def refresh_subject_target_controls() -> None:
+            is_stream = selected_subject_target() == "STREAM"
+            subject_group_box.configure(state="disabled" if is_stream else "readonly")
+            subject_stream_box.configure(state="readonly" if is_stream else "disabled")
+
         def load_reference_data() -> None:
             with session_scope() as session:
                 calendar = CalendarController(session=session)
@@ -642,6 +675,7 @@ class ScheduleMainWindow:
                 resources = ResourceController(session=session)
                 groups = resources.list_resources(resource_type=ResourceType.GROUP, company_id=company_id)
                 teachers = resources.list_resources(resource_type=ResourceType.TEACHER, company_id=company_id)
+                streams = AcademicController(session=session).list_streams(company_id=company_id, include_archived=False)
 
             period_values = [f"{item.id} | {item.start_date}..{item.end_date}" for item in periods]
             period_box["values"] = period_values
@@ -664,6 +698,22 @@ class ScheduleMainWindow:
             subject_group_box["values"] = group_values
             if group_values and not subject_group_var.get():
                 subject_group_var.set(group_values[0])
+
+            stream_values = []
+            for stream in streams:
+                year_suffix = f" • набір {stream.admission_year}" if stream.admission_year is not None else ""
+                stream_values.append(f"{stream.id} | {stream.name}{year_suffix}")
+            subject_stream_box["values"] = stream_values
+            if stream_values and (subject_stream_var.get() not in stream_values):
+                subject_stream_var.set(stream_values[0])
+            if not stream_values:
+                subject_stream_var.set("")
+
+            try:
+                refresh_subject_target_controls()
+            except ValueError:
+                subject_target_var.set("Група")
+                refresh_subject_target_controls()
 
         def render_grid(grid) -> None:
             for item in tree.get_children():
@@ -731,10 +781,11 @@ class ScheduleMainWindow:
                 sessions_total = int(subject_sessions_var.get().strip())
                 max_per_week = int(subject_max_week_var.get().strip())
                 teacher_id = selected_teacher_resource_id()
-                group_id = selected_subject_group_id()
+                target_mode = selected_subject_target()
 
                 with session_scope() as session:
                     req_controller = RequirementController(session=session)
+                    resource_controller = ResourceController(session=session)
                     requirement = req_controller.create_requirement(
                         name=name,
                         duration_blocks=duration,
@@ -743,11 +794,26 @@ class ScheduleMainWindow:
                         company_id=company_id,
                     )
                     req_controller.assign_resource(requirement.id, teacher_id, "TEACHER")
-                    req_controller.assign_resource(requirement.id, group_id, "GROUP")
+
+                    if target_mode == "STREAM":
+                        stream_id = selected_subject_stream_id()
+                        stream_groups = resource_controller.list_resources(
+                            resource_type=ResourceType.GROUP,
+                            company_id=company_id,
+                            stream_id=stream_id,
+                        )
+                        if not stream_groups:
+                            raise ValueError("У вибраному потоці немає жодної групи.")
+                        for group in stream_groups:
+                            req_controller.assign_resource(requirement.id, group.id, "GROUP")
+                    else:
+                        group_id = selected_subject_group_id()
+                        req_controller.assign_resource(requirement.id, group_id, "GROUP")
             except Exception as exc:
                 messagebox.showerror("Не вдалося додати предмет", str(exc))
                 return
-            status_var.set(f"Предмет '{name}' додано.")
+            target_label = "потоку" if selected_subject_target() == "STREAM" else "групи"
+            status_var.set(f"Предмет '{name}' додано для {target_label}.")
 
         def on_create_default_period() -> None:
             try:
@@ -809,18 +875,49 @@ class ScheduleMainWindow:
         ).pack(side=tk.LEFT)
 
         load_reference_data()
+        subject_target_box.bind("<<ComboboxSelected>>", lambda _e: refresh_subject_target_controls(), add="+")
         if period_var.get():
             on_load_week()
 
 
     def _build_company_groups_view(self, parent: ttk.Frame, company_id: int) -> None:
         group_state: dict[str, int | str | None] = {"id": None, "name": None}
+        structure_state: dict[str, object] = {
+            "department_by_id": {},
+            "specialty_by_id": {},
+            "stream_by_id": {},
+            "sync": False,
+        }
+        department_filter_var = tk.StringVar(value="Усі кафедри")
+        specialty_filter_var = tk.StringVar(value="Усі спеціальності")
+        stream_filter_var = tk.StringVar(value="Усі потоки")
     
         def subgroup_short_name(full_name: str) -> str:
             marker = "::"
             if marker not in full_name:
                 return full_name
             return full_name.split(marker, maxsplit=1)[1]
+
+        def parse_selected_prefixed_id(raw: str) -> int | None:
+            value = raw.strip()
+            if not value or "|" not in value:
+                return None
+            try:
+                return int(value.split("|", maxsplit=1)[0].strip())
+            except ValueError:
+                return None
+
+        def parse_optional_positive_int(raw: str, *, field_name: str) -> int | None:
+            value = raw.strip()
+            if not value:
+                return None
+            try:
+                parsed = int(value)
+            except ValueError as exc:
+                raise ValueError(f"Поле '{field_name}' має бути цілим числом.") from exc
+            if parsed <= 0:
+                raise ValueError(f"Поле '{field_name}' має бути більше нуля.")
+            return parsed
     
         content = ttk.Frame(parent, style="Card.TFrame")
         content.pack(fill=tk.BOTH, expand=True)
@@ -833,21 +930,71 @@ class ScheduleMainWindow:
     
         header = ttk.Frame(main_view, style="Card.TFrame")
         header.pack(fill=tk.X, pady=(0, 8))
+        header_actions = ttk.Frame(header, style="Card.TFrame")
+        header_actions.pack(side=tk.RIGHT)
         self._motion_button(
-            header,
-            text="+ Створити групу",
+            header_actions,
+            text="+ Група",
             command=lambda: open_create_group_modal(),
             primary=True,
-            width=190,
+            width=128,
         ).pack(side=tk.RIGHT)
+        self._motion_button(
+            header_actions,
+            text="+ Потік",
+            command=lambda: open_create_stream_modal(),
+            primary=False,
+            width=110,
+        ).pack(side=tk.RIGHT, padx=(0, 6))
+        self._motion_button(
+            header_actions,
+            text="+ Спеціальність",
+            command=lambda: open_create_specialty_modal(),
+            primary=False,
+            width=150,
+        ).pack(side=tk.RIGHT, padx=(0, 6))
+        self._motion_button(
+            header_actions,
+            text="+ Кафедра",
+            command=lambda: open_create_department_modal(),
+            primary=False,
+            width=128,
+        ).pack(side=tk.RIGHT, padx=(0, 6))
         titles = ttk.Frame(header, style="Card.TFrame")
         titles.pack(side=tk.LEFT, fill=tk.X, expand=True)
         ttk.Label(titles, text="Групи", style="CardTitle.TLabel").pack(anchor="w")
         ttk.Label(
             titles,
-            text="Картки груп: ЛКМ - відкрити сторінку, ПКМ - видалити.",
+            text="Ієрархія: кафедра → спеціальність → потік → група. ЛКМ - відкрити, ПКМ - видалити.",
             style="CardSubtle.TLabel",
         ).pack(anchor="w", pady=(2, 0))
+
+        structure_filters = ttk.Frame(main_view, style="Card.TFrame")
+        structure_filters.pack(fill=tk.X, pady=(0, 8))
+        ttk.Label(structure_filters, text="Кафедра", style="Card.TLabel").pack(side=tk.LEFT)
+        department_filter_box = ttk.Combobox(
+            structure_filters,
+            textvariable=department_filter_var,
+            state="readonly",
+            width=24,
+        )
+        department_filter_box.pack(side=tk.LEFT, padx=(8, 12))
+        ttk.Label(structure_filters, text="Спеціальність", style="Card.TLabel").pack(side=tk.LEFT)
+        specialty_filter_box = ttk.Combobox(
+            structure_filters,
+            textvariable=specialty_filter_var,
+            state="readonly",
+            width=26,
+        )
+        specialty_filter_box.pack(side=tk.LEFT, padx=(8, 12))
+        ttk.Label(structure_filters, text="Потік", style="Card.TLabel").pack(side=tk.LEFT)
+        stream_filter_box = ttk.Combobox(
+            structure_filters,
+            textvariable=stream_filter_var,
+            state="readonly",
+            width=24,
+        )
+        stream_filter_box.pack(side=tk.LEFT, padx=(8, 0))
     
         cards_container = ttk.Frame(main_view, style="Card.TFrame")
         cards_container.pack(fill=tk.BOTH, expand=True, pady=(6, 0))
@@ -899,9 +1046,10 @@ class ScheduleMainWindow:
         )
         back_button.pack(side=tk.LEFT)
         ttk.Label(detail_nav, textvariable=detail_title_var, style="CardTitle.TLabel").pack(side=tk.LEFT, padx=(10, 0))
+        detail_meta_var = tk.StringVar(value="")
         detail_subtitle = ttk.Label(
             detail_body,
-            text="Додавай учасників за логіном і перетягуй їх між підгрупами.",
+            textvariable=detail_meta_var,
             style="CardSubtle.TLabel",
         )
         detail_subtitle.pack(anchor="w", pady=(0, 10))
@@ -1133,7 +1281,338 @@ class ScheduleMainWindow:
         detail_canvas.bind("<MouseWheel>", detail_wheel, add="+")
         detail_canvas.bind("<Button-4>", detail_wheel_up, add="+")
         detail_canvas.bind("<Button-5>", detail_wheel_down, add="+")
-    
+
+        def selected_department_id() -> int | None:
+            return parse_selected_prefixed_id(department_filter_var.get())
+
+        def selected_specialty_id() -> int | None:
+            return parse_selected_prefixed_id(specialty_filter_var.get())
+
+        def selected_stream_id() -> int | None:
+            return parse_selected_prefixed_id(stream_filter_var.get())
+
+        def load_structure_filters() -> None:
+            current_department_id = selected_department_id()
+            current_specialty_id = selected_specialty_id()
+            current_stream_id = selected_stream_id()
+
+            with session_scope() as session:
+                academic = AcademicController(session=session)
+                departments = academic.list_departments(company_id=company_id, include_archived=False)
+
+                allowed_department_ids = {item.id for item in departments}
+                if current_department_id not in allowed_department_ids:
+                    current_department_id = None
+
+                specialties = academic.list_specialties(
+                    company_id=company_id,
+                    department_id=current_department_id,
+                    include_archived=False,
+                )
+                allowed_specialty_ids = {item.id for item in specialties}
+                if current_specialty_id not in allowed_specialty_ids:
+                    current_specialty_id = None
+
+                streams = academic.list_streams(
+                    company_id=company_id,
+                    specialty_id=current_specialty_id,
+                    include_archived=False,
+                )
+                allowed_stream_ids = {item.id for item in streams}
+                if current_stream_id not in allowed_stream_ids:
+                    current_stream_id = None
+
+            structure_state["department_by_id"] = {item.id: item for item in departments}
+            structure_state["specialty_by_id"] = {item.id: item for item in specialties}
+            structure_state["stream_by_id"] = {item.id: item for item in streams}
+
+            department_values = [f"{item.id} | {item.name}" for item in departments]
+            specialty_values = [
+                f"{item.id} | {item.code} — {item.name}" if item.code else f"{item.id} | {item.name}"
+                for item in specialties
+            ]
+            stream_values = []
+            for item in streams:
+                year_suffix = f" • набір {item.admission_year}" if item.admission_year is not None else ""
+                stream_values.append(f"{item.id} | {item.name}{year_suffix}")
+
+            structure_state["sync"] = True
+            department_filter_box["values"] = ["Усі кафедри"] + department_values
+            specialty_filter_box["values"] = ["Усі спеціальності"] + specialty_values
+            stream_filter_box["values"] = ["Усі потоки"] + stream_values
+
+            if current_department_id is None:
+                department_filter_var.set("Усі кафедри")
+            else:
+                department_filter_var.set(f"{current_department_id} | {structure_state['department_by_id'][current_department_id].name}")
+
+            if current_specialty_id is None:
+                specialty_filter_var.set("Усі спеціальності")
+            else:
+                specialty = structure_state["specialty_by_id"][current_specialty_id]
+                specialty_filter_var.set(
+                    f"{specialty.id} | {specialty.code} — {specialty.name}" if specialty.code else f"{specialty.id} | {specialty.name}"
+                )
+
+            if current_stream_id is None:
+                stream_filter_var.set("Усі потоки")
+            else:
+                stream = structure_state["stream_by_id"][current_stream_id]
+                year_suffix = f" • набір {stream.admission_year}" if stream.admission_year is not None else ""
+                stream_filter_var.set(f"{stream.id} | {stream.name}{year_suffix}")
+            structure_state["sync"] = False
+
+        def on_department_filter_change(_event=None) -> None:
+            if structure_state["sync"]:
+                return
+            load_structure_filters()
+            render_group_cards()
+
+        def on_specialty_filter_change(_event=None) -> None:
+            if structure_state["sync"]:
+                return
+            load_structure_filters()
+            render_group_cards()
+
+        def on_stream_filter_change(_event=None) -> None:
+            if structure_state["sync"]:
+                return
+            render_group_cards()
+
+        def open_create_department_modal() -> None:
+            modal = tk.Toplevel(self.root)
+            modal.title("Нова кафедра")
+            modal.transient(self.root)
+            modal.resizable(False, False)
+            modal.grab_set()
+
+            shell = ttk.Frame(modal, style="Card.TFrame", padding=14)
+            shell.pack(fill=tk.BOTH, expand=True)
+            ttk.Label(shell, text="Створення кафедри", style="CardTitle.TLabel").pack(anchor="w")
+
+            name_var = tk.StringVar(value="")
+            short_name_var = tk.StringVar(value="")
+
+            ttk.Label(shell, text="Назва", style="Card.TLabel").pack(anchor="w", pady=(10, 0))
+            name_entry = ttk.Entry(shell, textvariable=name_var, width=44)
+            name_entry.pack(fill=tk.X, pady=(6, 8))
+            ttk.Label(shell, text="Скорочення (опціонально)", style="Card.TLabel").pack(anchor="w")
+            ttk.Entry(shell, textvariable=short_name_var, width=24).pack(fill=tk.X, pady=(6, 12))
+
+            footer = ttk.Frame(shell, style="Card.TFrame")
+            footer.pack(fill=tk.X)
+
+            def on_submit_department() -> None:
+                clean_name = name_var.get().strip()
+                if not clean_name:
+                    messagebox.showerror("Некоректні дані", "Назва кафедри обов'язкова.", parent=modal)
+                    return
+                try:
+                    with session_scope() as session:
+                        created = AcademicController(session=session).create_department(
+                            name=clean_name,
+                            short_name=short_name_var.get().strip() or None,
+                            company_id=company_id,
+                        )
+                except IntegrityError:
+                    messagebox.showerror("Не вдалося створити кафедру", "Кафедра з такою назвою або скороченням вже існує.", parent=modal)
+                    return
+                except Exception as exc:
+                    messagebox.showerror("Не вдалося створити кафедру", str(exc), parent=modal)
+                    return
+
+                modal.destroy()
+                load_structure_filters()
+                department_filter_var.set(f"{created.id} | {created.name}")
+                on_department_filter_change()
+
+            self._motion_button(footer, text="Скасувати", command=modal.destroy, primary=False, width=130).pack(side=tk.RIGHT)
+            self._motion_button(footer, text="Створити", command=on_submit_department, primary=True, width=130).pack(
+                side=tk.RIGHT,
+                padx=(0, 8),
+            )
+            name_entry.focus_set()
+
+        def open_create_specialty_modal() -> None:
+            with session_scope() as session:
+                departments = AcademicController(session=session).list_departments(company_id=company_id, include_archived=False)
+            if not departments:
+                messagebox.showerror("Спеціальність", "Спочатку створіть кафедру.", parent=self.root)
+                return
+
+            modal = tk.Toplevel(self.root)
+            modal.title("Нова спеціальність")
+            modal.transient(self.root)
+            modal.resizable(False, False)
+            modal.grab_set()
+
+            shell = ttk.Frame(modal, style="Card.TFrame", padding=14)
+            shell.pack(fill=tk.BOTH, expand=True)
+            ttk.Label(shell, text="Створення спеціальності", style="CardTitle.TLabel").pack(anchor="w")
+
+            department_values = [
+                f"{item.id} | {item.short_name} — {item.name}" if item.short_name else f"{item.id} | {item.name}"
+                for item in departments
+            ]
+            department_var = tk.StringVar(value=department_values[0])
+            name_var = tk.StringVar(value="")
+            code_var = tk.StringVar(value="")
+            duration_var = tk.StringVar(value="")
+            degree_var = tk.StringVar(value="Бакалавр")
+            degree_code_by_label = {
+                "Бакалавр": "BACHELOR",
+                "Магістр": "MASTER",
+                "Доктор": "PHD",
+                "Інше": "OTHER",
+            }
+
+            ttk.Label(shell, text="Кафедра", style="Card.TLabel").pack(anchor="w", pady=(10, 0))
+            ttk.Combobox(shell, textvariable=department_var, values=department_values, state="readonly", width=46).pack(
+                fill=tk.X,
+                pady=(6, 8),
+            )
+            ttk.Label(shell, text="Назва", style="Card.TLabel").pack(anchor="w")
+            name_entry = ttk.Entry(shell, textvariable=name_var, width=46)
+            name_entry.pack(fill=tk.X, pady=(6, 8))
+            ttk.Label(shell, text="Код (опціонально)", style="Card.TLabel").pack(anchor="w")
+            ttk.Entry(shell, textvariable=code_var, width=26).pack(fill=tk.X, pady=(6, 8))
+            ttk.Label(shell, text="Рівень", style="Card.TLabel").pack(anchor="w")
+            ttk.Combobox(shell, textvariable=degree_var, values=list(degree_code_by_label.keys()), state="readonly", width=18).pack(
+                fill=tk.X,
+                pady=(6, 8),
+            )
+            ttk.Label(shell, text="Тривалість (років, опціонально)", style="Card.TLabel").pack(anchor="w")
+            ttk.Entry(shell, textvariable=duration_var, width=12).pack(fill=tk.X, pady=(6, 12))
+
+            footer = ttk.Frame(shell, style="Card.TFrame")
+            footer.pack(fill=tk.X)
+
+            def on_submit_specialty() -> None:
+                specialty_name = name_var.get().strip()
+                if not specialty_name:
+                    messagebox.showerror("Некоректні дані", "Назва спеціальності обов'язкова.", parent=modal)
+                    return
+                department_id = parse_selected_prefixed_id(department_var.get())
+                if department_id is None:
+                    messagebox.showerror("Некоректні дані", "Оберіть кафедру зі списку.", parent=modal)
+                    return
+                try:
+                    duration_years = parse_optional_positive_int(duration_var.get(), field_name="Тривалість")
+                    with session_scope() as session:
+                        created = AcademicController(session=session).create_specialty(
+                            department_id=department_id,
+                            name=specialty_name,
+                            code=code_var.get().strip() or None,
+                            degree_level=degree_code_by_label[degree_var.get()],
+                            duration_years=duration_years,
+                            company_id=company_id,
+                        )
+                except IntegrityError:
+                    messagebox.showerror("Не вдалося створити спеціальність", "Спеціальність з такою назвою або кодом вже існує.", parent=modal)
+                    return
+                except Exception as exc:
+                    messagebox.showerror("Не вдалося створити спеціальність", str(exc), parent=modal)
+                    return
+
+                modal.destroy()
+                load_structure_filters()
+                on_department_filter_change()
+                specialty_filter_var.set(f"{created.id} | {created.code} — {created.name}" if created.code else f"{created.id} | {created.name}")
+                on_specialty_filter_change()
+
+            self._motion_button(footer, text="Скасувати", command=modal.destroy, primary=False, width=130).pack(side=tk.RIGHT)
+            self._motion_button(footer, text="Створити", command=on_submit_specialty, primary=True, width=130).pack(
+                side=tk.RIGHT,
+                padx=(0, 8),
+            )
+            name_entry.focus_set()
+
+        def open_create_stream_modal() -> None:
+            with session_scope() as session:
+                specialties_with_departments = AcademicController(session=session).list_specialties_with_departments(company_id=company_id)
+            if not specialties_with_departments:
+                messagebox.showerror("Потік", "Спочатку створіть спеціальність.", parent=self.root)
+                return
+
+            modal = tk.Toplevel(self.root)
+            modal.title("Новий потік")
+            modal.transient(self.root)
+            modal.resizable(False, False)
+            modal.grab_set()
+
+            shell = ttk.Frame(modal, style="Card.TFrame", padding=14)
+            shell.pack(fill=tk.BOTH, expand=True)
+            ttk.Label(shell, text="Створення потоку", style="CardTitle.TLabel").pack(anchor="w")
+
+            specialty_values = []
+            for specialty, department in specialties_with_departments:
+                dep_label = department.short_name or department.name
+                specialty_values.append(f"{specialty.id} | {specialty.name} ({dep_label})")
+            specialty_var = tk.StringVar(value=specialty_values[0])
+            name_var = tk.StringVar(value="")
+            admission_year_var = tk.StringVar(value="")
+            graduation_year_var = tk.StringVar(value="")
+            study_year_var = tk.StringVar(value="")
+
+            ttk.Label(shell, text="Спеціальність", style="Card.TLabel").pack(anchor="w", pady=(10, 0))
+            ttk.Combobox(shell, textvariable=specialty_var, values=specialty_values, state="readonly", width=48).pack(
+                fill=tk.X,
+                pady=(6, 8),
+            )
+            ttk.Label(shell, text="Назва потоку", style="Card.TLabel").pack(anchor="w")
+            name_entry = ttk.Entry(shell, textvariable=name_var, width=36)
+            name_entry.pack(fill=tk.X, pady=(6, 8))
+            ttk.Label(shell, text="Рік набору (опціонально)", style="Card.TLabel").pack(anchor="w")
+            ttk.Entry(shell, textvariable=admission_year_var, width=12).pack(fill=tk.X, pady=(6, 8))
+            ttk.Label(shell, text="Очікуваний рік випуску (опціонально)", style="Card.TLabel").pack(anchor="w")
+            ttk.Entry(shell, textvariable=graduation_year_var, width=12).pack(fill=tk.X, pady=(6, 8))
+            ttk.Label(shell, text="Поточний курс (опціонально)", style="Card.TLabel").pack(anchor="w")
+            ttk.Entry(shell, textvariable=study_year_var, width=12).pack(fill=tk.X, pady=(6, 12))
+
+            footer = ttk.Frame(shell, style="Card.TFrame")
+            footer.pack(fill=tk.X)
+
+            def on_submit_stream() -> None:
+                stream_name = name_var.get().strip()
+                if not stream_name:
+                    messagebox.showerror("Некоректні дані", "Назва потоку обов'язкова.", parent=modal)
+                    return
+                specialty_id = parse_selected_prefixed_id(specialty_var.get())
+                if specialty_id is None:
+                    messagebox.showerror("Некоректні дані", "Оберіть спеціальність зі списку.", parent=modal)
+                    return
+                try:
+                    admission_year = parse_optional_positive_int(admission_year_var.get(), field_name="Рік набору")
+                    graduation_year = parse_optional_positive_int(graduation_year_var.get(), field_name="Рік випуску")
+                    study_year = parse_optional_positive_int(study_year_var.get(), field_name="Поточний курс")
+                    with session_scope() as session:
+                        created = AcademicController(session=session).create_stream(
+                            specialty_id=specialty_id,
+                            name=stream_name,
+                            admission_year=admission_year,
+                            expected_graduation_year=graduation_year,
+                            study_year=study_year,
+                            company_id=company_id,
+                        )
+                except IntegrityError:
+                    messagebox.showerror("Не вдалося створити потік", "Потік з такою назвою вже існує для цієї спеціальності.", parent=modal)
+                    return
+                except Exception as exc:
+                    messagebox.showerror("Не вдалося створити потік", str(exc), parent=modal)
+                    return
+
+                modal.destroy()
+                load_structure_filters()
+                stream_filter_var.set(f"{created.id} | {created.name}")
+                on_stream_filter_change()
+
+            self._motion_button(footer, text="Скасувати", command=modal.destroy, primary=False, width=130).pack(side=tk.RIGHT)
+            self._motion_button(footer, text="Створити", command=on_submit_stream, primary=True, width=130).pack(
+                side=tk.RIGHT,
+                padx=(0, 8),
+            )
+            name_entry.focus_set()
+
         def open_main_view() -> None:
             group_state["id"] = None
             group_state["name"] = None
@@ -1176,12 +1655,30 @@ class ScheduleMainWindow:
             else:
                 render_group_cards()
     
-        def load_group_cards_data() -> list[tuple[int, str, int]]:
+        def load_group_cards_data() -> list[tuple[int, str, int, str]]:
+            stream_id_filter = selected_stream_id()
+            has_department_filter = selected_department_id() is not None
+            has_specialty_filter = selected_specialty_id() is not None
             with session_scope() as session:
                 auth_controller = AuthController(session=session)
                 resource_controller = ResourceController(session=session)
-                groups = resource_controller.list_resources(resource_type=ResourceType.GROUP, company_id=company_id)
-                result: list[tuple[int, str, int]] = []
+                academic_controller = AcademicController(session=session)
+                groups = resource_controller.list_resources(
+                    resource_type=ResourceType.GROUP,
+                    company_id=company_id,
+                    stream_id=stream_id_filter,
+                )
+                streams = academic_controller.list_streams(company_id=company_id, include_archived=True)
+                specialties = academic_controller.list_specialties(company_id=company_id, include_archived=True)
+                departments = academic_controller.list_departments(company_id=company_id, include_archived=True)
+                stream_by_id = {item.id: item for item in streams}
+                specialty_by_id = {item.id: item for item in specialties}
+                department_by_id = {item.id: item for item in departments}
+                if stream_id_filter is None and (has_department_filter or has_specialty_filter):
+                    allowed_stream_ids = set(structure_state["stream_by_id"].keys())
+                    groups = [item for item in groups if item.stream_id in allowed_stream_ids]
+
+                result: list[tuple[int, str, int, str]] = []
                 for group in groups:
                     subgroups = resource_controller.list_subgroups(group_id=group.id, company_id=company_id)
                     users = auth_controller.list_group_users(
@@ -1189,7 +1686,17 @@ class ScheduleMainWindow:
                         group_id=group.id,
                         subgroup_ids=[item.id for item in subgroups],
                     )
-                    result.append((group.id, group.name, len(users)))
+                    stream_label = "Без потоку"
+                    stream_id = getattr(group, "stream_id", None)
+                    if stream_id is not None:
+                        stream = stream_by_id.get(stream_id)
+                        if stream is not None:
+                            specialty = specialty_by_id.get(stream.specialty_id)
+                            department = department_by_id.get(specialty.department_id) if specialty is not None else None
+                            dep_name = department.short_name or department.name if department is not None else "Кафедра?"
+                            spec_name = specialty.code or specialty.name if specialty is not None else "Спеціальність?"
+                            stream_label = f"{dep_name} • {spec_name} • {stream.name}"
+                    result.append((group.id, group.name, len(users), stream_label))
                 return result
     
         def render_group_cards() -> None:
@@ -1237,7 +1744,7 @@ class ScheduleMainWindow:
                 finally:
                     menu.grab_release()
     
-            for index, (group_id, group_name, user_count) in enumerate(groups):
+            for index, (group_id, group_name, user_count, stream_label) in enumerate(groups):
                 row = index // 3
                 column = index % 3
                 card = RoundedMotionCard(
@@ -1256,10 +1763,12 @@ class ScheduleMainWindow:
                 card.content.grid_columnconfigure(0, weight=1)
                 title = ttk.Label(card.content, text=group_name, style="CardAltTitle.TLabel")
                 title.grid(row=0, column=0, sticky="w", pady=(4, 2))
+                stream_meta = ttk.Label(card.content, text=stream_label, style="CardAltSubtle.TLabel")
+                stream_meta.grid(row=1, column=0, sticky="w", pady=(0, 2))
                 count = ttk.Label(card.content, text=f"Учасників: {user_count}", style="CardAltSubtle.TLabel")
-                count.grid(row=1, column=0, sticky="w")
-    
-                for widget in (card, card.canvas, card.content, title, count):
+                count.grid(row=2, column=0, sticky="w")
+
+                for widget in (card, card.canvas, card.content, title, stream_meta, count):
                     widget.bind("<Button-1>", lambda _e, gid=group_id, gname=group_name: open_group_view(gid, gname))
                     widget.bind("<Button-3>", lambda e, gid=group_id, gname=group_name: on_card_context(e, gid, gname))
     
@@ -1354,6 +1863,7 @@ class ScheduleMainWindow:
             with session_scope() as session:
                 auth_controller = AuthController(session=session)
                 resource_controller = ResourceController(session=session)
+                academic_controller = AcademicController(session=session)
                 group = resource_controller.get_resource(group_id)
                 if group is None or group.type != ResourceType.GROUP:
                     messagebox.showerror("Помилка", "Групу не знайдено.")
@@ -1367,9 +1877,32 @@ class ScheduleMainWindow:
                     subgroup_ids=subgroup_ids,
                 )
                 available_users = auth_controller.list_available_personal_users_for_company(company_id=company_id)
+                stream = academic_controller.get_stream(group.stream_id) if getattr(group, "stream_id", None) is not None else None
+                specialty = (
+                    academic_controller.get_specialty(stream.specialty_id)
+                    if stream is not None
+                    else None
+                )
+                department = (
+                    academic_controller.get_department(specialty.department_id)
+                    if specialty is not None
+                    else None
+                )
 
             current_subgroups_by_id = {item.id: item for item in subgroups}
             current_users_by_id = {item.id: item for item in users}
+
+            structure_parts: list[str] = []
+            if department is not None:
+                structure_parts.append(department.short_name or department.name)
+            if specialty is not None:
+                structure_parts.append(specialty.code or specialty.name)
+            if stream is not None:
+                structure_parts.append(stream.name)
+            structure_prefix = " → ".join(structure_parts) if structure_parts else "Без структури потоку"
+            detail_meta_var.set(
+                f"{structure_prefix}. Додавай учасників за логіном і перетягуй їх між підгрупами."
+            )
 
             render_participant_cards(users)
             render_subgroup_tree(users)
@@ -1542,9 +2075,14 @@ class ScheduleMainWindow:
     
         def open_create_group_modal() -> None:
             with session_scope() as session:
-                personal_users = AuthController(session=session).list_available_personal_users_for_company(
+                auth_controller = AuthController(session=session)
+                personal_users = auth_controller.list_available_personal_users_for_company(
                     company_id=company_id
                 )
+                streams = AcademicController(session=session).list_streams(company_id=company_id, include_archived=False)
+            if not streams:
+                messagebox.showerror("Створення групи", "Спочатку створіть потік (кафедра → спеціальність → потік).")
+                return
             user_by_username = {item.username: item for item in personal_users}
             user_by_id = {item.id: item for item in personal_users}
     
@@ -1565,6 +2103,20 @@ class ScheduleMainWindow:
                 text="Вкажи назву, додай учасників за логіном, створи підгрупи і розподіли перетягуванням.",
                 style="CardSubtle.TLabel",
             ).pack(anchor="w", pady=(2, 10))
+
+            stream_values = []
+            for item in streams:
+                year_suffix = f" • набір {item.admission_year}" if item.admission_year is not None else ""
+                stream_values.append(f"{item.id} | {item.name}{year_suffix}")
+            stream_var = tk.StringVar(value=stream_values[0])
+
+            stream_row = ttk.Frame(root, style="Card.TFrame")
+            stream_row.pack(fill=tk.X, pady=(0, 10))
+            ttk.Label(stream_row, text="Потік", style="Card.TLabel").pack(side=tk.LEFT)
+            ttk.Combobox(stream_row, textvariable=stream_var, values=stream_values, width=34, state="readonly").pack(
+                side=tk.LEFT,
+                padx=(8, 0),
+            )
     
             group_name_var = tk.StringVar()
             group_row = ttk.Frame(root, style="Card.TFrame")
@@ -1719,6 +2271,10 @@ class ScheduleMainWindow:
                 if not group_name:
                     messagebox.showerror("Некоректні дані", "Введи назву групи.", parent=modal)
                     return
+                stream_id = parse_selected_prefixed_id(stream_var.get())
+                if stream_id is None:
+                    messagebox.showerror("Некоректні дані", "Обери потік зі списку.", parent=modal)
+                    return
                 try:
                     with session_scope() as session:
                         resource_controller = ResourceController(session=session)
@@ -1727,6 +2283,7 @@ class ScheduleMainWindow:
                             name=group_name,
                             resource_type=ResourceType.GROUP,
                             company_id=company_id,
+                            stream_id=stream_id,
                         )
                         subgroup_id_by_name: dict[str, int] = {}
                         for subgroup_name in subgroup_iid_by_name:
@@ -1792,7 +2349,12 @@ class ScheduleMainWindow:
             tree.bind("<ButtonRelease-1>", on_tree_release)
             group_name_entry.focus_set()
             refresh_suggestions()
-    
+
+        department_filter_box.bind("<<ComboboxSelected>>", on_department_filter_change, add="+")
+        specialty_filter_box.bind("<<ComboboxSelected>>", on_specialty_filter_change, add="+")
+        stream_filter_box.bind("<<ComboboxSelected>>", on_stream_filter_change, add="+")
+
+        load_structure_filters()
         back_button.command = open_main_view
         open_main_view()
 
@@ -1884,6 +2446,9 @@ class ScheduleMainWindow:
         room_search_var = tk.StringVar(value="")
         room_type_filter_var = tk.StringVar(value="Усі")
         room_min_capacity_var = tk.StringVar(value="")
+        room_department_filter_var = tk.StringVar(value="Усі кафедри")
+        room_department_label_by_id: dict[int, str] = {}
+        room_department_id_by_label: dict[str, int] = {}
         room_status_all_var = tk.BooleanVar(value=True)
         room_status_active_var = tk.BooleanVar(value=True)
         room_status_archived_var = tk.BooleanVar(value=True)
@@ -1920,9 +2485,17 @@ class ScheduleMainWindow:
         ttk.Label(filters_shell, text="Мін. місткість", style="Card.TLabel").grid(row=0, column=4, sticky="w")
         room_capacity_entry = ttk.Entry(filters_shell, textvariable=room_min_capacity_var, width=8)
         room_capacity_entry.grid(row=0, column=5, sticky="w", padx=(8, 12))
+        ttk.Label(filters_shell, text="Кафедра", style="Card.TLabel").grid(row=0, column=6, sticky="w")
+        room_department_box = ttk.Combobox(
+            filters_shell,
+            textvariable=room_department_filter_var,
+            state="readonly",
+            width=24,
+        )
+        room_department_box.grid(row=0, column=7, sticky="w", padx=(8, 12))
 
         status_wrap = ttk.Frame(filters_shell, style="Card.TFrame")
-        status_wrap.grid(row=1, column=0, columnspan=7, sticky="ew", pady=(12, 0))
+        status_wrap.grid(row=1, column=0, columnspan=9, sticky="ew", pady=(12, 0))
         ttk.Label(status_wrap, text="Статус:", style="CardSubtle.TLabel").pack(side=tk.LEFT, padx=(0, 8))
         status_buttons_wrap = ttk.Frame(status_wrap, style="Card.TFrame")
         status_buttons_wrap.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -1966,28 +2539,30 @@ class ScheduleMainWindow:
 
         def on_filter_panel_resize(_event=None) -> None:
             width = max(1, filters_shell.winfo_width())
-            compact = width < 980
+            compact = width < 1240
             if compact:
                 filters_shell.grid_columnconfigure(1, weight=0)
                 room_search_entry.grid_configure(columnspan=1)
                 room_search_entry.grid(row=1, column=0, columnspan=2, sticky="ew", padx=(0, 12), pady=(6, 0))
                 room_type_box.grid(row=1, column=2, sticky="w", padx=(8, 12), pady=(6, 0))
                 room_capacity_entry.grid(row=1, column=4, sticky="w", padx=(8, 12), pady=(6, 0))
-                reset_filters_button.grid_configure(row=1, column=6, sticky="e", padx=(0, 0), pady=(6, 0))
-                status_wrap.grid_configure(row=2, column=0, columnspan=7, pady=(10, 0))
+                room_department_box.grid_configure(row=1, column=6, sticky="w", padx=(8, 12), pady=(6, 0))
+                reset_filters_button.grid_configure(row=1, column=8, sticky="e", padx=(0, 0), pady=(6, 0))
+                status_wrap.grid_configure(row=2, column=0, columnspan=9, pady=(10, 0))
             else:
                 filters_shell.grid_columnconfigure(1, weight=1)
                 room_search_entry.grid_configure(row=0, column=1, columnspan=1, sticky="ew", padx=(8, 12), pady=(0, 0))
                 room_type_box.grid_configure(row=0, column=3, sticky="w", padx=(8, 12), pady=(0, 0))
                 room_capacity_entry.grid_configure(row=0, column=5, sticky="w", padx=(8, 12), pady=(0, 0))
-                reset_filters_button.grid_configure(row=0, column=6, sticky="e", padx=(0, 0), pady=(0, 0))
-                status_wrap.grid_configure(row=1, column=0, columnspan=7, pady=(12, 0))
+                room_department_box.grid_configure(row=0, column=7, sticky="w", padx=(8, 12), pady=(0, 0))
+                reset_filters_button.grid_configure(row=0, column=8, sticky="e", padx=(0, 0), pady=(0, 0))
+                status_wrap.grid_configure(row=1, column=0, columnspan=9, pady=(12, 0))
 
         rooms_table_wrap = ttk.Frame(detail_body, style="Card.TFrame")
         rooms_table_wrap.pack(fill=tk.BOTH, expand=True, pady=(2, 0))
         rooms_table = ttk.Treeview(
             rooms_table_wrap,
-            columns=("name", "type", "capacity", "floor", "status"),
+            columns=("name", "type", "capacity", "floor", "department", "status"),
             show="headings",
             height=18,
         )
@@ -1995,12 +2570,14 @@ class ScheduleMainWindow:
         rooms_table.heading("type", text="Тип")
         rooms_table.heading("capacity", text="Місткість")
         rooms_table.heading("floor", text="Поверх")
+        rooms_table.heading("department", text="Кафедра")
         rooms_table.heading("status", text="Статус")
         rooms_table.column("name", width=280, anchor="w")
         rooms_table.column("type", width=150, anchor="center")
         rooms_table.column("capacity", width=110, anchor="center")
         rooms_table.column("floor", width=110, anchor="center")
-        rooms_table.column("status", width=210, anchor="center")
+        rooms_table.column("department", width=170, anchor="center")
+        rooms_table.column("status", width=220, anchor="center")
         rooms_table.tag_configure("room_archived", background="#f4e8ef")
         rooms_table.tag_configure("room_booked", background="#e8f0ff")
         rooms_table.tag_configure("room_archived_booked", background="#efe6f8")
@@ -2026,11 +2603,13 @@ class ScheduleMainWindow:
             room_search_var.set("")
             room_type_filter_var.set("Усі")
             room_min_capacity_var.set("")
+            room_department_filter_var.set("Усі кафедри")
             room_status_all_var.set(True)
             room_status_active_var.set(True)
             room_status_archived_var.set(True)
             room_status_booked_var.set(True)
             room_filter_sync_state["busy"] = False
+            load_room_departments()
             refresh_status_chips()
             load_rooms()
             list_view.pack_forget()
@@ -2063,6 +2642,45 @@ class ScheduleMainWindow:
                 raise ValueError(
                     f"Поле '{field_name}' має бути у форматі YYYY-MM-DD HH:MM або DD.MM.YYYY HH:MM."
                 ) from exc
+
+        def load_room_departments() -> None:
+            with session_scope() as session:
+                departments = AcademicController(session=session).list_departments(
+                    company_id=company_id,
+                    include_archived=False,
+                )
+            room_department_label_by_id.clear()
+            room_department_id_by_label.clear()
+            values = ["Усі кафедри"]
+            for department in departments:
+                label_name = department.short_name or department.name
+                label = f"{department.id} | {label_name}"
+                room_department_label_by_id[department.id] = label_name
+                room_department_id_by_label[label] = department.id
+                values.append(label)
+            room_department_box["values"] = values
+            if room_department_filter_var.get() not in values:
+                room_department_filter_var.set("Усі кафедри")
+
+        def selected_room_department_id() -> int | None:
+            return room_department_id_by_label.get(room_department_filter_var.get().strip())
+
+        def room_department_display_value(department_id: int | None) -> str:
+            if department_id is None:
+                return "Не вказано"
+            name = room_department_label_by_id.get(department_id)
+            if not name:
+                return "Не вказано"
+            return f"{department_id} | {name}"
+
+        def parse_room_department_selection(raw: str) -> int | None:
+            value = raw.strip()
+            if not value or value == "Не вказано":
+                return None
+            department_id = room_department_id_by_label.get(value)
+            if department_id is None:
+                raise ValueError("Оберіть кафедру зі списку або 'Не вказано'.")
+            return department_id
 
         def schedule_room_filter_reload(delay_ms: int = 220) -> None:
             if room_filter_sync_state["busy"]:
@@ -2154,6 +2772,7 @@ class ScheduleMainWindow:
                         room_type_label_by_enum.get(room.room_type, "Інше"),
                         "" if room.capacity is None else str(room.capacity),
                         "" if room.floor is None else str(room.floor),
+                        room_department_label_by_id.get(room.home_department_id, "—") if room.home_department_id is not None else "—",
                         status_text,
                     ),
                     tags=row_tags,
@@ -2180,6 +2799,7 @@ class ScheduleMainWindow:
                 if not raw_capacity.isdigit():
                     return
                 min_capacity = int(raw_capacity)
+            home_department_id = selected_room_department_id()
 
             with session_scope() as session:
                 controller = RoomController(session=session)
@@ -2189,6 +2809,7 @@ class ScheduleMainWindow:
                     search=room_search_var.get().strip() or None,
                     room_type=room_type_filter,
                     min_capacity=min_capacity,
+                    home_department_id=home_department_id,
                 )
                 room_booking_state.clear()
                 room_booking_state.update(
@@ -2221,6 +2842,7 @@ class ScheduleMainWindow:
             if building is None:
                 messagebox.showerror("Аудиторія", "Спочатку виберіть корпус.", parent=self.root)
                 return
+            load_room_departments()
 
             is_edit = room is not None
             modal = tk.Toplevel(self.root)
@@ -2238,6 +2860,8 @@ class ScheduleMainWindow:
             type_var = tk.StringVar(value=room_type_label_by_enum.get(room.room_type, "Клас") if is_edit else "Клас")
             capacity_var = tk.StringVar(value="" if (not is_edit or room.capacity is None) else str(room.capacity))
             floor_var = tk.StringVar(value="" if (not is_edit or room.floor is None) else str(room.floor))
+            department_values = ["Не вказано"] + list(room_department_id_by_label.keys())
+            department_var = tk.StringVar(value=room_department_display_value(room.home_department_id) if is_edit else "Не вказано")
 
             ttk.Label(shell, text="Назва", style="Card.TLabel").pack(anchor="w")
             name_entry = ttk.Entry(shell, textvariable=name_var, width=38)
@@ -2259,6 +2883,17 @@ class ScheduleMainWindow:
             ttk.Label(row, text="Поверх", style="Card.TLabel").pack(side=tk.LEFT)
             ttk.Entry(row, textvariable=floor_var, width=10).pack(side=tk.LEFT, padx=(6, 0))
 
+            dep_row = ttk.Frame(shell, style="Card.TFrame")
+            dep_row.pack(fill=tk.X, pady=(0, 12))
+            ttk.Label(dep_row, text="Кафедра", style="Card.TLabel").pack(side=tk.LEFT)
+            ttk.Combobox(
+                dep_row,
+                textvariable=department_var,
+                values=department_values,
+                state="readonly",
+                width=32,
+            ).pack(side=tk.LEFT, padx=(8, 0))
+
             actions = ttk.Frame(shell, style="Card.TFrame")
             actions.pack(fill=tk.X)
 
@@ -2276,6 +2911,7 @@ class ScheduleMainWindow:
                 try:
                     capacity = parse_optional_int(capacity_var.get(), field_name="Місткість", allow_negative=False)
                     floor = parse_optional_int(floor_var.get(), field_name="Поверх", allow_negative=True)
+                    department_id = parse_room_department_selection(department_var.get())
                 except ValueError as exc:
                     messagebox.showerror("Некоректні дані", str(exc), parent=modal)
                     return
@@ -2290,6 +2926,7 @@ class ScheduleMainWindow:
                                 room_type=selected_type,
                                 capacity=capacity,
                                 floor=floor,
+                                home_department_id=department_id,
                                 is_archived=False,
                             )
                         else:
@@ -2299,6 +2936,7 @@ class ScheduleMainWindow:
                                 room_type=selected_type,
                                 capacity=capacity,
                                 floor=floor,
+                                home_department_id=department_id,
                                 company_id=company_id,
                             )
                 except IntegrityError:
@@ -2460,6 +3098,7 @@ class ScheduleMainWindow:
             if building is None:
                 messagebox.showerror("Масове створення", "Спочатку виберіть корпус.", parent=self.root)
                 return
+            load_room_departments()
 
             modal = tk.Toplevel(self.root)
             modal.title("Масове створення аудиторій")
@@ -2576,6 +3215,8 @@ class ScheduleMainWindow:
             type_var = tk.StringVar(value="Клас")
             capacity_var = tk.StringVar(value="")
             floor_var = tk.StringVar(value="")
+            bulk_department_values = ["Не вказано"] + list(room_department_id_by_label.keys())
+            bulk_department_var = tk.StringVar(value="Не вказано")
             policy_var = tk.StringVar(value="Пропустити дублікати")
 
             ttk.Label(settings_row, text="Тип", style="Card.TLabel").pack(side=tk.LEFT)
@@ -2587,6 +3228,14 @@ class ScheduleMainWindow:
             ttk.Entry(settings_row, textvariable=capacity_var, width=8).pack(side=tk.LEFT, padx=(6, 10))
             ttk.Label(settings_row, text="Поверх", style="Card.TLabel").pack(side=tk.LEFT)
             ttk.Entry(settings_row, textvariable=floor_var, width=8).pack(side=tk.LEFT, padx=(6, 10))
+            ttk.Label(settings_row, text="Кафедра", style="Card.TLabel").pack(side=tk.LEFT)
+            ttk.Combobox(
+                settings_row,
+                textvariable=bulk_department_var,
+                values=bulk_department_values,
+                state="readonly",
+                width=22,
+            ).pack(side=tk.LEFT, padx=(6, 10))
             ttk.Label(settings_row, text="Дублікати", style="Card.TLabel").pack(side=tk.LEFT)
             ttk.Combobox(
                 settings_row,
@@ -2617,6 +3266,7 @@ class ScheduleMainWindow:
                 try:
                     capacity = parse_optional_int(capacity_var.get(), field_name="Місткість", allow_negative=False)
                     floor = parse_optional_int(floor_var.get(), field_name="Поверх", allow_negative=True)
+                    home_department_id = parse_room_department_selection(bulk_department_var.get())
                 except ValueError as exc:
                     messagebox.showerror("Некоректні дані", str(exc), parent=modal)
                     return
@@ -2662,6 +3312,7 @@ class ScheduleMainWindow:
                             room_type=selected_type,
                             capacity=capacity,
                             floor=floor,
+                            home_department_id=home_department_id,
                             company_id=company_id,
                             duplicate_policy=policy,
                         )
@@ -2811,6 +3462,7 @@ class ScheduleMainWindow:
             room_search_var.set("")
             room_type_filter_var.set("Усі")
             room_min_capacity_var.set("")
+            room_department_filter_var.set("Усі кафедри")
             room_status_all_var.set(True)
             room_status_active_var.set(True)
             room_status_archived_var.set(True)
@@ -2960,6 +3612,7 @@ class ScheduleMainWindow:
         room_status_archived_var.trace_add("write", on_room_status_partial_changed)
         room_status_booked_var.trace_add("write", on_room_status_partial_changed)
         room_type_box.bind("<<ComboboxSelected>>", lambda _e: load_rooms(), add="+")
+        room_department_box.bind("<<ComboboxSelected>>", lambda _e: load_rooms(), add="+")
         filters_shell.bind("<Configure>", on_filter_panel_resize, add="+")
         detail_actions.bind("<Configure>", relayout_room_actions, add="+")
         relayout_room_actions()
