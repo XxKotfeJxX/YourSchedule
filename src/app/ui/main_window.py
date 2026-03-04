@@ -885,11 +885,13 @@ class ScheduleMainWindow:
         structure_state: dict[str, object] = {
             "department_by_id": {},
             "specialty_by_id": {},
+            "course_by_id": {},
             "stream_by_id": {},
             "sync": False,
         }
         department_filter_var = tk.StringVar(value="Усі кафедри")
         specialty_filter_var = tk.StringVar(value="Усі спеціальності")
+        course_filter_var = tk.StringVar(value="Усі курси")
         stream_filter_var = tk.StringVar(value="Усі потоки")
     
         def subgroup_short_name(full_name: str) -> str:
@@ -948,6 +950,13 @@ class ScheduleMainWindow:
         ).pack(side=tk.RIGHT, padx=(0, 6))
         self._motion_button(
             header_actions,
+            text="+ Курс",
+            command=lambda: open_create_course_modal(),
+            primary=False,
+            width=110,
+        ).pack(side=tk.RIGHT, padx=(0, 6))
+        self._motion_button(
+            header_actions,
             text="+ Спеціальність",
             command=lambda: open_create_specialty_modal(),
             primary=False,
@@ -965,7 +974,7 @@ class ScheduleMainWindow:
         ttk.Label(titles, text="Групи", style="CardTitle.TLabel").pack(anchor="w")
         ttk.Label(
             titles,
-            text="Ієрархія: кафедра → спеціальність → потік → група. ЛКМ - відкрити, ПКМ - видалити.",
+            text="Ієрархія: кафедра → спеціальність → курс → потік → група. ЛКМ - відкрити, ПКМ - видалити.",
             style="CardSubtle.TLabel",
         ).pack(anchor="w", pady=(2, 0))
 
@@ -987,6 +996,14 @@ class ScheduleMainWindow:
             width=26,
         )
         specialty_filter_box.pack(side=tk.LEFT, padx=(8, 12))
+        ttk.Label(structure_filters, text="Курс", style="Card.TLabel").pack(side=tk.LEFT)
+        course_filter_box = ttk.Combobox(
+            structure_filters,
+            textvariable=course_filter_var,
+            state="readonly",
+            width=24,
+        )
+        course_filter_box.pack(side=tk.LEFT, padx=(8, 12))
         ttk.Label(structure_filters, text="Потік", style="Card.TLabel").pack(side=tk.LEFT)
         stream_filter_box = ttk.Combobox(
             structure_filters,
@@ -1288,12 +1305,16 @@ class ScheduleMainWindow:
         def selected_specialty_id() -> int | None:
             return parse_selected_prefixed_id(specialty_filter_var.get())
 
+        def selected_course_id() -> int | None:
+            return parse_selected_prefixed_id(course_filter_var.get())
+
         def selected_stream_id() -> int | None:
             return parse_selected_prefixed_id(stream_filter_var.get())
 
         def load_structure_filters() -> None:
             current_department_id = selected_department_id()
             current_specialty_id = selected_specialty_id()
+            current_course_id = selected_course_id()
             current_stream_id = selected_stream_id()
 
             with session_scope() as session:
@@ -1313,9 +1334,19 @@ class ScheduleMainWindow:
                 if current_specialty_id not in allowed_specialty_ids:
                     current_specialty_id = None
 
+                courses = academic.list_courses(
+                    company_id=company_id,
+                    specialty_id=current_specialty_id,
+                    include_archived=False,
+                )
+                allowed_course_ids = {item.id for item in courses}
+                if current_course_id not in allowed_course_ids:
+                    current_course_id = None
+
                 streams = academic.list_streams(
                     company_id=company_id,
                     specialty_id=current_specialty_id,
+                    course_id=current_course_id,
                     include_archived=False,
                 )
                 allowed_stream_ids = {item.id for item in streams}
@@ -1324,12 +1355,17 @@ class ScheduleMainWindow:
 
             structure_state["department_by_id"] = {item.id: item for item in departments}
             structure_state["specialty_by_id"] = {item.id: item for item in specialties}
+            structure_state["course_by_id"] = {item.id: item for item in courses}
             structure_state["stream_by_id"] = {item.id: item for item in streams}
 
             department_values = [f"{item.id} | {item.name}" for item in departments]
             specialty_values = [
                 f"{item.id} | {item.code} — {item.name}" if item.code else f"{item.id} | {item.name}"
                 for item in specialties
+            ]
+            course_values = [
+                f"{item.id} | {item.code} — {item.name}" if item.code else f"{item.id} | {item.name}"
+                for item in courses
             ]
             stream_values = []
             for item in streams:
@@ -1339,6 +1375,7 @@ class ScheduleMainWindow:
             structure_state["sync"] = True
             department_filter_box["values"] = ["Усі кафедри"] + department_values
             specialty_filter_box["values"] = ["Усі спеціальності"] + specialty_values
+            course_filter_box["values"] = ["Усі курси"] + course_values
             stream_filter_box["values"] = ["Усі потоки"] + stream_values
 
             if current_department_id is None:
@@ -1352,6 +1389,14 @@ class ScheduleMainWindow:
                 specialty = structure_state["specialty_by_id"][current_specialty_id]
                 specialty_filter_var.set(
                     f"{specialty.id} | {specialty.code} — {specialty.name}" if specialty.code else f"{specialty.id} | {specialty.name}"
+                )
+
+            if current_course_id is None:
+                course_filter_var.set("Усі курси")
+            else:
+                course = structure_state["course_by_id"][current_course_id]
+                course_filter_var.set(
+                    f"{course.id} | {course.code} — {course.name}" if course.code else f"{course.id} | {course.name}"
                 )
 
             if current_stream_id is None:
@@ -1369,6 +1414,12 @@ class ScheduleMainWindow:
             render_group_cards()
 
         def on_specialty_filter_change(_event=None) -> None:
+            if structure_state["sync"]:
+                return
+            load_structure_filters()
+            render_group_cards()
+
+        def on_course_filter_change(_event=None) -> None:
             if structure_state["sync"]:
                 return
             load_structure_filters()
@@ -1527,11 +1578,104 @@ class ScheduleMainWindow:
             )
             name_entry.focus_set()
 
-        def open_create_stream_modal() -> None:
+        def open_create_course_modal() -> None:
             with session_scope() as session:
                 specialties_with_departments = AcademicController(session=session).list_specialties_with_departments(company_id=company_id)
             if not specialties_with_departments:
-                messagebox.showerror("Потік", "Спочатку створіть спеціальність.", parent=self.root)
+                messagebox.showerror("Курс", "Спочатку створіть спеціальність.", parent=self.root)
+                return
+
+            modal = tk.Toplevel(self.root)
+            modal.title("Новий курс")
+            modal.transient(self.root)
+            modal.resizable(False, False)
+            modal.grab_set()
+
+            shell = ttk.Frame(modal, style="Card.TFrame", padding=14)
+            shell.pack(fill=tk.BOTH, expand=True)
+            ttk.Label(shell, text="Створення курсу", style="CardTitle.TLabel").pack(anchor="w")
+
+            specialty_values = []
+            for specialty, department in specialties_with_departments:
+                dep_label = department.short_name or department.name
+                specialty_values.append(f"{specialty.id} | {specialty.name} ({dep_label})")
+            specialty_var = tk.StringVar(value=specialty_values[0])
+            name_var = tk.StringVar(value="")
+            code_var = tk.StringVar(value="")
+            study_year_var = tk.StringVar(value="")
+
+            ttk.Label(shell, text="Спеціальність", style="Card.TLabel").pack(anchor="w", pady=(10, 0))
+            ttk.Combobox(shell, textvariable=specialty_var, values=specialty_values, state="readonly", width=48).pack(
+                fill=tk.X,
+                pady=(6, 8),
+            )
+            ttk.Label(shell, text="Назва курсу", style="Card.TLabel").pack(anchor="w")
+            name_entry = ttk.Entry(shell, textvariable=name_var, width=38)
+            name_entry.pack(fill=tk.X, pady=(6, 8))
+            ttk.Label(shell, text="Код (опціонально)", style="Card.TLabel").pack(anchor="w")
+            ttk.Entry(shell, textvariable=code_var, width=26).pack(fill=tk.X, pady=(6, 8))
+            ttk.Label(shell, text="Номер курсу (опціонально)", style="Card.TLabel").pack(anchor="w")
+            ttk.Entry(shell, textvariable=study_year_var, width=12).pack(fill=tk.X, pady=(6, 12))
+
+            footer = ttk.Frame(shell, style="Card.TFrame")
+            footer.pack(fill=tk.X)
+
+            def on_submit_course() -> None:
+                course_name = name_var.get().strip()
+                if not course_name:
+                    messagebox.showerror("Некоректні дані", "Назва курсу обов'язкова.", parent=modal)
+                    return
+                specialty_id = parse_selected_prefixed_id(specialty_var.get())
+                if specialty_id is None:
+                    messagebox.showerror("Некоректні дані", "Оберіть спеціальність зі списку.", parent=modal)
+                    return
+                try:
+                    study_year = parse_optional_positive_int(study_year_var.get(), field_name="Номер курсу")
+                    with session_scope() as session:
+                        created = AcademicController(session=session).create_course(
+                            specialty_id=specialty_id,
+                            name=course_name,
+                            code=code_var.get().strip() or None,
+                            study_year=study_year,
+                            company_id=company_id,
+                        )
+                except IntegrityError:
+                    messagebox.showerror("Не вдалося створити курс", "Курс із такою назвою або кодом уже існує.", parent=modal)
+                    return
+                except Exception as exc:
+                    messagebox.showerror("Не вдалося створити курс", str(exc), parent=modal)
+                    return
+
+                modal.destroy()
+                load_structure_filters()
+                if created.specialty_id is not None and created.specialty_id in structure_state["specialty_by_id"]:
+                    specialty = structure_state["specialty_by_id"][created.specialty_id]
+                    specialty_filter_var.set(
+                        f"{specialty.id} | {specialty.code} — {specialty.name}" if specialty.code else f"{specialty.id} | {specialty.name}"
+                    )
+                on_specialty_filter_change()
+                course_filter_var.set(f"{created.id} | {created.code} — {created.name}" if created.code else f"{created.id} | {created.name}")
+                on_course_filter_change()
+
+            self._motion_button(footer, text="Скасувати", command=modal.destroy, primary=False, width=130).pack(side=tk.RIGHT)
+            self._motion_button(footer, text="Створити", command=on_submit_course, primary=True, width=130).pack(
+                side=tk.RIGHT,
+                padx=(0, 8),
+            )
+            name_entry.focus_set()
+
+        def open_create_stream_modal() -> None:
+            with session_scope() as session:
+                academic_controller = AcademicController(session=session)
+                courses = academic_controller.list_courses(
+                    company_id=company_id,
+                    specialty_id=selected_specialty_id(),
+                    include_archived=False,
+                )
+                specialties = academic_controller.list_specialties(company_id=company_id, include_archived=True)
+                departments = academic_controller.list_departments(company_id=company_id, include_archived=True)
+            if not courses:
+                messagebox.showerror("Потік", "Спочатку створіть курс (спеціальність → курс).", parent=self.root)
                 return
 
             modal = tk.Toplevel(self.root)
@@ -1544,18 +1688,24 @@ class ScheduleMainWindow:
             shell.pack(fill=tk.BOTH, expand=True)
             ttk.Label(shell, text="Створення потоку", style="CardTitle.TLabel").pack(anchor="w")
 
-            specialty_values = []
-            for specialty, department in specialties_with_departments:
-                dep_label = department.short_name or department.name
-                specialty_values.append(f"{specialty.id} | {specialty.name} ({dep_label})")
-            specialty_var = tk.StringVar(value=specialty_values[0])
+            specialty_by_id = {item.id: item for item in specialties}
+            department_by_id = {item.id: item for item in departments}
+            course_values = []
+            for course in courses:
+                specialty = specialty_by_id.get(course.specialty_id)
+                department = department_by_id.get(specialty.department_id) if specialty is not None else None
+                dep_label = (department.short_name or department.name) if department is not None else "Кафедра?"
+                spec_label = (specialty.code or specialty.name) if specialty is not None else "Спеціальність?"
+                year_label = f" • {course.study_year} курс" if course.study_year is not None else ""
+                course_values.append(f"{course.id} | {course.name} ({dep_label} / {spec_label}{year_label})")
+            course_var = tk.StringVar(value=course_values[0])
             name_var = tk.StringVar(value="")
             admission_year_var = tk.StringVar(value="")
             graduation_year_var = tk.StringVar(value="")
             study_year_var = tk.StringVar(value="")
 
-            ttk.Label(shell, text="Спеціальність", style="Card.TLabel").pack(anchor="w", pady=(10, 0))
-            ttk.Combobox(shell, textvariable=specialty_var, values=specialty_values, state="readonly", width=48).pack(
+            ttk.Label(shell, text="Курс", style="Card.TLabel").pack(anchor="w", pady=(10, 0))
+            ttk.Combobox(shell, textvariable=course_var, values=course_values, state="readonly", width=58).pack(
                 fill=tk.X,
                 pady=(6, 8),
             )
@@ -1577,9 +1727,9 @@ class ScheduleMainWindow:
                 if not stream_name:
                     messagebox.showerror("Некоректні дані", "Назва потоку обов'язкова.", parent=modal)
                     return
-                specialty_id = parse_selected_prefixed_id(specialty_var.get())
-                if specialty_id is None:
-                    messagebox.showerror("Некоректні дані", "Оберіть спеціальність зі списку.", parent=modal)
+                course_id = parse_selected_prefixed_id(course_var.get())
+                if course_id is None:
+                    messagebox.showerror("Некоректні дані", "Оберіть курс зі списку.", parent=modal)
                     return
                 try:
                     admission_year = parse_optional_positive_int(admission_year_var.get(), field_name="Рік набору")
@@ -1587,7 +1737,7 @@ class ScheduleMainWindow:
                     study_year = parse_optional_positive_int(study_year_var.get(), field_name="Поточний курс")
                     with session_scope() as session:
                         created = AcademicController(session=session).create_stream(
-                            specialty_id=specialty_id,
+                            course_id=course_id,
                             name=stream_name,
                             admission_year=admission_year,
                             expected_graduation_year=graduation_year,
@@ -1595,7 +1745,7 @@ class ScheduleMainWindow:
                             company_id=company_id,
                         )
                 except IntegrityError:
-                    messagebox.showerror("Не вдалося створити потік", "Потік з такою назвою вже існує для цієї спеціальності.", parent=modal)
+                    messagebox.showerror("Не вдалося створити потік", "Потік з такою назвою вже існує для цього курсу.", parent=modal)
                     return
                 except Exception as exc:
                     messagebox.showerror("Не вдалося створити потік", str(exc), parent=modal)
@@ -1659,6 +1809,7 @@ class ScheduleMainWindow:
             stream_id_filter = selected_stream_id()
             has_department_filter = selected_department_id() is not None
             has_specialty_filter = selected_specialty_id() is not None
+            has_course_filter = selected_course_id() is not None
             with session_scope() as session:
                 auth_controller = AuthController(session=session)
                 resource_controller = ResourceController(session=session)
@@ -1669,12 +1820,14 @@ class ScheduleMainWindow:
                     stream_id=stream_id_filter,
                 )
                 streams = academic_controller.list_streams(company_id=company_id, include_archived=True)
+                courses = academic_controller.list_courses(company_id=company_id, include_archived=True)
                 specialties = academic_controller.list_specialties(company_id=company_id, include_archived=True)
                 departments = academic_controller.list_departments(company_id=company_id, include_archived=True)
                 stream_by_id = {item.id: item for item in streams}
+                course_by_id = {item.id: item for item in courses}
                 specialty_by_id = {item.id: item for item in specialties}
                 department_by_id = {item.id: item for item in departments}
-                if stream_id_filter is None and (has_department_filter or has_specialty_filter):
+                if stream_id_filter is None and (has_department_filter or has_specialty_filter or has_course_filter):
                     allowed_stream_ids = set(structure_state["stream_by_id"].keys())
                     groups = [item for item in groups if item.stream_id in allowed_stream_ids]
 
@@ -1691,11 +1844,14 @@ class ScheduleMainWindow:
                     if stream_id is not None:
                         stream = stream_by_id.get(stream_id)
                         if stream is not None:
-                            specialty = specialty_by_id.get(stream.specialty_id)
+                            course = course_by_id.get(stream.course_id) if getattr(stream, "course_id", None) is not None else None
+                            specialty_id = course.specialty_id if course is not None else stream.specialty_id
+                            specialty = specialty_by_id.get(specialty_id)
                             department = department_by_id.get(specialty.department_id) if specialty is not None else None
                             dep_name = department.short_name or department.name if department is not None else "Кафедра?"
                             spec_name = specialty.code or specialty.name if specialty is not None else "Спеціальність?"
-                            stream_label = f"{dep_name} • {spec_name} • {stream.name}"
+                            course_name = course.code or course.name if course is not None else "Курс?"
+                            stream_label = f"{dep_name} • {spec_name} • {course_name} • {stream.name}"
                     result.append((group.id, group.name, len(users), stream_label))
                 return result
     
@@ -1878,8 +2034,13 @@ class ScheduleMainWindow:
                 )
                 available_users = auth_controller.list_available_personal_users_for_company(company_id=company_id)
                 stream = academic_controller.get_stream(group.stream_id) if getattr(group, "stream_id", None) is not None else None
+                course = (
+                    academic_controller.get_course(stream.course_id)
+                    if stream is not None and getattr(stream, "course_id", None) is not None
+                    else None
+                )
                 specialty = (
-                    academic_controller.get_specialty(stream.specialty_id)
+                    academic_controller.get_specialty(course.specialty_id if course is not None else stream.specialty_id)
                     if stream is not None
                     else None
                 )
@@ -1897,6 +2058,8 @@ class ScheduleMainWindow:
                 structure_parts.append(department.short_name or department.name)
             if specialty is not None:
                 structure_parts.append(specialty.code or specialty.name)
+            if course is not None:
+                structure_parts.append(course.code or course.name)
             if stream is not None:
                 structure_parts.append(stream.name)
             structure_prefix = " → ".join(structure_parts) if structure_parts else "Без структури потоку"
@@ -2076,12 +2239,15 @@ class ScheduleMainWindow:
         def open_create_group_modal() -> None:
             with session_scope() as session:
                 auth_controller = AuthController(session=session)
+                academic_controller = AcademicController(session=session)
                 personal_users = auth_controller.list_available_personal_users_for_company(
                     company_id=company_id
                 )
-                streams = AcademicController(session=session).list_streams(company_id=company_id, include_archived=False)
+                streams = academic_controller.list_streams(company_id=company_id, include_archived=False)
+                courses = academic_controller.list_courses(company_id=company_id, include_archived=True)
+                specialties = academic_controller.list_specialties(company_id=company_id, include_archived=True)
             if not streams:
-                messagebox.showerror("Створення групи", "Спочатку створіть потік (кафедра → спеціальність → потік).")
+                messagebox.showerror("Створення групи", "Спочатку створіть потік (кафедра → спеціальність → курс → потік).")
                 return
             user_by_username = {item.username: item for item in personal_users}
             user_by_id = {item.id: item for item in personal_users}
@@ -2104,10 +2270,16 @@ class ScheduleMainWindow:
                 style="CardSubtle.TLabel",
             ).pack(anchor="w", pady=(2, 10))
 
+            course_by_id = {item.id: item for item in courses}
+            specialty_by_id = {item.id: item for item in specialties}
             stream_values = []
             for item in streams:
+                course = course_by_id.get(getattr(item, "course_id", None))
+                specialty = specialty_by_id.get(course.specialty_id) if course is not None else specialty_by_id.get(item.specialty_id)
+                spec_label = f"{specialty.code} — " if specialty is not None and specialty.code else ""
+                course_label = f"{(course.code or course.name)} • " if course is not None else ""
                 year_suffix = f" • набір {item.admission_year}" if item.admission_year is not None else ""
-                stream_values.append(f"{item.id} | {item.name}{year_suffix}")
+                stream_values.append(f"{item.id} | {spec_label}{course_label}{item.name}{year_suffix}")
             stream_var = tk.StringVar(value=stream_values[0])
 
             stream_row = ttk.Frame(root, style="Card.TFrame")
@@ -2352,6 +2524,7 @@ class ScheduleMainWindow:
 
         department_filter_box.bind("<<ComboboxSelected>>", on_department_filter_change, add="+")
         specialty_filter_box.bind("<<ComboboxSelected>>", on_specialty_filter_change, add="+")
+        course_filter_box.bind("<<ComboboxSelected>>", on_course_filter_change, add="+")
         stream_filter_box.bind("<<ComboboxSelected>>", on_stream_filter_change, add="+")
 
         load_structure_filters()
