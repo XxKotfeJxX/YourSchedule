@@ -54,6 +54,10 @@ class RoomProfile(Base):
         ForeignKey("buildings.id", ondelete="CASCADE"),
         nullable=False,
     )
+    home_department_id: Mapped[int | None] = mapped_column(
+        ForeignKey("departments.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     resource_id: Mapped[int] = mapped_column(
         ForeignKey("resources.id", ondelete="RESTRICT"),
         nullable=False,
@@ -76,6 +80,7 @@ class RoomProfile(Base):
     )
 
     building: Mapped[Building] = relationship("Building")
+    home_department: Mapped["Department | None"] = relationship("Department", back_populates="home_rooms")
     resource: Mapped["Resource"] = relationship("Resource")
 
     __table_args__ = (

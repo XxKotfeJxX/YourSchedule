@@ -23,6 +23,7 @@ class RoomController:
         room_type: RoomType,
         capacity: int | None = None,
         floor: int | None = None,
+        home_department_id: int | None = None,
         company_id: int | None = None,
     ) -> RoomProfile:
         return self.repository.create_room(
@@ -31,6 +32,7 @@ class RoomController:
             room_type=room_type,
             capacity=capacity,
             floor=floor,
+            home_department_id=home_department_id,
             company_id=company_id,
         )
 
@@ -42,6 +44,7 @@ class RoomController:
         room_type: RoomType,
         capacity: int | None = None,
         floor: int | None = None,
+        home_department_id: int | None = None,
         company_id: int | None = None,
         duplicate_policy: str = "skip",
     ) -> dict[str, int]:
@@ -76,6 +79,7 @@ class RoomController:
                     room_type=room_type,
                     capacity=capacity,
                     floor=floor,
+                    home_department_id=home_department_id,
                     company_id=company_id,
                 )
                 created += 1
@@ -93,6 +97,7 @@ class RoomController:
                 room_type=room_type,
                 capacity=capacity,
                 floor=floor,
+                home_department_id=home_department_id,
                 is_archived=False,
             )
             updated += 1
@@ -111,6 +116,7 @@ class RoomController:
         search: str | None = None,
         room_type: RoomType | None = None,
         min_capacity: int | None = None,
+        home_department_id: int | None = None,
     ) -> list[RoomProfile]:
         return self.repository.list_rooms(
             building_id=building_id,
@@ -119,6 +125,7 @@ class RoomController:
             search=search,
             room_type=room_type,
             min_capacity=min_capacity,
+            home_department_id=home_department_id,
         )
 
     def update_room(
@@ -129,6 +136,7 @@ class RoomController:
         room_type: RoomType | object = _UNSET,
         capacity: int | None | object = _UNSET,
         floor: int | None | object = _UNSET,
+        home_department_id: int | None | object = _UNSET,
         is_archived: bool | object = _UNSET,
     ) -> RoomProfile:
         kwargs = {}
@@ -140,6 +148,8 @@ class RoomController:
             kwargs["capacity"] = capacity
         if floor is not _UNSET:
             kwargs["floor"] = floor
+        if home_department_id is not _UNSET:
+            kwargs["home_department_id"] = home_department_id
         if is_archived is not _UNSET:
             kwargs["is_archived"] = is_archived
         return self.repository.update_room(room_id, **kwargs)

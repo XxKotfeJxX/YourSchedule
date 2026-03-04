@@ -35,6 +35,9 @@ def _apply_lightweight_schema_upgrades() -> None:
         if not _column_exists(connection, "resources", "parent_group_id"):
             connection.execute(text("ALTER TABLE resources ADD COLUMN parent_group_id INTEGER"))
 
+        if not _column_exists(connection, "resources", "stream_id"):
+            connection.execute(text("ALTER TABLE resources ADD COLUMN stream_id INTEGER"))
+
         if not _column_exists(connection, "mark_types", "is_archived"):
             connection.execute(
                 text("ALTER TABLE mark_types ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT FALSE")
@@ -53,6 +56,9 @@ def _apply_lightweight_schema_upgrades() -> None:
         if not _column_exists(connection, "week_patterns", "name"):
             connection.execute(text("ALTER TABLE week_patterns ADD COLUMN name VARCHAR(120)"))
 
+        if not _column_exists(connection, "room_profiles", "home_department_id"):
+            connection.execute(text("ALTER TABLE room_profiles ADD COLUMN home_department_id INTEGER"))
+
         if dialect == "postgresql":
             connection.execute(
                 text(
@@ -65,6 +71,40 @@ def _apply_lightweight_schema_upgrades() -> None:
                             ALTER TABLE users
                             ADD CONSTRAINT fk_users_subgroup_id_resources
                             FOREIGN KEY (subgroup_id) REFERENCES resources(id) ON DELETE SET NULL;
+                        END IF;
+                    END
+                    $$;
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1 FROM pg_constraint WHERE conname = 'fk_resources_stream_id_streams'
+                        ) THEN
+                            ALTER TABLE resources
+                            ADD CONSTRAINT fk_resources_stream_id_streams
+                            FOREIGN KEY (stream_id) REFERENCES streams(id) ON DELETE SET NULL;
+                        END IF;
+                    END
+                    $$;
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1 FROM pg_constraint WHERE conname = 'fk_room_profiles_home_department_id_departments'
+                        ) THEN
+                            ALTER TABLE room_profiles
+                            ADD CONSTRAINT fk_room_profiles_home_department_id_departments
+                            FOREIGN KEY (home_department_id) REFERENCES departments(id) ON DELETE SET NULL;
                         END IF;
                     END
                     $$;

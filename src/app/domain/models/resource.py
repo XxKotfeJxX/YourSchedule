@@ -19,6 +19,10 @@ class Resource(Base):
         ForeignKey("resources.id", ondelete="CASCADE"),
         nullable=True,
     )
+    stream_id: Mapped[int | None] = mapped_column(
+        ForeignKey("streams.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     type: Mapped[ResourceType] = mapped_column(
         Enum(ResourceType, name="resource_type_enum"),
@@ -49,6 +53,7 @@ class Resource(Base):
         back_populates="parent_group",
         foreign_keys=[parent_group_id],
     )
+    stream: Mapped["Stream | None"] = relationship("Stream", back_populates="groups")
 
     __table_args__ = (
         UniqueConstraint("company_id", "name", "type", name="uq_resource_company_name_type"),

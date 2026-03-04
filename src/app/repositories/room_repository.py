@@ -6,7 +6,7 @@ from sqlalchemy import and_, func, select
 from sqlalchemy.orm import Session
 
 from app.domain.enums import ResourceType, RoomType
-from app.domain.models import Building, Resource, RoomBooking, RoomProfile
+from app.domain.models import Building, Department, Resource, RoomBooking, RoomProfile
 
 _UNSET = object()
 
@@ -23,6 +23,7 @@ class RoomRepository:
         room_type: RoomType,
         capacity: int | None = None,
         floor: int | None = None,
+        home_department_id: int | None = None,
         company_id: int | None = None,
     ) -> RoomProfile:
         clean_name = name.strip()
@@ -34,6 +35,10 @@ class RoomRepository:
             raise ValueError(f"Building with id={building_id} was not found")
 
         owner_company_id = company_id if company_id is not None else building.company_id
+        self._validate_department_reference(
+            home_department_id=home_department_id,
+            owner_company_id=owner_company_id,
+        )
         resource_name = self._build_resource_name(building_name=building.name, room_name=clean_name)
 
         resource = Resource(
@@ -47,6 +52,7 @@ class RoomRepository:
         room = RoomProfile(
             company_id=owner_company_id,
             building_id=building_id,
+            home_department_id=home_department_id,
             resource_id=resource.id,
             name=clean_name,
             room_type=room_type,
@@ -87,6 +93,7 @@ class RoomRepository:
         search: str | None = None,
         room_type: RoomType | None = None,
         min_capacity: int | None = None,
+        home_department_id: int | None = None,
     ) -> list[RoomProfile]:
         statement = select(RoomProfile).order_by(RoomProfile.name.asc(), RoomProfile.id.asc())
         if building_id is not None:
@@ -107,6 +114,8 @@ class RoomRepository:
                     RoomProfile.capacity >= min_capacity,
                 )
             )
+        if home_department_id is not None:
+            statement = statement.where(RoomProfile.home_department_id == home_department_id)
         return list(self.session.scalars(statement).all())
 
     def update_room(
@@ -117,6 +126,7 @@ class RoomRepository:
         room_type: RoomType | object = _UNSET,
         capacity: int | None | object = _UNSET,
         floor: int | None | object = _UNSET,
+        home_department_id: int | None | object = _UNSET,
         is_archived: bool | object = _UNSET,
     ) -> RoomProfile:
         room = self.get_room(room_id)
@@ -134,6 +144,12 @@ class RoomRepository:
             room.capacity = capacity
         if floor is not _UNSET:
             room.floor = floor
+        if home_department_id is not _UNSET:
+            self._validate_department_reference(
+                home_department_id=home_department_id,
+                owner_company_id=room.company_id,
+            )
+            room.home_department_id = home_department_id
         if is_archived is not _UNSET:
             room.is_archived = is_archived
 
@@ -239,3 +255,21 @@ class RoomRepository:
         clean_building = building_name.strip() or "Building"
         clean_room = room_name.strip() or "Room"
         return f"{clean_building}:{clean_room}"
+
+    def _validate_department_reference(
+        self,
+        *,
+        home_department_id: int | None | object,
+        owner_company_id: int | None,
+    ) -> None:
+        if home_department_id in (_UNSET, None):
+            return
+        department = self.session.get(Department, int(home_department_id))
+        if department is None:
+            raise ValueError(f"Department with id={home_department_id} was not found")
+        if (
+            owner_company_id is not None
+            and department.company_id is not None
+            and owner_company_id != department.company_id
+        ):
+            raise ValueError("Room and department belong to different companies")
