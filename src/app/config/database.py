@@ -38,6 +38,9 @@ def _apply_lightweight_schema_upgrades() -> None:
         if not _column_exists(connection, "resources", "stream_id"):
             connection.execute(text("ALTER TABLE resources ADD COLUMN stream_id INTEGER"))
 
+        if not _column_exists(connection, "streams", "course_id"):
+            connection.execute(text("ALTER TABLE streams ADD COLUMN course_id INTEGER"))
+
         if not _column_exists(connection, "mark_types", "is_archived"):
             connection.execute(
                 text("ALTER TABLE mark_types ADD COLUMN is_archived BOOLEAN NOT NULL DEFAULT FALSE")
@@ -71,6 +74,23 @@ def _apply_lightweight_schema_upgrades() -> None:
                             ALTER TABLE users
                             ADD CONSTRAINT fk_users_subgroup_id_resources
                             FOREIGN KEY (subgroup_id) REFERENCES resources(id) ON DELETE SET NULL;
+                        END IF;
+                    END
+                    $$;
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1 FROM pg_constraint WHERE conname = 'fk_streams_course_id_courses'
+                        ) THEN
+                            ALTER TABLE streams
+                            ADD CONSTRAINT fk_streams_course_id_courses
+                            FOREIGN KEY (course_id) REFERENCES courses(id) ON DELETE SET NULL;
                         END IF;
                     END
                     $$;

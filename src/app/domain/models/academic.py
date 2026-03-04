@@ -67,6 +67,11 @@ class Specialty(Base):
     )
 
     department: Mapped[Department] = relationship("Department", back_populates="specialties")
+    courses: Mapped[list["Course"]] = relationship(
+        "Course",
+        back_populates="specialty",
+        cascade="all, delete-orphan",
+    )
     streams: Mapped[list["Stream"]] = relationship(
         "Stream",
         back_populates="specialty",
@@ -95,6 +100,10 @@ class Stream(Base):
         ForeignKey("specialties.id", ondelete="RESTRICT"),
         nullable=False,
     )
+    course_id: Mapped[int | None] = mapped_column(
+        ForeignKey("courses.id", ondelete="SET NULL"),
+        nullable=True,
+    )
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     admission_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     expected_graduation_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -108,6 +117,7 @@ class Stream(Base):
     )
 
     specialty: Mapped[Specialty] = relationship("Specialty", back_populates="streams")
+    course: Mapped["Course | None"] = relationship("Course", back_populates="streams")
     groups: Mapped[list["Resource"]] = relationship("Resource", back_populates="stream")
 
     __table_args__ = (
@@ -118,3 +128,38 @@ class Stream(Base):
         ),
     )
 
+
+class Course(Base):
+    __tablename__ = "courses"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int | None] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE"),
+        nullable=True,
+    )
+    specialty_id: Mapped[int] = mapped_column(
+        ForeignKey("specialties.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    name: Mapped[str] = mapped_column(String(120), nullable=False)
+    code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    study_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    is_archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[datetime] = mapped_column(nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        nullable=False,
+        default=datetime.utcnow,
+        onupdate=datetime.utcnow,
+    )
+
+    specialty: Mapped[Specialty] = relationship("Specialty", back_populates="courses")
+    streams: Mapped[list[Stream]] = relationship("Stream", back_populates="course")
+
+    __table_args__ = (
+        UniqueConstraint("company_id", "specialty_id", "name", name="uq_course_company_specialty_name"),
+        UniqueConstraint("company_id", "code", name="uq_course_company_code"),
+        CheckConstraint(
+            "study_year IS NULL OR study_year > 0",
+            name="ck_course_study_year_positive",
+        ),
+    )

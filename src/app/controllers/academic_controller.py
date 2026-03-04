@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 
-from app.domain.models import Department, Specialty, Stream
+from app.domain.models import Course, Department, Specialty, Stream
 from app.repositories.academic_repository import AcademicRepository
 
 _UNSET = object()
@@ -117,10 +117,67 @@ class AcademicController:
             kwargs["is_archived"] = is_archived
         return self.repository.update_specialty(specialty_id, **kwargs)
 
-    def create_stream(
+    def create_course(
         self,
         *,
         specialty_id: int,
+        name: str,
+        code: str | None = None,
+        study_year: int | None = None,
+        company_id: int | None = None,
+    ) -> Course:
+        return self.repository.create_course(
+            specialty_id=specialty_id,
+            name=name,
+            code=code,
+            study_year=study_year,
+            company_id=company_id,
+        )
+
+    def get_course(self, course_id: int) -> Course | None:
+        return self.repository.get_course(course_id)
+
+    def list_courses(
+        self,
+        *,
+        company_id: int | None = None,
+        specialty_id: int | None = None,
+        include_archived: bool = False,
+    ) -> list[Course]:
+        return self.repository.list_courses(
+            company_id=company_id,
+            specialty_id=specialty_id,
+            include_archived=include_archived,
+        )
+
+    def update_course(
+        self,
+        course_id: int,
+        *,
+        specialty_id: int | object = _UNSET,
+        name: str | object = _UNSET,
+        code: str | None | object = _UNSET,
+        study_year: int | None | object = _UNSET,
+        is_archived: bool | object = _UNSET,
+    ) -> Course:
+        kwargs: dict[str, object] = {}
+        if specialty_id is not _UNSET:
+            kwargs["specialty_id"] = specialty_id
+        if name is not _UNSET:
+            kwargs["name"] = name
+        if code is not _UNSET:
+            kwargs["code"] = code
+        if study_year is not _UNSET:
+            kwargs["study_year"] = study_year
+        if is_archived is not _UNSET:
+            kwargs["is_archived"] = is_archived
+        return self.repository.update_course(course_id, **kwargs)
+
+    def create_stream(
+        self,
+        *,
+        specialty_id: int | None = None,
+        course_id: int | None = None,
         name: str,
         admission_year: int | None = None,
         expected_graduation_year: int | None = None,
@@ -129,6 +186,7 @@ class AcademicController:
     ) -> Stream:
         return self.repository.create_stream(
             specialty_id=specialty_id,
+            course_id=course_id,
             name=name,
             admission_year=admission_year,
             expected_graduation_year=expected_graduation_year,
@@ -144,11 +202,13 @@ class AcademicController:
         *,
         company_id: int | None = None,
         specialty_id: int | None = None,
+        course_id: int | None = None,
         include_archived: bool = False,
     ) -> list[Stream]:
         return self.repository.list_streams(
             company_id=company_id,
             specialty_id=specialty_id,
+            course_id=course_id,
             include_archived=include_archived,
         )
 
@@ -157,6 +217,7 @@ class AcademicController:
         stream_id: int,
         *,
         specialty_id: int | object = _UNSET,
+        course_id: int | None | object = _UNSET,
         name: str | object = _UNSET,
         admission_year: int | None | object = _UNSET,
         expected_graduation_year: int | None | object = _UNSET,
@@ -166,6 +227,8 @@ class AcademicController:
         kwargs: dict[str, object] = {}
         if specialty_id is not _UNSET:
             kwargs["specialty_id"] = specialty_id
+        if course_id is not _UNSET:
+            kwargs["course_id"] = course_id
         if name is not _UNSET:
             kwargs["name"] = name
         if admission_year is not _UNSET:
@@ -185,3 +248,9 @@ class AcademicController:
     ) -> list[tuple[Specialty, Department]]:
         return self.repository.list_specialties_with_departments(company_id=company_id)
 
+    def list_courses_with_specialties(
+        self,
+        *,
+        company_id: int | None = None,
+    ) -> list[tuple[Course, Specialty]]:
+        return self.repository.list_courses_with_specialties(company_id=company_id)
