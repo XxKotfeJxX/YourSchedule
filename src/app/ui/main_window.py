@@ -1004,6 +1004,7 @@ class ScheduleMainWindow:
 
         group_filters = ttk.Frame(main_view, style="Card.TFrame")
         group_filters.pack(fill=tk.X, pady=(0, 8))
+        ttk.Label(group_filters, text="Фільтри груп:", style="CardSubtle.TLabel").pack(side=tk.LEFT, padx=(0, 12))
         ttk.Label(group_filters, text="Курс", style="Card.TLabel").pack(side=tk.LEFT)
         course_filter_box = ttk.Combobox(
             group_filters,
