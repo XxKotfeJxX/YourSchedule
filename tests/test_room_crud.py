@@ -3,6 +3,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.controllers.academic_controller import AcademicController
 from app.controllers.building_controller import BuildingController
 from app.controllers.room_controller import RoomController
 from app.domain.base import Base
@@ -32,6 +33,10 @@ def test_room_crud_filters_and_resource_sync(session: Session) -> None:
         address="Street 1",
         company_id=company.id,
     )
+    department = AcademicController(session=session).create_department(
+        name="Physics",
+        company_id=company.id,
+    )
     session.commit()
 
     controller = RoomController(session=session)
@@ -41,6 +46,7 @@ def test_room_crud_filters_and_resource_sync(session: Session) -> None:
         room_type=RoomType.CLASSROOM,
         capacity=32,
         floor=1,
+        home_department_id=department.id,
         company_id=company.id,
     )
     controller.create_room(
@@ -68,16 +74,22 @@ def test_room_crud_filters_and_resource_sync(session: Session) -> None:
     assert len(by_search) == 1
     assert by_search[0].name == "Lab-1"
 
+    by_department = controller.list_rooms(building_id=building.id, home_department_id=department.id)
+    assert len(by_department) == 1
+    assert by_department[0].id == created.id
+
     updated = controller.update_room(
         created.id,
         name="101A",
         capacity=None,
         floor=None,
+        home_department_id=None,
     )
     session.commit()
     assert updated.name == "101A"
     assert updated.capacity is None
     assert updated.floor is None
+    assert updated.home_department_id is None
 
     resource = session.get(Resource, updated.resource_id)
     assert resource is not None
@@ -217,3 +229,31 @@ def test_room_archive_toggle_and_manual_booking(session: Session) -> None:
     booking_map = controller.upcoming_booking_map([room.id], reference_time=datetime.utcnow())
     assert room.id in booking_map
     assert booking_map[room.id].id == created_booking.id
+
+
+def test_room_department_validation(session: Session) -> None:
+    company_a = Company(name="Room Dept A")
+    company_b = Company(name="Room Dept B")
+    session.add_all([company_a, company_b])
+    session.commit()
+
+    building = BuildingController(session=session).create_building(
+        name="C",
+        address=None,
+        company_id=company_a.id,
+    )
+    department_b = AcademicController(session=session).create_department(
+        name="Foreign Dept",
+        company_id=company_b.id,
+    )
+    session.commit()
+
+    controller = RoomController(session=session)
+    with pytest.raises(ValueError):
+        controller.create_room(
+            building_id=building.id,
+            name="401",
+            room_type=RoomType.CLASSROOM,
+            home_department_id=department_b.id,
+            company_id=company_a.id,
+        )
