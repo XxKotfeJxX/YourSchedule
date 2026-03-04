@@ -1,6 +1,7 @@
 """Repositories layer package."""
 
 from app.repositories.auth_repository import AuthRepository
+from app.repositories.academic_repository import AcademicRepository
 from app.repositories.building_repository import BuildingRepository
 from app.repositories.calendar_repository import CalendarRepository
 from app.repositories.requirement_repository import RequirementRepository
@@ -11,6 +12,7 @@ from app.repositories.template_repository import TemplateRepository
 
 __all__ = [
     "AuthRepository",
+    "AcademicRepository",
     "BuildingRepository",
     "CalendarRepository",
     "ResourceRepository",

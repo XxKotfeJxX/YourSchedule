@@ -1,4 +1,5 @@
 from app.domain.models.auth import Company, CompanyProfile, User
+from app.domain.models.academic import Department, Specialty, Stream
 from app.domain.models.calendar import (
     CalendarPeriod,
     DayPattern,
@@ -16,6 +17,9 @@ __all__ = [
     "Company",
     "CompanyProfile",
     "User",
+    "Department",
+    "Specialty",
+    "Stream",
     "MarkType",
     "DayPattern",
     "DayPatternItem",
