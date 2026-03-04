@@ -882,15 +882,21 @@ class ScheduleMainWindow:
 
     def _build_company_groups_view(self, parent: ttk.Frame, company_id: int) -> None:
         group_state: dict[str, int | str | None] = {"id": None, "name": None}
+        browse_state: dict[str, int | str | None] = {
+            "level": "departments",
+            "department_id": None,
+            "specialty_id": None,
+        }
         structure_state: dict[str, object] = {
+            "departments": [],
+            "specialties": [],
+            "courses": [],
+            "streams": [],
             "department_by_id": {},
             "specialty_by_id": {},
             "course_by_id": {},
             "stream_by_id": {},
-            "sync": False,
         }
-        department_filter_var = tk.StringVar(value="Усі кафедри")
-        specialty_filter_var = tk.StringVar(value="Усі спеціальності")
         course_filter_var = tk.StringVar(value="Усі курси")
         stream_filter_var = tk.StringVar(value="Усі потоки")
     
@@ -934,90 +940,115 @@ class ScheduleMainWindow:
         header.pack(fill=tk.X, pady=(0, 8))
         header_actions = ttk.Frame(header, style="Card.TFrame")
         header_actions.pack(side=tk.RIGHT)
-        self._motion_button(
+        add_group_button = self._motion_button(
             header_actions,
             text="+ Група",
             command=lambda: open_create_group_modal(),
             primary=True,
             width=128,
-        ).pack(side=tk.RIGHT)
-        self._motion_button(
+        )
+        add_stream_button = self._motion_button(
             header_actions,
             text="+ Потік",
             command=lambda: open_create_stream_modal(),
             primary=False,
             width=110,
-        ).pack(side=tk.RIGHT, padx=(0, 6))
-        self._motion_button(
+        )
+        add_course_button = self._motion_button(
             header_actions,
             text="+ Курс",
             command=lambda: open_create_course_modal(),
             primary=False,
             width=110,
-        ).pack(side=tk.RIGHT, padx=(0, 6))
-        self._motion_button(
+        )
+        add_specialty_button = self._motion_button(
             header_actions,
             text="+ Спеціальність",
             command=lambda: open_create_specialty_modal(),
             primary=False,
             width=150,
-        ).pack(side=tk.RIGHT, padx=(0, 6))
-        self._motion_button(
+        )
+        add_department_button = self._motion_button(
             header_actions,
             text="+ Кафедра",
             command=lambda: open_create_department_modal(),
             primary=False,
             width=128,
-        ).pack(side=tk.RIGHT, padx=(0, 6))
+        )
         titles = ttk.Frame(header, style="Card.TFrame")
         titles.pack(side=tk.LEFT, fill=tk.X, expand=True)
         ttk.Label(titles, text="Групи", style="CardTitle.TLabel").pack(anchor="w")
         ttk.Label(
             titles,
-            text="Ієрархія: кафедра → спеціальність → курс → потік → група. ЛКМ - відкрити, ПКМ - видалити.",
+            text="Ієрархія: кафедра → спеціальність → група. Усередині груп працюють фільтри за курсом і потоком.",
             style="CardSubtle.TLabel",
         ).pack(anchor="w", pady=(2, 0))
 
-        structure_filters = ttk.Frame(main_view, style="Card.TFrame")
-        structure_filters.pack(fill=tk.X, pady=(0, 8))
-        ttk.Label(structure_filters, text="Кафедра", style="Card.TLabel").pack(side=tk.LEFT)
-        department_filter_box = ttk.Combobox(
-            structure_filters,
-            textvariable=department_filter_var,
-            state="readonly",
-            width=24,
+        hierarchy_nav = ttk.Frame(main_view, style="Card.TFrame")
+        hierarchy_nav.pack(fill=tk.X, pady=(0, 6))
+        hierarchy_back_button = self._motion_button(
+            hierarchy_nav,
+            text="← Назад",
+            command=lambda: None,
+            primary=False,
+            width=112,
+            height=32,
         )
-        department_filter_box.pack(side=tk.LEFT, padx=(8, 12))
-        ttk.Label(structure_filters, text="Спеціальність", style="Card.TLabel").pack(side=tk.LEFT)
-        specialty_filter_box = ttk.Combobox(
-            structure_filters,
-            textvariable=specialty_filter_var,
+        hierarchy_back_button.pack(side=tk.LEFT)
+        hierarchy_path_var = tk.StringVar(value="Кафедри")
+        ttk.Label(hierarchy_nav, textvariable=hierarchy_path_var, style="CardSubtle.TLabel").pack(
+            side=tk.LEFT,
+            padx=(10, 0),
+            pady=(6, 0),
+        )
+
+        group_filters = ttk.Frame(main_view, style="Card.TFrame")
+        group_filters.pack(fill=tk.X, pady=(0, 8))
+        ttk.Label(group_filters, text="Курс", style="Card.TLabel").pack(side=tk.LEFT)
+        course_filter_box = ttk.Combobox(
+            group_filters,
+            textvariable=course_filter_var,
             state="readonly",
             width=26,
         )
-        specialty_filter_box.pack(side=tk.LEFT, padx=(8, 12))
-        ttk.Label(structure_filters, text="Курс", style="Card.TLabel").pack(side=tk.LEFT)
-        course_filter_box = ttk.Combobox(
-            structure_filters,
-            textvariable=course_filter_var,
-            state="readonly",
-            width=24,
-        )
         course_filter_box.pack(side=tk.LEFT, padx=(8, 12))
-        ttk.Label(structure_filters, text="Потік", style="Card.TLabel").pack(side=tk.LEFT)
+        ttk.Label(group_filters, text="Потік", style="Card.TLabel").pack(side=tk.LEFT)
         stream_filter_box = ttk.Combobox(
-            structure_filters,
+            group_filters,
             textvariable=stream_filter_var,
             state="readonly",
-            width=24,
+            width=26,
         )
         stream_filter_box.pack(side=tk.LEFT, padx=(8, 0))
-    
-        cards_container = ttk.Frame(main_view, style="Card.TFrame")
-        cards_container.pack(fill=tk.BOTH, expand=True, pady=(6, 0))
-        cards_container.grid_columnconfigure(0, weight=1)
-        cards_container.grid_columnconfigure(1, weight=1)
-        cards_container.grid_columnconfigure(2, weight=1)
+
+        cards_scroll_wrap = ttk.Frame(main_view, style="Card.TFrame")
+        cards_scroll_wrap.pack(fill=tk.BOTH, expand=True, pady=(6, 0))
+        cards_canvas = tk.Canvas(
+            cards_scroll_wrap,
+            bg=self.theme.SURFACE,
+            bd=0,
+            highlightthickness=0,
+            relief=tk.FLAT,
+        )
+        cards_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        cards_scroll = ttk.Scrollbar(
+            cards_scroll_wrap,
+            orient=tk.VERTICAL,
+            command=cards_canvas.yview,
+            style="App.Vertical.TScrollbar",
+        )
+        cards_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        cards_canvas.configure(yscrollcommand=cards_scroll.set)
+
+        cards_container = ttk.Frame(cards_canvas, style="Card.TFrame")
+        cards_window = cards_canvas.create_window((0, 0), anchor="nw", window=cards_container)
+
+        def _sync_cards_scroll(_event=None) -> None:
+            cards_canvas.configure(scrollregion=cards_canvas.bbox("all"))
+            cards_canvas.itemconfigure(cards_window, width=cards_canvas.winfo_width())
+
+        cards_container.bind("<Configure>", _sync_cards_scroll)
+        cards_canvas.bind("<Configure>", _sync_cards_scroll)
     
         detail_scroll_wrap = ttk.Frame(detail_view, style="Card.TFrame")
         detail_scroll_wrap.pack(fill=tk.BOTH, expand=True)
@@ -1299,11 +1330,15 @@ class ScheduleMainWindow:
         detail_canvas.bind("<Button-4>", detail_wheel_up, add="+")
         detail_canvas.bind("<Button-5>", detail_wheel_down, add="+")
 
+        filter_sync_state = {"busy": False}
+
         def selected_department_id() -> int | None:
-            return parse_selected_prefixed_id(department_filter_var.get())
+            value = browse_state.get("department_id")
+            return int(value) if isinstance(value, int) else None
 
         def selected_specialty_id() -> int | None:
-            return parse_selected_prefixed_id(specialty_filter_var.get())
+            value = browse_state.get("specialty_id")
+            return int(value) if isinstance(value, int) else None
 
         def selected_course_id() -> int | None:
             return parse_selected_prefixed_id(course_filter_var.get())
@@ -1311,124 +1346,140 @@ class ScheduleMainWindow:
         def selected_stream_id() -> int | None:
             return parse_selected_prefixed_id(stream_filter_var.get())
 
-        def load_structure_filters() -> None:
-            current_department_id = selected_department_id()
-            current_specialty_id = selected_specialty_id()
-            current_course_id = selected_course_id()
-            current_stream_id = selected_stream_id()
+        def compute_main_columns(width: int) -> int:
+            if width >= 1480:
+                return 4
+            if width >= 1160:
+                return 3
+            if width >= 820:
+                return 2
+            return 1
 
+        def refresh_header_actions() -> None:
+            for widget in (add_group_button, add_stream_button, add_course_button, add_specialty_button, add_department_button):
+                widget.pack_forget()
+            level = str(browse_state["level"])
+            if level == "departments":
+                add_department_button.pack(side=tk.RIGHT)
+            elif level == "specialties":
+                add_specialty_button.pack(side=tk.RIGHT)
+            else:
+                add_group_button.pack(side=tk.RIGHT)
+                add_stream_button.pack(side=tk.RIGHT, padx=(0, 6))
+                add_course_button.pack(side=tk.RIGHT, padx=(0, 6))
+
+        def refresh_hierarchy_nav() -> None:
+            level = str(browse_state["level"])
+            department = structure_state["department_by_id"].get(selected_department_id())
+            specialty = structure_state["specialty_by_id"].get(selected_specialty_id())
+
+            if level == "departments":
+                hierarchy_path_var.set("Кафедри")
+                hierarchy_back_button.pack_forget()
+            elif level == "specialties":
+                dep_name = department.name if department is not None else "Кафедра"
+                hierarchy_path_var.set(f"Кафедри / {dep_name}")
+                if not hierarchy_back_button.winfo_ismapped():
+                    hierarchy_back_button.pack(side=tk.LEFT)
+            else:
+                dep_name = department.name if department is not None else "Кафедра"
+                spec_name = specialty.code or specialty.name if specialty is not None else "Спеціальність"
+                hierarchy_path_var.set(f"Кафедри / {dep_name} / {spec_name}")
+                if not hierarchy_back_button.winfo_ismapped():
+                    hierarchy_back_button.pack(side=tk.LEFT)
+
+        def refresh_group_filter_options() -> None:
+            specialty_id = selected_specialty_id()
+            all_courses = [item for item in structure_state["courses"] if specialty_id is None or item.specialty_id == specialty_id]
+            current_course = selected_course_id()
+            allowed_course_ids = {item.id for item in all_courses}
+            if current_course not in allowed_course_ids:
+                current_course = None
+
+            all_streams = [
+                item
+                for item in structure_state["streams"]
+                if (specialty_id is None or item.specialty_id == specialty_id)
+                and (current_course is None or item.course_id == current_course)
+            ]
+            current_stream = selected_stream_id()
+            allowed_stream_ids = {item.id for item in all_streams}
+            if current_stream not in allowed_stream_ids:
+                current_stream = None
+
+            course_values = [
+                f"{item.id} | {item.code} — {item.name}" if item.code else f"{item.id} | {item.name}"
+                for item in all_courses
+            ]
+            stream_values = [
+                f"{item.id} | {item.name}{f' • набір {item.admission_year}' if item.admission_year is not None else ''}"
+                for item in all_streams
+            ]
+
+            filter_sync_state["busy"] = True
+            course_filter_box["values"] = ["Усі курси"] + course_values
+            stream_filter_box["values"] = ["Усі потоки"] + stream_values
+            if current_course is None:
+                course_filter_var.set("Усі курси")
+            else:
+                course = structure_state["course_by_id"][current_course]
+                course_filter_var.set(f"{course.id} | {course.code} — {course.name}" if course.code else f"{course.id} | {course.name}")
+            if current_stream is None:
+                stream_filter_var.set("Усі потоки")
+            else:
+                stream = structure_state["stream_by_id"][current_stream]
+                year_suffix = f" • набір {stream.admission_year}" if stream.admission_year is not None else ""
+                stream_filter_var.set(f"{stream.id} | {stream.name}{year_suffix}")
+            filter_sync_state["busy"] = False
+
+        def load_structure_state() -> None:
             with session_scope() as session:
                 academic = AcademicController(session=session)
                 departments = academic.list_departments(company_id=company_id, include_archived=False)
+                specialties = academic.list_specialties(company_id=company_id, include_archived=False)
+                courses = academic.list_courses(company_id=company_id, include_archived=False)
+                streams = academic.list_streams(company_id=company_id, include_archived=False)
 
-                allowed_department_ids = {item.id for item in departments}
-                if current_department_id not in allowed_department_ids:
-                    current_department_id = None
-
-                specialties = academic.list_specialties(
-                    company_id=company_id,
-                    department_id=current_department_id,
-                    include_archived=False,
-                )
-                allowed_specialty_ids = {item.id for item in specialties}
-                if current_specialty_id not in allowed_specialty_ids:
-                    current_specialty_id = None
-
-                courses = academic.list_courses(
-                    company_id=company_id,
-                    specialty_id=current_specialty_id,
-                    include_archived=False,
-                )
-                allowed_course_ids = {item.id for item in courses}
-                if current_course_id not in allowed_course_ids:
-                    current_course_id = None
-
-                streams = academic.list_streams(
-                    company_id=company_id,
-                    specialty_id=current_specialty_id,
-                    course_id=current_course_id,
-                    include_archived=False,
-                )
-                allowed_stream_ids = {item.id for item in streams}
-                if current_stream_id not in allowed_stream_ids:
-                    current_stream_id = None
-
+            structure_state["departments"] = departments
+            structure_state["specialties"] = specialties
+            structure_state["courses"] = courses
+            structure_state["streams"] = streams
             structure_state["department_by_id"] = {item.id: item for item in departments}
             structure_state["specialty_by_id"] = {item.id: item for item in specialties}
             structure_state["course_by_id"] = {item.id: item for item in courses}
             structure_state["stream_by_id"] = {item.id: item for item in streams}
 
-            department_values = [f"{item.id} | {item.name}" for item in departments]
-            specialty_values = [
-                f"{item.id} | {item.code} — {item.name}" if item.code else f"{item.id} | {item.name}"
-                for item in specialties
-            ]
-            course_values = [
-                f"{item.id} | {item.code} — {item.name}" if item.code else f"{item.id} | {item.name}"
-                for item in courses
-            ]
-            stream_values = []
-            for item in streams:
-                year_suffix = f" • набір {item.admission_year}" if item.admission_year is not None else ""
-                stream_values.append(f"{item.id} | {item.name}{year_suffix}")
+            if selected_department_id() not in structure_state["department_by_id"]:
+                browse_state["department_id"] = None
+                browse_state["specialty_id"] = None
+                browse_state["level"] = "departments"
+            elif selected_specialty_id() not in structure_state["specialty_by_id"]:
+                browse_state["specialty_id"] = None
+                browse_state["level"] = "specialties"
 
-            structure_state["sync"] = True
-            department_filter_box["values"] = ["Усі кафедри"] + department_values
-            specialty_filter_box["values"] = ["Усі спеціальності"] + specialty_values
-            course_filter_box["values"] = ["Усі курси"] + course_values
-            stream_filter_box["values"] = ["Усі потоки"] + stream_values
+        def set_hierarchy_level(level: str, *, department_id: int | None = None, specialty_id: int | None = None) -> None:
+            browse_state["level"] = level
+            browse_state["department_id"] = department_id
+            browse_state["specialty_id"] = specialty_id
 
-            if current_department_id is None:
-                department_filter_var.set("Усі кафедри")
-            else:
-                department_filter_var.set(f"{current_department_id} | {structure_state['department_by_id'][current_department_id].name}")
-
-            if current_specialty_id is None:
-                specialty_filter_var.set("Усі спеціальності")
-            else:
-                specialty = structure_state["specialty_by_id"][current_specialty_id]
-                specialty_filter_var.set(
-                    f"{specialty.id} | {specialty.code} — {specialty.name}" if specialty.code else f"{specialty.id} | {specialty.name}"
-                )
-
-            if current_course_id is None:
-                course_filter_var.set("Усі курси")
-            else:
-                course = structure_state["course_by_id"][current_course_id]
-                course_filter_var.set(
-                    f"{course.id} | {course.code} — {course.name}" if course.code else f"{course.id} | {course.name}"
-                )
-
-            if current_stream_id is None:
-                stream_filter_var.set("Усі потоки")
-            else:
-                stream = structure_state["stream_by_id"][current_stream_id]
-                year_suffix = f" • набір {stream.admission_year}" if stream.admission_year is not None else ""
-                stream_filter_var.set(f"{stream.id} | {stream.name}{year_suffix}")
-            structure_state["sync"] = False
-
-        def on_department_filter_change(_event=None) -> None:
-            if structure_state["sync"]:
-                return
-            load_structure_filters()
-            render_group_cards()
-
-        def on_specialty_filter_change(_event=None) -> None:
-            if structure_state["sync"]:
-                return
-            load_structure_filters()
-            render_group_cards()
+        def on_hierarchy_back() -> None:
+            level = str(browse_state["level"])
+            if level == "groups":
+                set_hierarchy_level("specialties", department_id=selected_department_id(), specialty_id=None)
+            elif level == "specialties":
+                set_hierarchy_level("departments", department_id=None, specialty_id=None)
+            render_main_cards()
 
         def on_course_filter_change(_event=None) -> None:
-            if structure_state["sync"]:
+            if filter_sync_state["busy"] or str(browse_state["level"]) != "groups":
                 return
-            load_structure_filters()
-            render_group_cards()
+            refresh_group_filter_options()
+            render_main_cards()
 
         def on_stream_filter_change(_event=None) -> None:
-            if structure_state["sync"]:
+            if filter_sync_state["busy"] or str(browse_state["level"]) != "groups":
                 return
-            render_group_cards()
+            render_main_cards()
 
         def open_create_department_modal() -> None:
             modal = tk.Toplevel(self.root)
@@ -1473,9 +1524,9 @@ class ScheduleMainWindow:
                     return
 
                 modal.destroy()
-                load_structure_filters()
-                department_filter_var.set(f"{created.id} | {created.name}")
-                on_department_filter_change()
+                load_structure_state()
+                set_hierarchy_level("specialties", department_id=created.id, specialty_id=None)
+                render_main_cards()
 
             self._motion_button(footer, text="Скасувати", command=modal.destroy, primary=False, width=130).pack(side=tk.RIGHT)
             self._motion_button(footer, text="Створити", command=on_submit_department, primary=True, width=130).pack(
@@ -1506,6 +1557,12 @@ class ScheduleMainWindow:
                 for item in departments
             ]
             department_var = tk.StringVar(value=department_values[0])
+            current_department_id = selected_department_id()
+            if current_department_id is not None:
+                for value in department_values:
+                    if value.startswith(f"{current_department_id} |"):
+                        department_var.set(value)
+                        break
             name_var = tk.StringVar(value="")
             code_var = tk.StringVar(value="")
             duration_var = tk.StringVar(value="")
@@ -1566,10 +1623,11 @@ class ScheduleMainWindow:
                     return
 
                 modal.destroy()
-                load_structure_filters()
-                on_department_filter_change()
-                specialty_filter_var.set(f"{created.id} | {created.code} — {created.name}" if created.code else f"{created.id} | {created.name}")
-                on_specialty_filter_change()
+                load_structure_state()
+                set_hierarchy_level("groups", department_id=department_id, specialty_id=created.id)
+                course_filter_var.set("Усі курси")
+                stream_filter_var.set("Усі потоки")
+                render_main_cards()
 
             self._motion_button(footer, text="Скасувати", command=modal.destroy, primary=False, width=130).pack(side=tk.RIGHT)
             self._motion_button(footer, text="Створити", command=on_submit_specialty, primary=True, width=130).pack(
@@ -1600,6 +1658,12 @@ class ScheduleMainWindow:
                 dep_label = department.short_name or department.name
                 specialty_values.append(f"{specialty.id} | {specialty.name} ({dep_label})")
             specialty_var = tk.StringVar(value=specialty_values[0])
+            current_specialty_id = selected_specialty_id()
+            if current_specialty_id is not None:
+                for value in specialty_values:
+                    if value.startswith(f"{current_specialty_id} |"):
+                        specialty_var.set(value)
+                        break
             name_var = tk.StringVar(value="")
             code_var = tk.StringVar(value="")
             study_year_var = tk.StringVar(value="")
@@ -1647,15 +1711,17 @@ class ScheduleMainWindow:
                     return
 
                 modal.destroy()
-                load_structure_filters()
-                if created.specialty_id is not None and created.specialty_id in structure_state["specialty_by_id"]:
-                    specialty = structure_state["specialty_by_id"][created.specialty_id]
-                    specialty_filter_var.set(
-                        f"{specialty.id} | {specialty.code} — {specialty.name}" if specialty.code else f"{specialty.id} | {specialty.name}"
-                    )
-                on_specialty_filter_change()
+                load_structure_state()
+                specialty = structure_state["specialty_by_id"].get(created.specialty_id)
+                department = structure_state["department_by_id"].get(specialty.department_id) if specialty is not None else None
+                set_hierarchy_level(
+                    "groups",
+                    department_id=department.id if department is not None else selected_department_id(),
+                    specialty_id=created.specialty_id,
+                )
                 course_filter_var.set(f"{created.id} | {created.code} — {created.name}" if created.code else f"{created.id} | {created.name}")
-                on_course_filter_change()
+                stream_filter_var.set("Усі потоки")
+                render_main_cards()
 
             self._motion_button(footer, text="Скасувати", command=modal.destroy, primary=False, width=130).pack(side=tk.RIGHT)
             self._motion_button(footer, text="Створити", command=on_submit_course, primary=True, width=130).pack(
@@ -1752,9 +1818,9 @@ class ScheduleMainWindow:
                     return
 
                 modal.destroy()
-                load_structure_filters()
+                load_structure_state()
                 stream_filter_var.set(f"{created.id} | {created.name}")
-                on_stream_filter_change()
+                render_main_cards()
 
             self._motion_button(footer, text="Скасувати", command=modal.destroy, primary=False, width=130).pack(side=tk.RIGHT)
             self._motion_button(footer, text="Створити", command=on_submit_stream, primary=True, width=130).pack(
@@ -1768,7 +1834,7 @@ class ScheduleMainWindow:
             group_state["name"] = None
             detail_view.pack_forget()
             main_view.pack(fill=tk.BOTH, expand=True)
-            render_group_cards()
+            render_main_cards()
     
         def open_group_view(group_id: int, group_name: str) -> None:
             group_state["id"] = group_id
@@ -1803,33 +1869,189 @@ class ScheduleMainWindow:
             if group_state["id"] == group_id:
                 open_main_view()
             else:
-                render_group_cards()
-    
+                render_main_cards()
+
+        cards_layout_state = {"columns": 4}
+
+        def clear_cards_container() -> None:
+            for child in cards_container.winfo_children():
+                child.destroy()
+
+        def apply_card_grid_columns(columns: int) -> None:
+            for col in range(4):
+                cards_container.grid_columnconfigure(col, weight=1 if col < columns else 0, uniform="group-card-col")
+
+        def render_empty_main(text: str) -> None:
+            clear_cards_container()
+            empty = ttk.Frame(cards_container, style="Card.TFrame")
+            empty.grid(row=0, column=0, sticky="w", padx=8, pady=8)
+            ttk.Label(empty, text=text, style="CardSubtle.TLabel").pack(anchor="w")
+
+        def render_department_cards() -> None:
+            departments = sorted(structure_state["departments"], key=lambda item: (item.name.lower(), item.id))
+            if not departments:
+                render_empty_main("Поки що немає кафедр. Створи першу кафедру.")
+                return
+
+            specialties = structure_state["specialties"]
+            courses = structure_state["courses"]
+            streams = structure_state["streams"]
+            dep_id_by_spec_id = {item.id: item.department_id for item in specialties}
+            spec_id_by_course_id = {item.id: item.specialty_id for item in courses}
+            course_id_by_stream_id = {item.id: item.course_id for item in streams}
+
+            specialty_count_by_dep: dict[int, int] = {}
+            course_count_by_dep: dict[int, int] = {}
+            stream_count_by_dep: dict[int, int] = {}
+            for specialty in specialties:
+                specialty_count_by_dep[specialty.department_id] = specialty_count_by_dep.get(specialty.department_id, 0) + 1
+            for course in courses:
+                dep_id = dep_id_by_spec_id.get(course.specialty_id)
+                if dep_id is None:
+                    continue
+                course_count_by_dep[dep_id] = course_count_by_dep.get(dep_id, 0) + 1
+            for stream in streams:
+                if stream.course_id is None:
+                    continue
+                spec_id = spec_id_by_course_id.get(stream.course_id)
+                dep_id = dep_id_by_spec_id.get(spec_id) if spec_id is not None else None
+                if dep_id is None:
+                    continue
+                stream_count_by_dep[dep_id] = stream_count_by_dep.get(dep_id, 0) + 1
+
+            clear_cards_container()
+            columns = cards_layout_state["columns"]
+            apply_card_grid_columns(columns)
+            for index, department in enumerate(departments):
+                row = index // columns
+                column = index % columns
+                card = RoundedMotionCard(
+                    cards_container,
+                    bg_color=self.theme.SURFACE,
+                    card_color=self.theme.SURFACE_ALT,
+                    shadow_color=self.theme.SHADOW_SOFT,
+                    radius=16,
+                    padding=4,
+                    shadow_offset=4,
+                    motion_enabled=True,
+                    width=280,
+                    height=130,
+                )
+                card.grid(row=row, column=column, padx=8, pady=8, sticky="nsew")
+                title = ttk.Label(card.content, text=department.name, style="CardAltTitle.TLabel")
+                title.pack(anchor="w", pady=(4, 2))
+                subtitle = ttk.Label(
+                    card.content,
+                    text=f"Спеціальностей: {specialty_count_by_dep.get(department.id, 0)} • Курсів: {course_count_by_dep.get(department.id, 0)} • Потоків: {stream_count_by_dep.get(department.id, 0)}",
+                    style="CardAltSubtle.TLabel",
+                )
+                subtitle.pack(anchor="w")
+                short_name = department.short_name or "Без скорочення"
+                hint = ttk.Label(card.content, text=f"Скорочення: {short_name}", style="CardAltSubtle.TLabel")
+                hint.pack(anchor="w", pady=(3, 0))
+                for widget in (card, card.canvas, card.content, title, subtitle, hint):
+                    widget.bind(
+                        "<Button-1>",
+                        lambda _e, dep_id=department.id: (
+                            set_hierarchy_level("specialties", department_id=dep_id, specialty_id=None),
+                            render_main_cards(),
+                        ),
+                    )
+
+        def render_specialty_cards() -> None:
+            department_id = selected_department_id()
+            if department_id is None:
+                set_hierarchy_level("departments", department_id=None, specialty_id=None)
+                render_main_cards()
+                return
+            specialties = [
+                item
+                for item in structure_state["specialties"]
+                if item.department_id == department_id
+            ]
+            specialties.sort(key=lambda item: (item.name.lower(), item.id))
+            if not specialties:
+                render_empty_main("У цій кафедрі ще немає спеціальностей.")
+                return
+
+            courses = structure_state["courses"]
+            streams = structure_state["streams"]
+            course_count_by_spec: dict[int, int] = {}
+            stream_count_by_spec: dict[int, int] = {}
+            for course in courses:
+                course_count_by_spec[course.specialty_id] = course_count_by_spec.get(course.specialty_id, 0) + 1
+            for stream in streams:
+                if stream.course_id is None:
+                    continue
+                course = structure_state["course_by_id"].get(stream.course_id)
+                if course is None:
+                    continue
+                stream_count_by_spec[course.specialty_id] = stream_count_by_spec.get(course.specialty_id, 0) + 1
+
+            clear_cards_container()
+            columns = cards_layout_state["columns"]
+            apply_card_grid_columns(columns)
+            for index, specialty in enumerate(specialties):
+                row = index // columns
+                column = index % columns
+                card = RoundedMotionCard(
+                    cards_container,
+                    bg_color=self.theme.SURFACE,
+                    card_color=self.theme.SURFACE_ALT,
+                    shadow_color=self.theme.SHADOW_SOFT,
+                    radius=16,
+                    padding=4,
+                    shadow_offset=4,
+                    motion_enabled=True,
+                    width=280,
+                    height=130,
+                )
+                card.grid(row=row, column=column, padx=8, pady=8, sticky="nsew")
+                title_text = f"{specialty.code} • {specialty.name}" if specialty.code else specialty.name
+                title = ttk.Label(card.content, text=title_text, style="CardAltTitle.TLabel")
+                title.pack(anchor="w", pady=(4, 2))
+                stats = ttk.Label(
+                    card.content,
+                    text=f"Курсів: {course_count_by_spec.get(specialty.id, 0)} • Потоків: {stream_count_by_spec.get(specialty.id, 0)}",
+                    style="CardAltSubtle.TLabel",
+                )
+                stats.pack(anchor="w")
+                degree = specialty.degree_level or "OTHER"
+                detail = ttk.Label(card.content, text=f"Рівень: {degree}", style="CardAltSubtle.TLabel")
+                detail.pack(anchor="w", pady=(3, 0))
+                for widget in (card, card.canvas, card.content, title, stats, detail):
+                    widget.bind(
+                        "<Button-1>",
+                        lambda _e, spec_id=specialty.id: (
+                            set_hierarchy_level("groups", department_id=department_id, specialty_id=spec_id),
+                            course_filter_var.set("Усі курси"),
+                            stream_filter_var.set("Усі потоки"),
+                            render_main_cards(),
+                        ),
+                    )
+
         def load_group_cards_data() -> list[tuple[int, str, int, str]]:
+            specialty_id = selected_specialty_id()
+            if specialty_id is None:
+                return []
+            course_id_filter = selected_course_id()
             stream_id_filter = selected_stream_id()
-            has_department_filter = selected_department_id() is not None
-            has_specialty_filter = selected_specialty_id() is not None
-            has_course_filter = selected_course_id() is not None
+
+            all_streams = [item for item in structure_state["streams"] if item.specialty_id == specialty_id]
+            if course_id_filter is not None:
+                all_streams = [item for item in all_streams if item.course_id == course_id_filter]
+            allowed_stream_ids = {item.id for item in all_streams}
+            if stream_id_filter is not None:
+                allowed_stream_ids = {stream_id_filter} if stream_id_filter in allowed_stream_ids else set()
+
             with session_scope() as session:
                 auth_controller = AuthController(session=session)
                 resource_controller = ResourceController(session=session)
-                academic_controller = AcademicController(session=session)
                 groups = resource_controller.list_resources(
                     resource_type=ResourceType.GROUP,
                     company_id=company_id,
-                    stream_id=stream_id_filter,
                 )
-                streams = academic_controller.list_streams(company_id=company_id, include_archived=True)
-                courses = academic_controller.list_courses(company_id=company_id, include_archived=True)
-                specialties = academic_controller.list_specialties(company_id=company_id, include_archived=True)
-                departments = academic_controller.list_departments(company_id=company_id, include_archived=True)
-                stream_by_id = {item.id: item for item in streams}
-                course_by_id = {item.id: item for item in courses}
-                specialty_by_id = {item.id: item for item in specialties}
-                department_by_id = {item.id: item for item in departments}
-                if stream_id_filter is None and (has_department_filter or has_specialty_filter or has_course_filter):
-                    allowed_stream_ids = set(structure_state["stream_by_id"].keys())
-                    groups = [item for item in groups if item.stream_id in allowed_stream_ids]
+                groups = [item for item in groups if item.stream_id in allowed_stream_ids]
 
                 result: list[tuple[int, str, int, str]] = []
                 for group in groups:
@@ -1840,40 +2062,26 @@ class ScheduleMainWindow:
                         subgroup_ids=[item.id for item in subgroups],
                     )
                     stream_label = "Без потоку"
-                    stream_id = getattr(group, "stream_id", None)
-                    if stream_id is not None:
-                        stream = stream_by_id.get(stream_id)
-                        if stream is not None:
-                            course = course_by_id.get(stream.course_id) if getattr(stream, "course_id", None) is not None else None
-                            specialty_id = course.specialty_id if course is not None else stream.specialty_id
-                            specialty = specialty_by_id.get(specialty_id)
-                            department = department_by_id.get(specialty.department_id) if specialty is not None else None
-                            dep_name = department.short_name or department.name if department is not None else "Кафедра?"
-                            spec_name = specialty.code or specialty.name if specialty is not None else "Спеціальність?"
-                            course_name = course.code or course.name if course is not None else "Курс?"
-                            stream_label = f"{dep_name} • {spec_name} • {course_name} • {stream.name}"
+                    stream = structure_state["stream_by_id"].get(group.stream_id)
+                    if stream is not None:
+                        course = structure_state["course_by_id"].get(stream.course_id) if stream.course_id is not None else None
+                        course_name = course.code or course.name if course is not None else "Курс?"
+                        stream_label = f"{course_name} • {stream.name}"
                     result.append((group.id, group.name, len(users), stream_label))
-                return result
-    
+            result.sort(key=lambda item: (item[1].lower(), item[0]))
+            return result
+
         def render_group_cards() -> None:
-            for child in cards_container.winfo_children():
-                child.destroy()
             try:
                 groups = load_group_cards_data()
             except Exception as exc:
                 messagebox.showerror("Помилка завантаження груп", str(exc))
                 return
-    
+
             if not groups:
-                empty = ttk.Frame(cards_container, style="Card.TFrame")
-                empty.grid(row=0, column=0, sticky="w")
-                ttk.Label(
-                    empty,
-                    text="Поки що немає груп. Створи першу групу.",
-                    style="CardSubtle.TLabel",
-                ).pack(anchor="w")
+                render_empty_main("У цій спеціальності ще немає груп за обраними фільтрами.")
                 return
-    
+
             def on_card_context(event: tk.Event, group_id: int, group_name: str) -> None:
                 menu = tk.Menu(
                     self.root,
@@ -1899,10 +2107,13 @@ class ScheduleMainWindow:
                     menu.tk_popup(event.x_root, event.y_root)
                 finally:
                     menu.grab_release()
-    
+
+            clear_cards_container()
+            columns = cards_layout_state["columns"]
+            apply_card_grid_columns(columns)
             for index, (group_id, group_name, user_count, stream_label) in enumerate(groups):
-                row = index // 3
-                column = index % 3
+                row = index // columns
+                column = index % columns
                 card = RoundedMotionCard(
                     cards_container,
                     bg_color=self.theme.SURFACE,
@@ -1916,17 +2127,40 @@ class ScheduleMainWindow:
                     height=120,
                 )
                 card.grid(row=row, column=column, padx=8, pady=8, sticky="nsew")
-                card.content.grid_columnconfigure(0, weight=1)
                 title = ttk.Label(card.content, text=group_name, style="CardAltTitle.TLabel")
-                title.grid(row=0, column=0, sticky="w", pady=(4, 2))
-                stream_meta = ttk.Label(card.content, text=stream_label, style="CardAltSubtle.TLabel")
-                stream_meta.grid(row=1, column=0, sticky="w", pady=(0, 2))
+                title.pack(anchor="w", pady=(4, 2))
+                meta = ttk.Label(card.content, text=stream_label, style="CardAltSubtle.TLabel")
+                meta.pack(anchor="w")
                 count = ttk.Label(card.content, text=f"Учасників: {user_count}", style="CardAltSubtle.TLabel")
-                count.grid(row=2, column=0, sticky="w")
-
-                for widget in (card, card.canvas, card.content, title, stream_meta, count):
+                count.pack(anchor="w", pady=(2, 0))
+                for widget in (card, card.canvas, card.content, title, meta, count):
                     widget.bind("<Button-1>", lambda _e, gid=group_id, gname=group_name: open_group_view(gid, gname))
                     widget.bind("<Button-3>", lambda e, gid=group_id, gname=group_name: on_card_context(e, gid, gname))
+
+        def render_main_cards(_event=None) -> None:
+            load_structure_state()
+            refresh_header_actions()
+            refresh_hierarchy_nav()
+
+            level = str(browse_state["level"])
+            if level == "groups":
+                group_filters.pack(fill=tk.X, pady=(0, 8))
+                refresh_group_filter_options()
+                render_group_cards()
+            else:
+                group_filters.pack_forget()
+                if level == "specialties":
+                    render_specialty_cards()
+                else:
+                    render_department_cards()
+
+        def on_cards_resize(_event=None) -> None:
+            width = max(1, cards_canvas.winfo_width())
+            columns = compute_main_columns(width)
+            if cards_layout_state["columns"] == columns:
+                return
+            cards_layout_state["columns"] = columns
+            render_main_cards()
     
         def render_participant_cards(users: list[User]) -> None:
             for child in participants_cards_frame.winfo_children():
@@ -2522,13 +2756,13 @@ class ScheduleMainWindow:
             group_name_entry.focus_set()
             refresh_suggestions()
 
-        department_filter_box.bind("<<ComboboxSelected>>", on_department_filter_change, add="+")
-        specialty_filter_box.bind("<<ComboboxSelected>>", on_specialty_filter_change, add="+")
         course_filter_box.bind("<<ComboboxSelected>>", on_course_filter_change, add="+")
         stream_filter_box.bind("<<ComboboxSelected>>", on_stream_filter_change, add="+")
+        cards_canvas.bind("<Configure>", on_cards_resize, add="+")
 
-        load_structure_filters()
+        hierarchy_back_button.command = on_hierarchy_back
         back_button.command = open_main_view
+        set_hierarchy_level("departments", department_id=None, specialty_id=None)
         open_main_view()
 
     def _build_company_rooms_view(self, parent: ttk.Frame, company_id: int) -> None:
