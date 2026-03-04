@@ -148,8 +148,13 @@ def test_group_and_subgroup_stream_linking(session: Session) -> None:
         name="Computer Science",
         company_id=company.id,
     )
-    stream = academic.create_stream(
+    course = academic.create_course(
         specialty_id=specialty.id,
+        name="Course 1",
+        company_id=company.id,
+    )
+    stream = academic.create_stream(
+        course_id=course.id,
         name="CS-2026",
         company_id=company.id,
     )
@@ -191,7 +196,8 @@ def test_group_stream_validation(session: Session) -> None:
 
     dep_b = academic.create_department(name="Math", company_id=company_b.id)
     spec_b = academic.create_specialty(department_id=dep_b.id, name="Math Spec", company_id=company_b.id)
-    stream_b = academic.create_stream(specialty_id=spec_b.id, name="M-2026", company_id=company_b.id)
+    course_b = academic.create_course(specialty_id=spec_b.id, name="Math Course", company_id=company_b.id)
+    stream_b = academic.create_stream(course_id=course_b.id, name="M-2026", company_id=company_b.id)
     session.commit()
 
     with pytest.raises(ValueError):
