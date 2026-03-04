@@ -986,13 +986,16 @@ class ScheduleMainWindow:
 
         hierarchy_nav = ttk.Frame(main_view, style="Card.TFrame")
         hierarchy_nav.pack(fill=tk.X, pady=(0, 6))
-        hierarchy_back_button = self._motion_button(
+        hierarchy_back_button = HoverCircleIconButton(
             hierarchy_nav,
-            text="← Назад",
+            text="←",
             command=lambda: None,
-            primary=False,
-            width=112,
-            height=32,
+            diameter=44,
+            canvas_bg=self.theme.SURFACE,
+            icon_color=self.theme.TEXT_PRIMARY,
+            hover_bg=self.theme.SECONDARY_HOVER,
+            hover_icon_color=self.theme.TEXT_PRIMARY,
+            pressed_bg=self.theme.SECONDARY_PRESSED,
         )
         hierarchy_back_button.pack(side=tk.LEFT)
         hierarchy_path_var = tk.StringVar(value="Кафедри")
@@ -1356,6 +1359,12 @@ class ScheduleMainWindow:
                 return 2
             return 1
 
+        def compute_main_card_width(width: int, columns: int) -> int:
+            spacing_per_card = 16
+            usable_width = max(320, int(width) - 8)
+            raw_width = (usable_width - (columns * spacing_per_card)) // max(1, columns)
+            return max(240, min(420, raw_width))
+
         def refresh_header_actions() -> None:
             for widget in (add_group_button, add_stream_button, add_course_button, add_specialty_button, add_department_button):
                 widget.pack_forget()
@@ -1376,18 +1385,13 @@ class ScheduleMainWindow:
 
             if level == "departments":
                 hierarchy_path_var.set("Кафедри")
-                hierarchy_back_button.pack_forget()
             elif level == "specialties":
                 dep_name = department.name if department is not None else "Кафедра"
                 hierarchy_path_var.set(f"Кафедри / {dep_name}")
-                if not hierarchy_back_button.winfo_ismapped():
-                    hierarchy_back_button.pack(side=tk.LEFT)
             else:
                 dep_name = department.name if department is not None else "Кафедра"
                 spec_name = specialty.code or specialty.name if specialty is not None else "Спеціальність"
                 hierarchy_path_var.set(f"Кафедри / {dep_name} / {spec_name}")
-                if not hierarchy_back_button.winfo_ismapped():
-                    hierarchy_back_button.pack(side=tk.LEFT)
 
         def refresh_group_filter_options() -> None:
             specialty_id = selected_specialty_id()
@@ -1872,7 +1876,7 @@ class ScheduleMainWindow:
             else:
                 render_main_cards()
 
-        cards_layout_state = {"columns": 4}
+        cards_layout_state = {"columns": 4, "card_width": 280}
 
         def clear_cards_container() -> None:
             for child in cards_container.winfo_children():
@@ -1882,11 +1886,26 @@ class ScheduleMainWindow:
             for col in range(4):
                 cards_container.grid_columnconfigure(col, weight=1 if col < columns else 0, uniform="group-card-col")
 
+        def card_wrap_width() -> int:
+            return max(160, int(cards_layout_state["card_width"]) - 34)
+
+        def trim_card_text(value: str, *, limit: int = 110) -> str:
+            text = value.strip()
+            if len(text) <= limit:
+                return text
+            return text[: max(0, limit - 1)].rstrip() + "…"
+
         def render_empty_main(text: str) -> None:
             clear_cards_container()
             empty = ttk.Frame(cards_container, style="Card.TFrame")
             empty.grid(row=0, column=0, sticky="w", padx=8, pady=8)
-            ttk.Label(empty, text=text, style="CardSubtle.TLabel").pack(anchor="w")
+            ttk.Label(
+                empty,
+                text=text,
+                style="CardSubtle.TLabel",
+                wraplength=max(260, cards_canvas.winfo_width() - 36),
+                justify=tk.LEFT,
+            ).pack(anchor="w")
 
         def render_department_cards() -> None:
             departments = sorted(structure_state["departments"], key=lambda item: (item.name.lower(), item.id))
@@ -1922,6 +1941,8 @@ class ScheduleMainWindow:
 
             clear_cards_container()
             columns = cards_layout_state["columns"]
+            card_width = cards_layout_state["card_width"]
+            wrap = card_wrap_width()
             apply_card_grid_columns(columns)
             for index, department in enumerate(departments):
                 row = index // columns
@@ -1935,20 +1956,38 @@ class ScheduleMainWindow:
                     padding=4,
                     shadow_offset=4,
                     motion_enabled=True,
-                    width=280,
-                    height=130,
+                    width=card_width,
+                    height=166,
                 )
                 card.grid(row=row, column=column, padx=8, pady=8, sticky="nsew")
-                title = ttk.Label(card.content, text=department.name, style="CardAltTitle.TLabel")
+                title = ttk.Label(
+                    card.content,
+                    text=trim_card_text(department.name, limit=100),
+                    style="CardAltTitle.TLabel",
+                    wraplength=wrap,
+                    justify=tk.LEFT,
+                )
                 title.pack(anchor="w", pady=(4, 2))
                 subtitle = ttk.Label(
                     card.content,
-                    text=f"Спеціальностей: {specialty_count_by_dep.get(department.id, 0)} • Курсів: {course_count_by_dep.get(department.id, 0)} • Потоків: {stream_count_by_dep.get(department.id, 0)}",
+                    text=(
+                        f"Спеціальностей: {specialty_count_by_dep.get(department.id, 0)} | "
+                        f"Курсів: {course_count_by_dep.get(department.id, 0)} | "
+                        f"Потоків: {stream_count_by_dep.get(department.id, 0)}"
+                    ),
                     style="CardAltSubtle.TLabel",
+                    wraplength=wrap,
+                    justify=tk.LEFT,
                 )
                 subtitle.pack(anchor="w")
                 short_name = department.short_name or "Без скорочення"
-                hint = ttk.Label(card.content, text=f"Скорочення: {short_name}", style="CardAltSubtle.TLabel")
+                hint = ttk.Label(
+                    card.content,
+                    text=f"Скорочення: {short_name}",
+                    style="CardAltSubtle.TLabel",
+                    wraplength=wrap,
+                    justify=tk.LEFT,
+                )
                 hint.pack(anchor="w", pady=(3, 0))
                 for widget in (card, card.canvas, card.content, title, subtitle, hint):
                     widget.bind(
@@ -1991,6 +2030,8 @@ class ScheduleMainWindow:
 
             clear_cards_container()
             columns = cards_layout_state["columns"]
+            card_width = cards_layout_state["card_width"]
+            wrap = card_wrap_width()
             apply_card_grid_columns(columns)
             for index, specialty in enumerate(specialties):
                 row = index // columns
@@ -2004,21 +2045,35 @@ class ScheduleMainWindow:
                     padding=4,
                     shadow_offset=4,
                     motion_enabled=True,
-                    width=280,
-                    height=130,
+                    width=card_width,
+                    height=156,
                 )
                 card.grid(row=row, column=column, padx=8, pady=8, sticky="nsew")
                 title_text = f"{specialty.code} • {specialty.name}" if specialty.code else specialty.name
-                title = ttk.Label(card.content, text=title_text, style="CardAltTitle.TLabel")
+                title = ttk.Label(
+                    card.content,
+                    text=trim_card_text(title_text, limit=96),
+                    style="CardAltTitle.TLabel",
+                    wraplength=wrap,
+                    justify=tk.LEFT,
+                )
                 title.pack(anchor="w", pady=(4, 2))
                 stats = ttk.Label(
                     card.content,
                     text=f"Курсів: {course_count_by_spec.get(specialty.id, 0)} • Потоків: {stream_count_by_spec.get(specialty.id, 0)}",
                     style="CardAltSubtle.TLabel",
+                    wraplength=wrap,
+                    justify=tk.LEFT,
                 )
                 stats.pack(anchor="w")
                 degree = specialty.degree_level or "OTHER"
-                detail = ttk.Label(card.content, text=f"Рівень: {degree}", style="CardAltSubtle.TLabel")
+                detail = ttk.Label(
+                    card.content,
+                    text=f"Рівень: {degree}",
+                    style="CardAltSubtle.TLabel",
+                    wraplength=wrap,
+                    justify=tk.LEFT,
+                )
                 detail.pack(anchor="w", pady=(3, 0))
                 for widget in (card, card.canvas, card.content, title, stats, detail):
                     widget.bind(
@@ -2111,6 +2166,8 @@ class ScheduleMainWindow:
 
             clear_cards_container()
             columns = cards_layout_state["columns"]
+            card_width = cards_layout_state["card_width"]
+            wrap = card_wrap_width()
             apply_card_grid_columns(columns)
             for index, (group_id, group_name, user_count, stream_label) in enumerate(groups):
                 row = index // columns
@@ -2124,15 +2181,33 @@ class ScheduleMainWindow:
                     padding=4,
                     shadow_offset=4,
                     motion_enabled=True,
-                    width=280,
-                    height=120,
+                    width=card_width,
+                    height=148,
                 )
                 card.grid(row=row, column=column, padx=8, pady=8, sticky="nsew")
-                title = ttk.Label(card.content, text=group_name, style="CardAltTitle.TLabel")
+                title = ttk.Label(
+                    card.content,
+                    text=trim_card_text(group_name, limit=96),
+                    style="CardAltTitle.TLabel",
+                    wraplength=wrap,
+                    justify=tk.LEFT,
+                )
                 title.pack(anchor="w", pady=(4, 2))
-                meta = ttk.Label(card.content, text=stream_label, style="CardAltSubtle.TLabel")
+                meta = ttk.Label(
+                    card.content,
+                    text=trim_card_text(stream_label, limit=120),
+                    style="CardAltSubtle.TLabel",
+                    wraplength=wrap,
+                    justify=tk.LEFT,
+                )
                 meta.pack(anchor="w")
-                count = ttk.Label(card.content, text=f"Учасників: {user_count}", style="CardAltSubtle.TLabel")
+                count = ttk.Label(
+                    card.content,
+                    text=f"Учасників: {user_count}",
+                    style="CardAltSubtle.TLabel",
+                    wraplength=wrap,
+                    justify=tk.LEFT,
+                )
                 count.pack(anchor="w", pady=(2, 0))
                 for widget in (card, card.canvas, card.content, title, meta, count):
                     widget.bind("<Button-1>", lambda _e, gid=group_id, gname=group_name: open_group_view(gid, gname))
@@ -2158,9 +2233,11 @@ class ScheduleMainWindow:
         def on_cards_resize(_event=None) -> None:
             width = max(1, cards_canvas.winfo_width())
             columns = compute_main_columns(width)
-            if cards_layout_state["columns"] == columns:
+            card_width = compute_main_card_width(width, columns)
+            if cards_layout_state["columns"] == columns and cards_layout_state["card_width"] == card_width:
                 return
             cards_layout_state["columns"] = columns
+            cards_layout_state["card_width"] = card_width
             render_main_cards()
     
         def render_participant_cards(users: list[User]) -> None:
@@ -4760,5 +4837,3 @@ class ScheduleMainWindow:
         open_tab("home")
         if period_var.get():
             load_personal_schedule()
-
-
