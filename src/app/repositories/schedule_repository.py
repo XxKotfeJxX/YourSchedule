@@ -14,12 +14,14 @@ class ScheduleRepository:
         requirement_id: int,
         start_block_id: int,
         blocks_count: int,
+        room_resource_id: int | None = None,
     ) -> ScheduleEntry:
         entry = ScheduleEntry(
             company_id=company_id,
             requirement_id=requirement_id,
             start_block_id=start_block_id,
             blocks_count=blocks_count,
+            room_resource_id=room_resource_id,
         )
         self.session.add(entry)
         self.session.flush()

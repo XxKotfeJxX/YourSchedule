@@ -1,7 +1,10 @@
 from sqlalchemy.orm import Session
 
+from app.domain.enums import RoomType
 from app.domain.models import Requirement, RequirementResource
 from app.repositories.requirement_repository import RequirementRepository
+
+_UNSET = object()
 
 
 class RequirementController:
@@ -15,6 +18,10 @@ class RequirementController:
         sessions_total: int,
         max_per_week: int,
         company_id: int | None = None,
+        room_type: RoomType | None = None,
+        min_capacity: int | None = None,
+        needs_projector: bool = False,
+        fixed_room_id: int | None = None,
     ) -> Requirement:
         return self.repository.create_requirement(
             name=name,
@@ -22,6 +29,10 @@ class RequirementController:
             sessions_total=sessions_total,
             max_per_week=max_per_week,
             company_id=company_id,
+            room_type=room_type,
+            min_capacity=min_capacity,
+            needs_projector=needs_projector,
+            fixed_room_id=fixed_room_id,
         )
 
     def get_requirement(self, requirement_id: int) -> Requirement | None:
@@ -38,14 +49,27 @@ class RequirementController:
         duration_blocks: int | None = None,
         sessions_total: int | None = None,
         max_per_week: int | None = None,
+        room_type: RoomType | None | object = _UNSET,
+        min_capacity: int | None | object = _UNSET,
+        needs_projector: bool | object = _UNSET,
+        fixed_room_id: int | None | object = _UNSET,
     ) -> Requirement:
-        return self.repository.update_requirement(
-            requirement_id=requirement_id,
-            name=name,
-            duration_blocks=duration_blocks,
-            sessions_total=sessions_total,
-            max_per_week=max_per_week,
-        )
+        kwargs: dict[str, object] = {
+            "requirement_id": requirement_id,
+            "name": name,
+            "duration_blocks": duration_blocks,
+            "sessions_total": sessions_total,
+            "max_per_week": max_per_week,
+        }
+        if room_type is not _UNSET:
+            kwargs["room_type"] = room_type
+        if min_capacity is not _UNSET:
+            kwargs["min_capacity"] = min_capacity
+        if needs_projector is not _UNSET:
+            kwargs["needs_projector"] = needs_projector
+        if fixed_room_id is not _UNSET:
+            kwargs["fixed_room_id"] = fixed_room_id
+        return self.repository.update_requirement(**kwargs)
 
     def delete_requirement(self, requirement_id: int) -> bool:
         return self.repository.delete_requirement(requirement_id=requirement_id)

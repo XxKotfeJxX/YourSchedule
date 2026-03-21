@@ -67,6 +67,23 @@ def _apply_lightweight_schema_upgrades() -> None:
                 text("ALTER TABLE room_profiles ADD COLUMN has_projector BOOLEAN NOT NULL DEFAULT FALSE")
             )
 
+        if not _column_exists(connection, "requirements", "room_type"):
+            connection.execute(text("ALTER TABLE requirements ADD COLUMN room_type VARCHAR(15)"))
+
+        if not _column_exists(connection, "requirements", "min_capacity"):
+            connection.execute(text("ALTER TABLE requirements ADD COLUMN min_capacity INTEGER"))
+
+        if not _column_exists(connection, "requirements", "needs_projector"):
+            connection.execute(
+                text("ALTER TABLE requirements ADD COLUMN needs_projector BOOLEAN NOT NULL DEFAULT FALSE")
+            )
+
+        if not _column_exists(connection, "requirements", "fixed_room_id"):
+            connection.execute(text("ALTER TABLE requirements ADD COLUMN fixed_room_id INTEGER"))
+
+        if not _column_exists(connection, "schedule_entries", "room_resource_id"):
+            connection.execute(text("ALTER TABLE schedule_entries ADD COLUMN room_resource_id INTEGER"))
+
         if dialect == "postgresql":
             connection.execute(
                 text(
@@ -79,6 +96,40 @@ def _apply_lightweight_schema_upgrades() -> None:
                             ALTER TABLE users
                             ADD CONSTRAINT fk_users_subgroup_id_resources
                             FOREIGN KEY (subgroup_id) REFERENCES resources(id) ON DELETE SET NULL;
+                        END IF;
+                    END
+                    $$;
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1 FROM pg_constraint WHERE conname = 'fk_requirements_fixed_room_id_room_profiles'
+                        ) THEN
+                            ALTER TABLE requirements
+                            ADD CONSTRAINT fk_requirements_fixed_room_id_room_profiles
+                            FOREIGN KEY (fixed_room_id) REFERENCES room_profiles(id) ON DELETE SET NULL;
+                        END IF;
+                    END
+                    $$;
+                    """
+                )
+            )
+            connection.execute(
+                text(
+                    """
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (
+                            SELECT 1 FROM pg_constraint WHERE conname = 'fk_schedule_entries_room_resource_id_resources'
+                        ) THEN
+                            ALTER TABLE schedule_entries
+                            ADD CONSTRAINT fk_schedule_entries_room_resource_id_resources
+                            FOREIGN KEY (room_resource_id) REFERENCES resources(id) ON DELETE SET NULL;
                         END IF;
                     END
                     $$;

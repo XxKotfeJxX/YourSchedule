@@ -21,9 +21,14 @@ class ScheduleEntry(Base):
         nullable=False,
     )
     blocks_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    room_resource_id: Mapped[int | None] = mapped_column(
+        ForeignKey("resources.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     requirement: Mapped["Requirement"] = relationship("Requirement", back_populates="schedule_entries")
     start_block: Mapped["TimeBlock"] = relationship("TimeBlock", back_populates="schedule_entries")
+    room_resource: Mapped["Resource | None"] = relationship("Resource", foreign_keys=[room_resource_id])
 
     __table_args__ = (
         UniqueConstraint(

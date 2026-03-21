@@ -1,8 +1,10 @@
+from datetime import datetime
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.domain.enums import ResourceType
-from app.domain.models import Resource, Stream
+from app.domain.models import Resource, ResourceBlackout, Stream
 
 _UNSET = object()
 
@@ -163,6 +165,85 @@ class ResourceRepository:
             self.session.delete(subgroup)
 
         self.session.delete(group)
+        self.session.flush()
+        return True
+
+    def create_blackout(
+        self,
+        resource_id: int,
+        *,
+        starts_at: datetime,
+        ends_at: datetime,
+        title: str | None = None,
+    ) -> ResourceBlackout:
+        resource = self.get_resource(resource_id)
+        if resource is None:
+            raise ValueError(f"Resource with id={resource_id} was not found")
+        if ends_at <= starts_at:
+            raise ValueError("Blackout ends_at must be greater than starts_at")
+
+        blackout = ResourceBlackout(
+            resource_id=resource_id,
+            starts_at=starts_at,
+            ends_at=ends_at,
+            title=(title or "").strip() or None,
+        )
+        self.session.add(blackout)
+        self.session.flush()
+        return blackout
+
+    def get_blackout(self, blackout_id: int) -> ResourceBlackout | None:
+        return self.session.get(ResourceBlackout, blackout_id)
+
+    def list_blackouts(
+        self,
+        *,
+        resource_id: int | None = None,
+        company_id: int | None = None,
+    ) -> list[ResourceBlackout]:
+        statement = (
+            select(ResourceBlackout)
+            .join(Resource, ResourceBlackout.resource_id == Resource.id)
+            .order_by(ResourceBlackout.starts_at.asc(), ResourceBlackout.id.asc())
+        )
+        if resource_id is not None:
+            statement = statement.where(ResourceBlackout.resource_id == resource_id)
+        if company_id is not None:
+            statement = statement.where(Resource.company_id == company_id)
+        return list(self.session.scalars(statement).all())
+
+    def update_blackout(
+        self,
+        blackout_id: int,
+        *,
+        starts_at: datetime | object = _UNSET,
+        ends_at: datetime | object = _UNSET,
+        title: str | None | object = _UNSET,
+    ) -> ResourceBlackout:
+        blackout = self.get_blackout(blackout_id)
+        if blackout is None:
+            raise ValueError(f"ResourceBlackout with id={blackout_id} was not found")
+
+        new_starts_at = blackout.starts_at if starts_at is _UNSET else starts_at
+        new_ends_at = blackout.ends_at if ends_at is _UNSET else ends_at
+        if new_starts_at is None or new_ends_at is None:
+            raise ValueError("Blackout starts_at and ends_at must be provided")
+        if new_ends_at <= new_starts_at:
+            raise ValueError("Blackout ends_at must be greater than starts_at")
+
+        blackout.starts_at = new_starts_at
+        blackout.ends_at = new_ends_at
+        if title is not _UNSET:
+            blackout.title = (title or "").strip() or None
+
+        self.session.flush()
+        return blackout
+
+    def delete_blackout(self, blackout_id: int) -> bool:
+        blackout = self.get_blackout(blackout_id)
+        if blackout is None:
+            return False
+        self.session.delete(blackout)
         self.session.flush()
         return True
 

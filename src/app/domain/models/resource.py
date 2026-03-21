@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from sqlalchemy import Enum, ForeignKey, Integer, String, UniqueConstraint
+from datetime import datetime
+
+from sqlalchemy import CheckConstraint, DateTime, Enum, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.base import Base
@@ -54,7 +56,31 @@ class Resource(Base):
         foreign_keys=[parent_group_id],
     )
     stream: Mapped["Stream | None"] = relationship("Stream", back_populates="groups")
+    blackouts: Mapped[list["ResourceBlackout"]] = relationship(
+        "ResourceBlackout",
+        back_populates="resource",
+        cascade="all, delete-orphan",
+    )
 
     __table_args__ = (
         UniqueConstraint("company_id", "name", "type", name="uq_resource_company_name_type"),
+    )
+
+
+class ResourceBlackout(Base):
+    __tablename__ = "resource_blackouts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    resource_id: Mapped[int] = mapped_column(
+        ForeignKey("resources.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    title: Mapped[str | None] = mapped_column(String(160), nullable=True)
+    starts_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    ends_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+    resource: Mapped[Resource] = relationship("Resource", back_populates="blackouts")
+
+    __table_args__ = (
+        CheckConstraint("ends_at > starts_at", name="ck_resource_blackout_range"),
     )

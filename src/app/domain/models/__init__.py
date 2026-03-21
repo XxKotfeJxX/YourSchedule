@@ -10,7 +10,7 @@ from app.domain.models.calendar import (
 )
 from app.domain.models.requirement import Requirement, RequirementResource
 from app.domain.models.schedule import ScheduleEntry
-from app.domain.models.resource import Resource
+from app.domain.models.resource import Resource, ResourceBlackout
 from app.domain.models.facility import Building, RoomBooking, RoomProfile
 from app.domain.models.curriculum import (
     CurriculumPlan,
@@ -34,6 +34,7 @@ __all__ = [
     "CalendarPeriod",
     "TimeBlock",
     "Resource",
+    "ResourceBlackout",
     "Building",
     "RoomBooking",
     "RoomProfile",
