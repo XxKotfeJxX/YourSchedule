@@ -326,6 +326,48 @@ class CompanyCurriculumTab:
         listbox.bind("<Configure>", _refresh, add="+")
         listbox.after_idle(_refresh)
 
+    def _setup_autohide_tree_scrollbar(
+        self,
+        *,
+        tree: ttk.Treeview,
+        scrollbar: ttk.Scrollbar,
+        layout_kwargs: dict[str, object],
+    ) -> None:
+        state = {"visible": False}
+
+        def _show() -> None:
+            if state["visible"]:
+                return
+            scrollbar.grid(**layout_kwargs)
+            state["visible"] = True
+
+        def _hide() -> None:
+            if not state["visible"]:
+                return
+            scrollbar.grid_remove()
+            state["visible"] = False
+
+        def _sync(first: str, last: str) -> None:
+            scrollbar.set(first, last)
+            try:
+                needs_scroll = (float(last) - float(first)) < 0.999
+            except ValueError:
+                needs_scroll = True
+            if needs_scroll:
+                _show()
+            else:
+                _hide()
+
+        def _refresh(_event=None) -> None:
+            first, last = tree.yview()
+            _sync(str(first), str(last))
+
+        tree.configure(yscrollcommand=_sync)
+        tree.bind("<Configure>", _refresh, add="+")
+        tree.bind("<<TreeviewOpen>>", _refresh, add="+")
+        tree.bind("<<TreeviewClose>>", _refresh, add="+")
+        tree.after_idle(_refresh)
+
     def _refresh_all(self) -> None:
         self._load_subject_departments()
         self._load_teachers()
@@ -920,8 +962,11 @@ class CompanyCurriculumTab:
             self.component_tree.column(cid, width=width, anchor="center")
         self.component_tree.grid(row=1, column=0, sticky="nsew")
         scroll = ttk.Scrollbar(components, orient=tk.VERTICAL, command=self.component_tree.yview, style="App.Vertical.TScrollbar")
-        scroll.grid(row=1, column=1, sticky="ns")
-        self.component_tree.configure(yscrollcommand=scroll.set)
+        self._setup_autohide_tree_scrollbar(
+            tree=self.component_tree,
+            scrollbar=scroll,
+            layout_kwargs={"row": 1, "column": 1, "sticky": "ns", "padx": (4, 0)},
+        )
         self.component_tree.bind("<<TreeviewSelect>>", lambda _e: self._on_component_select(), add="+")
 
         form = ttk.Frame(components, style="Card.TFrame")
@@ -991,8 +1036,11 @@ class CompanyCurriculumTab:
             self.assignment_tree.column(cid, width=width, anchor="center")
         self.assignment_tree.grid(row=1, column=0, sticky="nsew")
         scroll = ttk.Scrollbar(assignments, orient=tk.VERTICAL, command=self.assignment_tree.yview, style="App.Vertical.TScrollbar")
-        scroll.grid(row=1, column=1, sticky="ns")
-        self.assignment_tree.configure(yscrollcommand=scroll.set)
+        self._setup_autohide_tree_scrollbar(
+            tree=self.assignment_tree,
+            scrollbar=scroll,
+            layout_kwargs={"row": 1, "column": 1, "sticky": "ns", "padx": (4, 0)},
+        )
         self.assignment_tree.bind("<<TreeviewSelect>>", lambda _e: self._on_assignment_select(), add="+")
 
         form = ttk.Frame(assignments, style="Card.TFrame")
