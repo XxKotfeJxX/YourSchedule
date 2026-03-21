@@ -869,6 +869,48 @@ class CompanyCurriculumTab:
             gain=0.15,
         )
 
+        def _create_tree_wheel_handlers(tree: ttk.Treeview):
+            def _wheel_step(step_units: int) -> str:
+                tree.yview_scroll(step_units, "units")
+                return "break"
+
+            def _on_wheel(event: tk.Event) -> str:
+                delta = int(getattr(event, "delta", 0))
+                if delta == 0:
+                    return "break"
+                direction = -1 if delta > 0 else 1
+                steps = max(1, int(abs(delta) / 120))
+                for _ in range(steps):
+                    _wheel_step(direction)
+                return "break"
+
+            def _on_button4(_event: tk.Event) -> str:
+                return _wheel_step(-1)
+
+            def _on_button5(_event: tk.Event) -> str:
+                return _wheel_step(1)
+
+            return _on_wheel, _on_button4, _on_button5
+
+        def _with_fallback(primary_handler, primary_view, fallback_handler):
+            def _handler(event: tk.Event) -> str:
+                first, last = primary_view()
+                first_f = float(first)
+                last_f = float(last)
+                if last_f - first_f >= 0.999:
+                    return fallback_handler(event)
+                event_num = getattr(event, "num", 0)
+                delta = float(getattr(event, "delta", 0.0))
+                scroll_up = bool(event_num == 4 or delta > 0)
+                scroll_down = bool(event_num == 5 or delta < 0)
+                if scroll_up and first_f <= 0.0001:
+                    return fallback_handler(event)
+                if scroll_down and last_f >= 0.9999:
+                    return fallback_handler(event)
+                return primary_handler(event)
+
+            return _handler
+
         def _bind_plans_wheel_recursive(widget: tk.Widget) -> None:
             if not isinstance(widget, (ttk.Treeview, tk.Listbox)):
                 widget.bind("<MouseWheel>", _on_plans_wheel, add="+")
@@ -883,6 +925,43 @@ class CompanyCurriculumTab:
         right_canvas.bind("<Button-4>", _on_plans_up, add="+")
         right_canvas.bind("<Button-5>", _on_plans_down, add="+")
         _bind_plans_wheel_recursive(right)
+
+        if self.component_tree is not None:
+            comp_wheel, comp_up, comp_down = _create_tree_wheel_handlers(self.component_tree)
+            self.component_tree.bind(
+                "<MouseWheel>",
+                _with_fallback(comp_wheel, self.component_tree.yview, _on_plans_wheel),
+                add="+",
+            )
+            self.component_tree.bind(
+                "<Button-4>",
+                _with_fallback(comp_up, self.component_tree.yview, _on_plans_up),
+                add="+",
+            )
+            self.component_tree.bind(
+                "<Button-5>",
+                _with_fallback(comp_down, self.component_tree.yview, _on_plans_down),
+                add="+",
+            )
+
+        if self.assignment_tree is not None:
+            ass_wheel, ass_up, ass_down = _create_tree_wheel_handlers(self.assignment_tree)
+            self.assignment_tree.bind(
+                "<MouseWheel>",
+                _with_fallback(ass_wheel, self.assignment_tree.yview, _on_plans_wheel),
+                add="+",
+            )
+            self.assignment_tree.bind(
+                "<Button-4>",
+                _with_fallback(ass_up, self.assignment_tree.yview, _on_plans_up),
+                add="+",
+            )
+            self.assignment_tree.bind(
+                "<Button-5>",
+                _with_fallback(ass_down, self.assignment_tree.yview, _on_plans_down),
+                add="+",
+            )
+
         right.after_idle(_sync_plans_scroll)
 
         self._bind_responsive_split(
