@@ -542,6 +542,8 @@ class ScheduleMainWindow:
         period_var = tk.StringVar()
         week_start_var = tk.StringVar()
         group_filter_var = tk.StringVar(value="Усі групи")
+        scenario_var = tk.StringVar(value="Опублікований")
+        scenario_compare_var = tk.StringVar(value="Опублікований")
         status_var = tk.StringVar(value="Готово.")
 
         subject_name_var = tk.StringVar()
@@ -586,6 +588,7 @@ class ScheduleMainWindow:
         blackout_resource_scope_by_id: dict[int, str] = {}
         room_type_label_by_enum = {room_type: label for label, room_type in room_type_options if room_type is not None}
         requirements_state: dict[str, list[dict[str, object]]] = {"items": []}
+        scenario_values_state: dict[str, list[str]] = {"values": ["Опублікований"]}
 
         policy_max_sessions_var = tk.StringVar(value="4")
         policy_max_consecutive_var = tk.StringVar(value="3")
@@ -626,6 +629,18 @@ class ScheduleMainWindow:
         ttk.Label(header, text="Група", style="Card.TLabel").grid(row=1, column=4, sticky="w", pady=(8, 0))
         group_box = ttk.Combobox(header, textvariable=group_filter_var, width=22, state="readonly")
         group_box.grid(row=1, column=5, sticky="w", padx=(6, 10), pady=(8, 0))
+
+        ttk.Label(header, text="Сценарій", style="Card.TLabel").grid(row=2, column=0, sticky="w", pady=(8, 0))
+        scenario_box = ttk.Combobox(header, textvariable=scenario_var, width=22, state="readonly")
+        scenario_box.grid(row=2, column=1, sticky="w", padx=(6, 10), pady=(8, 0))
+
+        ttk.Label(header, text="Порівняти з", style="Card.TLabel").grid(row=2, column=2, sticky="w", pady=(8, 0))
+        scenario_compare_box = ttk.Combobox(header, textvariable=scenario_compare_var, width=22, state="readonly")
+        scenario_compare_box.grid(row=2, column=3, sticky="w", padx=(6, 10), pady=(8, 0))
+        scenario_compare_button = ttk.Button(header, text="Порівняти")
+        scenario_compare_button.grid(row=2, column=4, sticky="w", pady=(8, 0))
+        scenario_publish_button = ttk.Button(header, text="Опублікувати")
+        scenario_publish_button.grid(row=2, column=5, sticky="w", padx=(6, 0), pady=(8, 0))
 
         tree = ttk.Treeview(
             parent,
@@ -850,6 +865,15 @@ class ScheduleMainWindow:
             if not raw:
                 raise ValueError("Оберіть період.")
             return int(raw.split("|", maxsplit=1)[0].strip())
+
+        def parse_scenario_id(raw: str) -> int | None:
+            value = raw.strip()
+            if not value or value == "Опублікований":
+                return None
+            return int(value.split("|", maxsplit=1)[0].strip())
+
+        def selected_scenario_id() -> int | None:
+            return parse_scenario_id(scenario_var.get())
 
         def parse_week_start() -> date | None:
             raw = week_start_var.get().strip()
@@ -1396,6 +1420,107 @@ class ScheduleMainWindow:
             on_load_week()
             status_var.set(f"Вимогу #{requirement_id} видалено.")
 
+        def load_scenarios(*, period_id: int | None = None) -> None:
+            resolved_period_id = period_id
+            if resolved_period_id is None:
+                try:
+                    resolved_period_id = parse_period_id()
+                except Exception:
+                    resolved_period_id = None
+
+            values = ["Опублікований"]
+            if resolved_period_id is not None:
+                with session_scope() as session:
+                    scenarios = SchedulerController(session=session).list_scenarios(
+                        calendar_period_id=resolved_period_id
+                    )
+                for scenario in scenarios:
+                    published_suffix = " [опублік.]" if scenario.is_published else ""
+                    values.append(
+                        f"{scenario.id} | {scenario.name}{published_suffix} ({scenario.entries_count})"
+                    )
+
+            scenario_values_state["values"] = values
+            scenario_box["values"] = values
+            scenario_compare_box["values"] = values
+            if scenario_var.get() not in values:
+                scenario_var.set(values[0])
+            if scenario_compare_var.get() not in values:
+                scenario_compare_var.set(values[0])
+
+        def on_create_scenarios_ab() -> None:
+            try:
+                period_id = parse_period_id()
+                created_names: list[str] = []
+                with session_scope() as session:
+                    controller = SchedulerController(session=session)
+                    existing = controller.list_scenarios(calendar_period_id=period_id)
+                    existing_names = {str(item.name).strip().lower() for item in existing}
+                    for name in ("Чернетка A", "Чернетка B"):
+                        if name.lower() in existing_names:
+                            continue
+                        controller.create_scenario(
+                            calendar_period_id=period_id,
+                            name=name,
+                            copy_from_published=True,
+                        )
+                        created_names.append(name)
+            except Exception as exc:
+                messagebox.showerror("Сценарії", str(exc))
+                return
+            load_scenarios(period_id=period_id)
+            if created_names:
+                status_var.set(f"Створено сценарії: {', '.join(created_names)}.")
+            else:
+                status_var.set("Чернетки A/B вже існують.")
+
+        def on_publish_scenario() -> None:
+            try:
+                period_id = parse_period_id()
+                scenario_id = selected_scenario_id()
+                if scenario_id is None:
+                    raise ValueError("Оберіть чернетку для публікації.")
+                with session_scope() as session:
+                    published_entries = SchedulerController(session=session).publish_scenario(
+                        scenario_id=scenario_id
+                    )
+            except Exception as exc:
+                messagebox.showerror("Публікація сценарію", str(exc))
+                return
+            load_scenarios(period_id=period_id)
+            on_load_week()
+            status_var.set(f"Опубліковано сценарій #{scenario_id}. Занять: {published_entries}.")
+
+        def on_compare_scenarios() -> None:
+            try:
+                period_id = parse_period_id()
+                left_id = selected_scenario_id()
+                right_id = parse_scenario_id(scenario_compare_var.get())
+                with session_scope() as session:
+                    comparison = SchedulerController(session=session).compare_scenarios(
+                        calendar_period_id=period_id,
+                        left_scenario_id=left_id,
+                        right_scenario_id=right_id,
+                    )
+            except Exception as exc:
+                messagebox.showerror("Порівняння сценаріїв", str(exc))
+                return
+            lines = [
+                f"{comparison.left_label} vs {comparison.right_label}",
+                f"Тільки ліворуч: {comparison.only_left_count}",
+                f"Тільки праворуч: {comparison.only_right_count}",
+                f"Змінені вимоги: {comparison.changed_count}",
+            ]
+            if comparison.items:
+                lines.append("")
+                lines.append("Приклади різниці:")
+                lines.extend(f"[{item.code}] {item.message}" for item in comparison.items[:8])
+            messagebox.showinfo("Порівняння сценаріїв", "\n".join(lines))
+            status_var.set(
+                f"Порівняння: left={comparison.only_left_count}, "
+                f"right={comparison.only_right_count}, changed={comparison.changed_count}."
+            )
+
         def load_reference_data() -> None:
             with session_scope() as session:
                 calendar = CalendarController(session=session)
@@ -1414,6 +1539,10 @@ class ScheduleMainWindow:
             if not period_values:
                 period_var.set("")
                 status_var.set("Періоди відсутні. Створи період у налаштуваннях або кнопкою нижче.")
+            try:
+                load_scenarios(period_id=parse_period_id())
+            except Exception:
+                load_scenarios(period_id=None)
 
             group_values = [f"{item.id} | {item.name}" for item in groups]
             group_box["values"] = ["Усі групи"] + group_values
@@ -1496,23 +1625,31 @@ class ScheduleMainWindow:
                 period_id = parse_period_id()
                 week_start = parse_week_start()
                 resource_id = selected_group_resource_id()
+                scenario_id = selected_scenario_id()
                 with session_scope() as session:
                     grid = ScheduleViewController(session=session).get_weekly_grid(
                         calendar_period_id=period_id,
                         week_start=week_start,
                         resource_id=resource_id,
+                        scenario_id=scenario_id,
                     )
             except Exception as exc:
                 messagebox.showerror("Не вдалося завантажити розклад", str(exc))
                 return
             render_grid(grid)
-            status_var.set(f"Завантажено тиждень {grid.week_start}. Рядків: {len(grid.rows)}.")
+            scope_label = "опублікований" if selected_scenario_id() is None else "чернетка"
+            status_var.set(f"Завантажено тиждень {grid.week_start}. Рядків: {len(grid.rows)}. Режим: {scope_label}.")
 
         def on_build_schedule() -> None:
             try:
                 period_id = parse_period_id()
+                scenario_id = selected_scenario_id()
                 with session_scope() as session:
-                    result = SchedulerController(session=session).build_schedule(period_id, replace_existing=True)
+                    result = SchedulerController(session=session).build_schedule(
+                        period_id,
+                        replace_existing=True,
+                        scenario_id=scenario_id,
+                    )
             except Exception as exc:
                 messagebox.showerror("Не вдалося згенерувати розклад", str(exc))
                 return
@@ -1520,13 +1657,20 @@ class ScheduleMainWindow:
                 f"Генерацію завершено. Створено: {len(result.created_entries)} | "
                 f"Нерозміщено занять: {sum(result.unscheduled_sessions.values())}"
             )
+            if result.diagnostics:
+                details = "\n".join(f"[{item.code}] {item.message}" for item in result.diagnostics[:12])
+                messagebox.showwarning("Діагностика конфліктів", details)
             on_load_week()
 
         def on_validate() -> None:
             try:
                 period_id = parse_period_id()
+                scenario_id = selected_scenario_id()
                 with session_scope() as session:
-                    report = ScheduleValidationController(session=session).validate_schedule(period_id)
+                    report = ScheduleValidationController(session=session).validate_schedule(
+                        period_id,
+                        scenario_id=scenario_id,
+                    )
             except Exception as exc:
                 messagebox.showerror("Не вдалося перевірити розклад", str(exc))
                 return
@@ -1584,10 +1728,12 @@ class ScheduleMainWindow:
         def on_check_feasibility() -> None:
             try:
                 period_id = parse_period_id()
+                scenario_id = selected_scenario_id()
                 with session_scope() as session:
                     report = SchedulerController(session=session).analyze_feasibility(
                         calendar_period_id=period_id,
                         replace_existing=True,
+                        scenario_id=scenario_id,
                     )
             except Exception as exc:
                 messagebox.showerror("Перевірка здійсненності", str(exc))
@@ -1694,6 +1840,7 @@ class ScheduleMainWindow:
         def on_add_manual_entry() -> None:
             try:
                 period_id = parse_period_id()
+                scenario_id = selected_scenario_id()
                 requirement_id = selected_manual_requirement_id()
                 day = date.fromisoformat(manual_date_var.get().strip())
                 order_in_day = int(manual_order_var.get().strip())
@@ -1703,6 +1850,7 @@ class ScheduleMainWindow:
                 with session_scope() as session:
                     SchedulerController(session=session).create_manual_entry(
                         calendar_period_id=period_id,
+                        scenario_id=scenario_id,
                         requirement_id=requirement_id,
                         day=day,
                         order_in_day=order_in_day,
@@ -1768,6 +1916,13 @@ class ScheduleMainWindow:
         ).pack(side=tk.LEFT, padx=(0, 6))
         self._motion_button(
             buttons,
+            text="Створити A/B",
+            command=on_create_scenarios_ab,
+            primary=False,
+            width=140,
+        ).pack(side=tk.LEFT, padx=(0, 6))
+        self._motion_button(
+            buttons,
             text="Додати предмет",
             command=on_add_subject,
             primary=False,
@@ -1784,6 +1939,8 @@ class ScheduleMainWindow:
         blackout_add_button.configure(command=on_add_blackout)
         blackout_delete_button.configure(command=on_delete_blackout)
         blackout_reload_button.configure(command=load_blackouts)
+        scenario_compare_button.configure(command=on_compare_scenarios)
+        scenario_publish_button.configure(command=on_publish_scenario)
         policy_save_button.configure(command=on_save_policy)
         manual_add_button.configure(command=on_add_manual_entry)
         requirements_refresh_button.configure(command=load_requirements)
@@ -1796,6 +1953,8 @@ class ScheduleMainWindow:
         load_requirements()
         subject_target_box.bind("<<ComboboxSelected>>", lambda _e: refresh_subject_target_controls(), add="+")
         blackout_scope_box.bind("<<ComboboxSelected>>", lambda _e: refresh_blackout_resource_choices(), add="+")
+        period_box.bind("<<ComboboxSelected>>", lambda _e: load_scenarios(period_id=parse_period_id()), add="+")
+        scenario_box.bind("<<ComboboxSelected>>", lambda _e: on_load_week(), add="+")
         requirements_table.bind("<Double-1>", lambda _e: open_requirement_edit_modal(), add="+")
         if period_var.get():
             on_load_week()

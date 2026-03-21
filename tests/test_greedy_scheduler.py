@@ -730,3 +730,108 @@ def test_scheduler_policy_time_preference_changes_selected_slot(session: Session
     evening_start = session.get(TimeBlock, evening_result.created_entries[0].start_block_id)
     assert evening_start is not None
     assert evening_start.order_in_day == 3
+
+
+def test_scheduler_returns_detailed_diagnostics_for_unscheduled_requirements(session: Session) -> None:
+    period = _create_calendar_period_with_blocks(
+        session=session,
+        start_date=date(2026, 3, 2),
+        end_date=date(2026, 3, 2),
+        marks=[(MarkKind.TEACHING, 45)],
+    )
+
+    resource_controller = ResourceController(session=session)
+    requirement_controller = RequirementController(session=session)
+    scheduler_controller = SchedulerController(session=session)
+
+    teacher = resource_controller.create_resource(
+        name="Teacher Diagnostics",
+        resource_type=ResourceType.TEACHER,
+    )
+    requirement = requirement_controller.create_requirement(
+        name="Diagnostics Requirement",
+        duration_blocks=1,
+        sessions_total=2,
+        max_per_week=2,
+    )
+    requirement_controller.assign_resource(requirement.id, teacher.id, "TEACHER")
+    session.commit()
+
+    result = scheduler_controller.build_schedule(calendar_period_id=period.id, replace_existing=True)
+    session.commit()
+
+    assert result.unscheduled_sessions == {requirement.id: 1}
+    assert result.diagnostics
+    assert any(item.requirement_id == requirement.id for item in result.diagnostics)
+    assert any(item.code in {"REQUIREMENT_OVERLAP", "NO_CANDIDATES"} for item in result.diagnostics)
+
+
+def test_scheduler_scenarios_compare_and_publish(session: Session) -> None:
+    period = _create_calendar_period_with_blocks(
+        session=session,
+        start_date=date(2026, 3, 2),
+        end_date=date(2026, 3, 2),
+        marks=[(MarkKind.TEACHING, 45), (MarkKind.TEACHING, 45)],
+    )
+
+    resource_controller = ResourceController(session=session)
+    requirement_controller = RequirementController(session=session)
+    scheduler_controller = SchedulerController(session=session)
+
+    teacher = resource_controller.create_resource(
+        name="Teacher Scenario",
+        resource_type=ResourceType.TEACHER,
+    )
+    requirement = requirement_controller.create_requirement(
+        name="Scenario Requirement",
+        duration_blocks=1,
+        sessions_total=1,
+        max_per_week=1,
+    )
+    requirement_controller.assign_resource(requirement.id, teacher.id, "TEACHER")
+    session.commit()
+
+    scheduler_controller.build_schedule(calendar_period_id=period.id, replace_existing=True)
+    session.commit()
+
+    scenario_a = scheduler_controller.create_scenario(
+        calendar_period_id=period.id,
+        name="Чернетка A",
+        copy_from_published=True,
+    )
+    scenario_b = scheduler_controller.create_scenario(
+        calendar_period_id=period.id,
+        name="Чернетка B",
+        copy_from_published=False,
+    )
+
+    scheduler_controller.create_manual_entry(
+        calendar_period_id=period.id,
+        scenario_id=scenario_b.id,
+        requirement_id=requirement.id,
+        day=date(2026, 3, 2),
+        order_in_day=2,
+        is_locked=True,
+    )
+    session.commit()
+
+    comparison = scheduler_controller.compare_scenarios(
+        calendar_period_id=period.id,
+        left_scenario_id=scenario_a.id,
+        right_scenario_id=scenario_b.id,
+    )
+    assert comparison.only_left_count >= 1
+    assert comparison.only_right_count >= 1
+
+    published_entries = scheduler_controller.publish_scenario(scenario_id=scenario_b.id)
+    session.commit()
+    assert published_entries == 1
+
+    current_entry = session.query(ScheduleEntry).one()
+    current_start = session.get(TimeBlock, current_entry.start_block_id)
+    assert current_start is not None
+    assert current_start.order_in_day == 2
+
+    scenarios = scheduler_controller.list_scenarios(calendar_period_id=period.id)
+    published_ids = {item.id for item in scenarios if item.is_published}
+    assert published_ids == {scenario_b.id}
