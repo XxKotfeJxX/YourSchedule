@@ -638,19 +638,22 @@ class CompanyCurriculumTab:
 
         left = ttk.Frame(content, style="Card.TFrame")
         left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        left.grid_columnconfigure(0, weight=1)
         left.grid_rowconfigure(1, weight=1)
         ttk.Label(left, text="Плани", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")
         self.plan_listbox = tk.Listbox(
             left,
             activestyle="none",
-            bg=self.theme.SURFACE_ALT,
+            bg=self.theme.SURFACE,
             fg=self.theme.TEXT_PRIMARY,
-            selectbackground=self.theme.ACCENT,
-            selectforeground=self.theme.TEXT_LIGHT,
+            selectbackground=self.theme.LISTBOX_SELECTED_BG,
+            selectforeground=self.theme.TEXT_PRIMARY,
             borderwidth=0,
             highlightthickness=1,
             highlightbackground=self.theme.BORDER,
             relief=tk.FLAT,
+            font=("Segoe UI", 11),
+            exportselection=False,
         )
         self.plan_listbox.grid(row=1, column=0, sticky="nsew", pady=(4, 6))
         plan_scroll = ttk.Scrollbar(
@@ -930,12 +933,13 @@ class CompanyCurriculumTab:
                 company_id=self.company_id,
                 include_archived=False,
             )
+        plans = sorted(plans, key=lambda item: item.name.casefold())
 
         self._plan_ids = [item.id for item in plans]
         self.plan_listbox.delete(0, tk.END)
         for item in plans:
-            sem_suffix = f" | сем {item.semester}" if item.semester is not None else ""
-            self.plan_listbox.insert(tk.END, f"{item.id} | {item.name}{sem_suffix}")
+            sem_suffix = f" (семестр {item.semester})" if item.semester is not None else ""
+            self.plan_listbox.insert(tk.END, f"{item.name}{sem_suffix}")
 
         if selected_id is not None and selected_id in self._plan_ids:
             idx = self._plan_ids.index(selected_id)
