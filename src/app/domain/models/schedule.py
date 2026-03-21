@@ -1,4 +1,4 @@
-from sqlalchemy import CheckConstraint, ForeignKey, Integer, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, ForeignKey, Integer, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.domain.base import Base
@@ -25,6 +25,8 @@ class ScheduleEntry(Base):
         ForeignKey("resources.id", ondelete="SET NULL"),
         nullable=True,
     )
+    is_locked: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    is_manual: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
     requirement: Mapped["Requirement"] = relationship("Requirement", back_populates="schedule_entries")
     start_block: Mapped["TimeBlock"] = relationship("TimeBlock", back_populates="schedule_entries")

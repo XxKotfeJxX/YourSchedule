@@ -84,6 +84,16 @@ def _apply_lightweight_schema_upgrades() -> None:
         if not _column_exists(connection, "schedule_entries", "room_resource_id"):
             connection.execute(text("ALTER TABLE schedule_entries ADD COLUMN room_resource_id INTEGER"))
 
+        if not _column_exists(connection, "schedule_entries", "is_locked"):
+            connection.execute(
+                text("ALTER TABLE schedule_entries ADD COLUMN is_locked BOOLEAN NOT NULL DEFAULT FALSE")
+            )
+
+        if not _column_exists(connection, "schedule_entries", "is_manual"):
+            connection.execute(
+                text("ALTER TABLE schedule_entries ADD COLUMN is_manual BOOLEAN NOT NULL DEFAULT FALSE")
+            )
+
         if dialect == "postgresql":
             connection.execute(
                 text(

@@ -49,3 +49,9 @@ class PlanTargetType(str, Enum):
 class UserRole(str, Enum):
     COMPANY = "COMPANY"
     PERSONAL = "PERSONAL"
+
+
+class TimePreference(str, Enum):
+    BALANCED = "BALANCED"
+    MORNING = "MORNING"
+    EVENING = "EVENING"

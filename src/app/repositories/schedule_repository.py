@@ -15,6 +15,8 @@ class ScheduleRepository:
         start_block_id: int,
         blocks_count: int,
         room_resource_id: int | None = None,
+        is_locked: bool = False,
+        is_manual: bool = False,
     ) -> ScheduleEntry:
         entry = ScheduleEntry(
             company_id=company_id,
@@ -22,6 +24,8 @@ class ScheduleRepository:
             start_block_id=start_block_id,
             blocks_count=blocks_count,
             room_resource_id=room_resource_id,
+            is_locked=is_locked,
+            is_manual=is_manual,
         )
         self.session.add(entry)
         self.session.flush()
@@ -36,9 +40,21 @@ class ScheduleRepository:
         )
         return list(self.session.scalars(statement).all())
 
-    def clear_entries_for_period(self, calendar_period_id: int) -> None:
+    def clear_entries_for_period(self, calendar_period_id: int, *, keep_locked: bool = False) -> None:
         block_ids_subquery = select(TimeBlock.id).where(TimeBlock.calendar_period_id == calendar_period_id)
-        self.session.execute(
-            delete(ScheduleEntry).where(ScheduleEntry.start_block_id.in_(block_ids_subquery))
-        )
+        statement = delete(ScheduleEntry).where(ScheduleEntry.start_block_id.in_(block_ids_subquery))
+        if keep_locked:
+            statement = statement.where(ScheduleEntry.is_locked.is_(False))
+        self.session.execute(statement)
         self.session.flush()
+
+    def get_entry(self, entry_id: int) -> ScheduleEntry | None:
+        return self.session.get(ScheduleEntry, entry_id)
+
+    def update_entry_lock(self, entry_id: int, *, is_locked: bool) -> ScheduleEntry:
+        entry = self.get_entry(entry_id)
+        if entry is None:
+            raise ValueError(f"ScheduleEntry with id={entry_id} was not found")
+        entry.is_locked = bool(is_locked)
+        self.session.flush()
+        return entry
