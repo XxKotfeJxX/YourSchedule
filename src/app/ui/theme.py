@@ -523,10 +523,10 @@ class UiTheme:
             darkcolor=self.SCROLLBAR_BG,
             lightcolor=self.SCROLLBAR_BG,
             arrowcolor=self.SCROLLBAR_ARROW,
-            relief="flat",
-            borderwidth=0,
-            arrowsize=0,
-            width=10,
+            relief="solid",
+            borderwidth=1,
+            arrowsize=8,
+            width=14,
             gripcount=0,
         )
         style.map(
