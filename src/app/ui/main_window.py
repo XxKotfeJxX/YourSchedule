@@ -1007,13 +1007,47 @@ class ScheduleMainWindow:
 
             with session_scope() as session:
                 req_controller = RequirementController(session=session)
+                resource_controller = ResourceController(session=session)
                 room_controller = RoomController(session=session)
                 requirement = req_controller.get_requirement(requirement_id=requirement_id)
+                requirement_links = (
+                    req_controller.list_requirement_resources(requirement_id=requirement_id)
+                    if requirement is not None
+                    else []
+                )
                 room_profiles = room_controller.list_rooms(company_id=company_id, include_archived=True)
+                teacher_resources = resource_controller.list_resources(
+                    resource_type=ResourceType.TEACHER,
+                    company_id=company_id,
+                )
+                group_resources = resource_controller.list_resources(
+                    resource_type=ResourceType.GROUP,
+                    company_id=company_id,
+                )
+                subgroup_resources = resource_controller.list_resources(
+                    resource_type=ResourceType.SUBGROUP,
+                    company_id=company_id,
+                )
             if requirement is None:
                 messagebox.showerror("Редагування вимоги", "Вимогу не знайдено.")
                 load_requirements()
                 return
+
+            teacher_resource_ids = {int(resource.id) for resource in teacher_resources}
+            group_resource_ids = {int(resource.id) for resource in group_resources}
+            subgroup_resource_ids = {int(resource.id) for resource in subgroup_resources}
+            assigned_teacher_ids: set[int] = set()
+            assigned_group_ids: set[int] = set()
+            assigned_subgroup_ids: set[int] = set()
+
+            for link in requirement_links:
+                resource_id = int(link.resource_id)
+                if resource_id in teacher_resource_ids:
+                    assigned_teacher_ids.add(resource_id)
+                elif resource_id in group_resource_ids:
+                    assigned_group_ids.add(resource_id)
+                elif resource_id in subgroup_resource_ids:
+                    assigned_subgroup_ids.add(resource_id)
 
             modal = tk.Toplevel(self.root)
             modal.title(f"Вимога #{requirement.id}")
@@ -1073,8 +1107,93 @@ class ScheduleMainWindow:
                 width=30,
             ).grid(row=4, column=1, columnspan=3, sticky="w", padx=(8, 0), pady=(8, 0))
 
+            resources_shell = ttk.LabelFrame(body, text="Прив'язки ресурсів", padding=8)
+            resources_shell.grid(row=5, column=0, columnspan=4, sticky="ew", pady=(12, 0))
+            resources_shell.columnconfigure(0, weight=1)
+            resources_shell.columnconfigure(1, weight=1)
+            resources_shell.columnconfigure(2, weight=1)
+
+            teacher_values = [f"{resource.id} | {resource.name}" for resource in teacher_resources]
+            group_values = [f"{resource.id} | {resource.name}" for resource in group_resources]
+            subgroup_values = [f"{resource.id} | {resource.name}" for resource in subgroup_resources]
+
+            teacher_wrap = ttk.Frame(resources_shell, style="Card.TFrame")
+            teacher_wrap.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+            ttk.Label(teacher_wrap, text="Викладачі").pack(anchor="w")
+            teacher_list_wrap = ttk.Frame(teacher_wrap, style="Card.TFrame")
+            teacher_list_wrap.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
+            teacher_listbox = tk.Listbox(
+                teacher_list_wrap,
+                selectmode=tk.EXTENDED,
+                exportselection=False,
+                height=7,
+                width=26,
+            )
+            teacher_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            teacher_scroll = ttk.Scrollbar(teacher_list_wrap, orient=tk.VERTICAL, command=teacher_listbox.yview)
+            teacher_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+            teacher_listbox.configure(yscrollcommand=teacher_scroll.set)
+
+            group_wrap = ttk.Frame(resources_shell, style="Card.TFrame")
+            group_wrap.grid(row=0, column=1, sticky="nsew", padx=(0, 8))
+            ttk.Label(group_wrap, text="Групи").pack(anchor="w")
+            group_list_wrap = ttk.Frame(group_wrap, style="Card.TFrame")
+            group_list_wrap.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
+            group_listbox = tk.Listbox(
+                group_list_wrap,
+                selectmode=tk.EXTENDED,
+                exportselection=False,
+                height=7,
+                width=26,
+            )
+            group_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            group_scroll = ttk.Scrollbar(group_list_wrap, orient=tk.VERTICAL, command=group_listbox.yview)
+            group_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+            group_listbox.configure(yscrollcommand=group_scroll.set)
+
+            subgroup_wrap = ttk.Frame(resources_shell, style="Card.TFrame")
+            subgroup_wrap.grid(row=0, column=2, sticky="nsew")
+            ttk.Label(subgroup_wrap, text="Підгрупи").pack(anchor="w")
+            subgroup_list_wrap = ttk.Frame(subgroup_wrap, style="Card.TFrame")
+            subgroup_list_wrap.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
+            subgroup_listbox = tk.Listbox(
+                subgroup_list_wrap,
+                selectmode=tk.EXTENDED,
+                exportselection=False,
+                height=7,
+                width=26,
+            )
+            subgroup_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            subgroup_scroll = ttk.Scrollbar(subgroup_list_wrap, orient=tk.VERTICAL, command=subgroup_listbox.yview)
+            subgroup_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+            subgroup_listbox.configure(yscrollcommand=subgroup_scroll.set)
+
+            for row in teacher_values:
+                teacher_listbox.insert(tk.END, row)
+            for index, row in enumerate(teacher_values):
+                if parse_prefixed_id(row, field_name="викладач") in assigned_teacher_ids:
+                    teacher_listbox.selection_set(index)
+
+            for row in group_values:
+                group_listbox.insert(tk.END, row)
+            for index, row in enumerate(group_values):
+                if parse_prefixed_id(row, field_name="група") in assigned_group_ids:
+                    group_listbox.selection_set(index)
+
+            for row in subgroup_values:
+                subgroup_listbox.insert(tk.END, row)
+            for index, row in enumerate(subgroup_values):
+                if parse_prefixed_id(row, field_name="підгрупа") in assigned_subgroup_ids:
+                    subgroup_listbox.selection_set(index)
+
             actions = ttk.Frame(body, style="Card.TFrame")
-            actions.grid(row=5, column=0, columnspan=4, sticky="e", pady=(12, 0))
+            actions.grid(row=6, column=0, columnspan=4, sticky="e", pady=(12, 0))
+
+            def selected_ids_from_listbox(listbox: tk.Listbox, *, field_name: str) -> set[int]:
+                result: set[int] = set()
+                for selected_index in listbox.curselection():
+                    result.add(parse_prefixed_id(str(listbox.get(selected_index)), field_name=field_name))
+                return result
 
             def save_requirement() -> None:
                 try:
@@ -1092,8 +1211,17 @@ class ScheduleMainWindow:
                     fixed_room_id = None if fixed_room_var.get().strip() == "Авто" else parse_prefixed_id(
                         fixed_room_var.get(), field_name="фіксована аудиторія"
                     )
+                    selected_teacher_ids = selected_ids_from_listbox(teacher_listbox, field_name="викладач")
+                    selected_group_ids = selected_ids_from_listbox(group_listbox, field_name="група")
+                    selected_subgroup_ids = selected_ids_from_listbox(subgroup_listbox, field_name="підгрупа")
+                    if not selected_teacher_ids:
+                        raise ValueError("Оберіть хоча б одного викладача.")
+                    if not selected_group_ids and not selected_subgroup_ids:
+                        raise ValueError("Оберіть хоча б одну групу або підгрупу.")
                     with session_scope() as session:
-                        RequirementController(session=session).update_requirement(
+                        req_controller = RequirementController(session=session)
+                        resource_controller = ResourceController(session=session)
+                        req_controller.update_requirement(
                             requirement_id=requirement_id,
                             name=name,
                             duration_blocks=duration,
@@ -1104,6 +1232,36 @@ class ScheduleMainWindow:
                             needs_projector=bool(needs_projector_var.get()),
                             fixed_room_id=fixed_room_id,
                         )
+                        resources = resource_controller.list_resources(company_id=company_id)
+                        resource_type_by_id = {int(resource.id): resource.type for resource in resources}
+                        current_links = req_controller.list_requirement_resources(requirement_id=requirement_id)
+                        for link in current_links:
+                            resource_type = resource_type_by_id.get(int(link.resource_id))
+                            if resource_type in {ResourceType.TEACHER, ResourceType.GROUP, ResourceType.SUBGROUP}:
+                                req_controller.unassign_resource(
+                                    requirement_id=requirement_id,
+                                    resource_id=int(link.resource_id),
+                                    role=str(link.role),
+                                )
+
+                        for resource_id in sorted(selected_teacher_ids):
+                            req_controller.assign_resource(
+                                requirement_id=requirement_id,
+                                resource_id=resource_id,
+                                role="TEACHER",
+                            )
+                        for resource_id in sorted(selected_group_ids):
+                            req_controller.assign_resource(
+                                requirement_id=requirement_id,
+                                resource_id=resource_id,
+                                role="GROUP",
+                            )
+                        for resource_id in sorted(selected_subgroup_ids):
+                            req_controller.assign_resource(
+                                requirement_id=requirement_id,
+                                resource_id=resource_id,
+                                role="SUBGROUP",
+                            )
                 except Exception as exc:
                     messagebox.showerror("Редагування вимоги", str(exc), parent=modal)
                     return
