@@ -1220,7 +1220,25 @@ class ScheduleMainWindow:
         subgroup_tree_wrap.pack(fill=tk.X)
         subgroup_tree_wrap.configure(height=300)
         subgroup_tree_wrap.pack_propagate(False)
-        subgroup_tree = ttk.Treeview(subgroup_tree_wrap, show="tree", height=14)
+        subgroup_tree = ttk.Treeview(
+            subgroup_tree_wrap,
+            show="tree headings",
+            height=14,
+            selectmode="browse",
+        )
+        subgroup_tree.heading("#0", text="Підгрупи та учасники", anchor="w")
+        subgroup_tree.column("#0", anchor="w", minwidth=280, width=460, stretch=True)
+        subgroup_tree.tag_configure(
+            "bucket",
+            font=("Segoe UI", 10, "bold"),
+            background=self.theme.SURFACE_ALT,
+            foreground=self.theme.TEXT_PRIMARY,
+        )
+        subgroup_tree.tag_configure(
+            "participant",
+            font=("Segoe UI", 10),
+            foreground=self.theme.TEXT_PRIMARY,
+        )
         subgroup_tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         subgroup_tree_scroll = ttk.Scrollbar(
             subgroup_tree_wrap,
@@ -2371,20 +2389,47 @@ class ScheduleMainWindow:
             subgroup_tree.delete(*subgroup_tree.get_children())
             tree_subgroup_id_by_iid.clear()
 
+            counts_by_subgroup_id: dict[int | None, int] = {None: 0}
+            for subgroup_id in current_subgroups_by_id:
+                counts_by_subgroup_id[subgroup_id] = 0
+            for user in users:
+                subgroup_id = user.subgroup_id if user.subgroup_id in current_subgroups_by_id else None
+                counts_by_subgroup_id[subgroup_id] = counts_by_subgroup_id.get(subgroup_id, 0) + 1
+
             unassigned_iid = "sg_none"
-            subgroup_tree.insert("", tk.END, iid=unassigned_iid, text="Без підгрупи", open=True)
+            subgroup_tree.insert(
+                "",
+                tk.END,
+                iid=unassigned_iid,
+                text=f"Без підгрупи [{counts_by_subgroup_id.get(None, 0)}]",
+                open=True,
+                tags=("bucket",),
+            )
             tree_subgroup_id_by_iid[unassigned_iid] = None
 
             for subgroup in current_subgroups_by_id.values():
                 iid = f"sg_{subgroup.id}"
-                subgroup_tree.insert("", tk.END, iid=iid, text=subgroup_short_name(subgroup.name), open=True)
+                subgroup_tree.insert(
+                    "",
+                    tk.END,
+                    iid=iid,
+                    text=f"Підгрупа: {subgroup_short_name(subgroup.name)} [{counts_by_subgroup_id.get(subgroup.id, 0)}]",
+                    open=True,
+                    tags=("bucket",),
+                )
                 tree_subgroup_id_by_iid[iid] = subgroup.id
 
             for user in users:
                 parent_iid = unassigned_iid
                 if user.subgroup_id is not None and user.subgroup_id in current_subgroups_by_id:
                     parent_iid = f"sg_{user.subgroup_id}"
-                subgroup_tree.insert(parent_iid, tk.END, iid=f"user_{user.id}", text=user.username, tags=("participant",))
+                subgroup_tree.insert(
+                    parent_iid,
+                    tk.END,
+                    iid=f"user_{user.id}",
+                    text=f"Учасник: {user.username}",
+                    tags=("participant",),
+                )
 
         def load_group_detail() -> None:
             nonlocal current_users_by_id, current_subgroups_by_id
@@ -2692,7 +2737,8 @@ class ScheduleMainWindow:
                 messagebox.showerror("Помилка", "Обери саме підгрупу, а не учасника.")
                 return
 
-            subgroup_name = subgroup_tree.item(selected_iid, "text")
+            subgroup_resource = current_subgroups_by_id.get(subgroup_id)
+            subgroup_name = subgroup_short_name(subgroup_resource.name) if subgroup_resource is not None else f"#{subgroup_id}"
             if not messagebox.askyesno("Підтвердження", f"Видалити підгрупу '{subgroup_name}'?"):
                 return
             try:
@@ -2851,7 +2897,25 @@ class ScheduleMainWindow:
 
             tree_container = ttk.Frame(root, style="Card.TFrame")
             tree_container.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
-            tree = ttk.Treeview(tree_container, show="tree", height=10)
+            tree = ttk.Treeview(
+                tree_container,
+                show="tree headings",
+                height=10,
+                selectmode="browse",
+            )
+            tree.heading("#0", text="Підгрупи та учасники", anchor="w")
+            tree.column("#0", anchor="w", minwidth=240, width=360, stretch=True)
+            tree.tag_configure(
+                "bucket",
+                font=("Segoe UI", 10, "bold"),
+                background=self.theme.SURFACE_ALT,
+                foreground=self.theme.TEXT_PRIMARY,
+            )
+            tree.tag_configure(
+                "participant",
+                font=("Segoe UI", 10),
+                foreground=self.theme.TEXT_PRIMARY,
+            )
             tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
             tree_scroll = ttk.Scrollbar(
                 tree_container,
@@ -2863,12 +2927,17 @@ class ScheduleMainWindow:
             tree.configure(yscrollcommand=tree_scroll.set)
     
             unassigned_iid = "group_none"
-            tree.insert("", tk.END, iid=unassigned_iid, text="Без підгрупи", open=True)
+            tree.insert("", tk.END, iid=unassigned_iid, text="Без підгрупи [0]", open=True, tags=("bucket",))
             subgroup_iid_by_name: dict[str, str] = {}
             subgroup_name_by_iid: dict[str, str] = {}
             added_users: dict[int, str] = {}
             assignment_by_user_id: dict[int, str | None] = {}
             drag_state: dict[str, str | bool | None] = {"item": None, "active": False}
+
+            def refresh_tree_bucket_labels() -> None:
+                tree.item(unassigned_iid, text=f"Без підгрупи [{len(tree.get_children(unassigned_iid))}]")
+                for subgroup_name, subgroup_iid in subgroup_iid_by_name.items():
+                    tree.item(subgroup_iid, text=f"Підгрупа: {subgroup_name} [{len(tree.get_children(subgroup_iid))}]")
     
             def refresh_suggestions() -> None:
                 available = [item.username for item in personal_users if item.id not in added_users]
@@ -2888,11 +2957,12 @@ class ScheduleMainWindow:
                 if user.id in added_users:
                     return
                 item_iid = f"user_{user.id}"
-                tree.insert(unassigned_iid, tk.END, iid=item_iid, text=user.username, tags=("participant",))
+                tree.insert(unassigned_iid, tk.END, iid=item_iid, text=f"Учасник: {user.username}", tags=("participant",))
                 added_users[user.id] = user.username
                 assignment_by_user_id[user.id] = None
                 participant_var.set("")
                 refresh_suggestions()
+                refresh_tree_bucket_labels()
     
             def remove_selected_participant() -> None:
                 selected = tree.selection()
@@ -2906,6 +2976,7 @@ class ScheduleMainWindow:
                 added_users.pop(user_id, None)
                 assignment_by_user_id.pop(user_id, None)
                 refresh_suggestions()
+                refresh_tree_bucket_labels()
     
             def add_subgroup() -> None:
                 name = subgroup_var.get().strip()
@@ -2915,10 +2986,11 @@ class ScheduleMainWindow:
                 if name in subgroup_iid_by_name:
                     return
                 iid = f"sg_{len(subgroup_iid_by_name) + 1}_{uuid4().hex[:4]}"
-                tree.insert("", tk.END, iid=iid, text=name, open=True)
+                tree.insert("", tk.END, iid=iid, text=f"Підгрупа: {name} [0]", open=True, tags=("bucket",))
                 subgroup_iid_by_name[name] = iid
                 subgroup_name_by_iid[iid] = name
                 subgroup_var.set("")
+                refresh_tree_bucket_labels()
     
             def remove_selected_subgroup() -> None:
                 selected = tree.selection()
@@ -2934,6 +3006,7 @@ class ScheduleMainWindow:
                 name = subgroup_name_by_iid.pop(iid)
                 subgroup_iid_by_name.pop(name, None)
                 tree.delete(iid)
+                refresh_tree_bucket_labels()
     
             def on_tree_press(event: tk.Event) -> None:
                 item = tree.identify_row(event.y)
@@ -2972,6 +3045,7 @@ class ScheduleMainWindow:
                 assignment_by_user_id[user_id] = subgroup_name_by_iid.get(target)
                 drag_state["item"] = None
                 drag_state["active"] = False
+                refresh_tree_bucket_labels()
     
             def save_group() -> None:
                 group_name = group_name_var.get().strip()
@@ -3056,6 +3130,7 @@ class ScheduleMainWindow:
             tree.bind("<ButtonRelease-1>", on_tree_release)
             group_name_entry.focus_set()
             refresh_suggestions()
+            refresh_tree_bucket_labels()
 
         course_filter_box.bind("<<ComboboxSelected>>", on_course_filter_change, add="+")
         stream_filter_box.bind("<<ComboboxSelected>>", on_stream_filter_change, add="+")
