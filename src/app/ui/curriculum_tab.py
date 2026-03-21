@@ -94,21 +94,12 @@ class CompanyCurriculumTab:
         self._subgroup_name_by_id: dict[int, str] = {}
 
     def build(self) -> None:
-        header = ttk.Frame(self.parent, style="Card.TFrame")
-        header.pack(fill=tk.X, pady=(0, 8))
-        ttk.Label(header, text="Навчальні плани", style="CardTitle.TLabel").pack(anchor="w")
-        ttk.Label(
-            header,
-            text="Викладачі, предмети, навчальні плани, призначення та синхронізація з вимогами.",
-            style="CardSubtle.TLabel",
-        ).pack(anchor="w", pady=(2, 0))
-
         notebook = ttk.Notebook(self.parent)
-        notebook.pack(fill=tk.BOTH, expand=True)
+        notebook.pack(fill=tk.BOTH, expand=True, padx=2, pady=(0, 2))
 
-        teachers_tab = ttk.Frame(notebook, style="Card.TFrame", padding=10)
-        subjects_tab = ttk.Frame(notebook, style="Card.TFrame", padding=10)
-        plans_tab = ttk.Frame(notebook, style="Card.TFrame", padding=10)
+        teachers_tab = ttk.Frame(notebook, style="Card.TFrame", padding=6)
+        subjects_tab = ttk.Frame(notebook, style="Card.TFrame", padding=6)
+        plans_tab = ttk.Frame(notebook, style="Card.TFrame", padding=6)
         notebook.add(teachers_tab, text="Викладачі")
         notebook.add(subjects_tab, text="Предмети")
         notebook.add(plans_tab, text="Плани")
@@ -117,7 +108,7 @@ class CompanyCurriculumTab:
         self._build_subjects_tab(subjects_tab)
         self._build_plans_tab(plans_tab)
 
-        ttk.Label(self.parent, textvariable=self.status_var, style="CardSubtle.TLabel").pack(fill=tk.X, pady=(8, 0))
+        ttk.Label(self.parent, textvariable=self.status_var, style="CardSubtle.TLabel").pack(fill=tk.X, pady=(4, 0))
 
         self._refresh_all()
 
