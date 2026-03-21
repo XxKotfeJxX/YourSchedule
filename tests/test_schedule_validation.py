@@ -1,19 +1,23 @@
-from datetime import date, time
+from datetime import date, datetime, time
 
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.domain.base import Base
-from app.domain.enums import MarkKind, ResourceType
+from app.domain.enums import MarkKind, ResourceType, RoomType
 from app.domain.models import (
+    Building,
     CalendarPeriod,
+    Company,
     DayPattern,
     DayPatternItem,
     MarkType,
     Requirement,
     RequirementResource,
     Resource,
+    ResourceBlackout,
+    RoomProfile,
     ScheduleEntry,
     TimeBlock,
     WeekPattern,
@@ -199,3 +203,118 @@ def test_validation_detects_span_and_session_rule_violations(session: Session) -
     assert "NON_TEACHING_BLOCK_IN_SPAN" in issue_codes
     assert "SESSION_COUNT_MISMATCH" in issue_codes
     assert "MAX_PER_WEEK_EXCEEDED" in issue_codes
+
+
+def test_validation_detects_blackout_conflicts(session: Session) -> None:
+    period = _create_period(
+        session=session,
+        start_date=date(2026, 3, 2),
+        end_date=date(2026, 3, 2),
+        marks=[(MarkKind.TEACHING, 45)],
+    )
+
+    teacher = Resource(name="Teacher blackout", type=ResourceType.TEACHER)
+    requirement = Requirement(name="Math blackout", duration_blocks=1, sessions_total=1, max_per_week=1)
+    session.add_all([teacher, requirement])
+    session.flush()
+
+    session.add(
+        RequirementResource(
+            requirement_id=requirement.id,
+            resource_id=teacher.id,
+            role="LECTOR",
+        )
+    )
+
+    block = _get_block(session, period.id, date(2026, 3, 2), 1)
+    session.add(
+        ResourceBlackout(
+            resource_id=teacher.id,
+            starts_at=block.start_timestamp,
+            ends_at=block.end_timestamp,
+            title="Unavailable",
+        )
+    )
+    session.add(
+        ScheduleEntry(
+            requirement_id=requirement.id,
+            start_block_id=block.id,
+            blocks_count=1,
+        )
+    )
+    session.commit()
+
+    report = ScheduleValidatorService().validate_period(session=session, calendar_period_id=period.id)
+    issue_codes = [issue.code for issue in report.issues]
+    assert "RESOURCE_BLACKOUT_CONFLICT" in issue_codes
+
+
+def test_validation_detects_room_constraint_mismatches(session: Session) -> None:
+    period = _create_period(
+        session=session,
+        start_date=date(2026, 3, 2),
+        end_date=date(2026, 3, 2),
+        marks=[(MarkKind.TEACHING, 45)],
+    )
+
+    company = Company(name="Validation Rooms Company")
+    session.add(company)
+    session.flush()
+
+    building = Building(company_id=company.id, name="Validation Building")
+    session.add(building)
+    session.flush()
+
+    teacher = Resource(name="Teacher room", type=ResourceType.TEACHER, company_id=company.id)
+    room_resource = Resource(name="Room 12", type=ResourceType.ROOM, company_id=company.id)
+    requirement = Requirement(
+        company_id=company.id,
+        name="Room constrained",
+        duration_blocks=1,
+        sessions_total=1,
+        max_per_week=1,
+        room_type=RoomType.COMPUTER_LAB,
+        min_capacity=30,
+        needs_projector=True,
+    )
+    session.add_all([teacher, room_resource, requirement])
+    session.flush()
+
+    session.add(
+        RequirementResource(
+            requirement_id=requirement.id,
+            resource_id=teacher.id,
+            role="LECTOR",
+        )
+    )
+
+    room_profile = RoomProfile(
+        company_id=company.id,
+        building_id=building.id,
+        resource_id=room_resource.id,
+        name="12",
+        room_type=RoomType.CLASSROOM,
+        capacity=20,
+        has_projector=False,
+    )
+    session.add(room_profile)
+    session.flush()
+
+    block = _get_block(session, period.id, date(2026, 3, 2), 1)
+    session.add(
+        ScheduleEntry(
+            company_id=company.id,
+            requirement_id=requirement.id,
+            start_block_id=block.id,
+            blocks_count=1,
+            room_resource_id=room_resource.id,
+        )
+    )
+    session.commit()
+
+    report = ScheduleValidatorService().validate_period(session=session, calendar_period_id=period.id)
+    issue_codes = [issue.code for issue in report.issues]
+
+    assert "ROOM_TYPE_MISMATCH" in issue_codes
+    assert "ROOM_CAPACITY_MISMATCH" in issue_codes
+    assert "ROOM_PROJECTOR_REQUIRED" in issue_codes

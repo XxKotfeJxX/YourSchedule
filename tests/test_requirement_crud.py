@@ -6,7 +6,8 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.controllers.requirement_controller import RequirementController
 from app.controllers.resource_controller import ResourceController
 from app.domain.base import Base
-from app.domain.enums import ResourceType
+from app.domain.enums import ResourceType, RoomType
+from app.domain.models import Building, Company, RoomProfile
 
 
 @pytest.fixture()
@@ -133,3 +134,109 @@ def test_requirement_resource_validation_and_uniqueness(session: Session) -> Non
 
     with pytest.raises(ValueError):
         requirement_controller.assign_resource(requirement.id, 999_999, "LECTOR")
+
+
+def test_requirement_room_constraints_and_fixed_room(session: Session) -> None:
+    requirement_controller = RequirementController(session=session)
+    resource_controller = ResourceController(session=session)
+
+    company = Company(name="Room Constraints Company")
+    session.add(company)
+    session.flush()
+
+    building = Building(company_id=company.id, name="Main Building")
+    session.add(building)
+    session.flush()
+
+    room_resource = resource_controller.create_resource(
+        name="Lab 301",
+        resource_type=ResourceType.ROOM,
+        company_id=company.id,
+    )
+    session.flush()
+
+    room_profile = RoomProfile(
+        company_id=company.id,
+        building_id=building.id,
+        resource_id=room_resource.id,
+        name="301",
+        room_type=RoomType.LAB,
+        capacity=24,
+        has_projector=True,
+    )
+    session.add(room_profile)
+    session.commit()
+
+    requirement = requirement_controller.create_requirement(
+        name="Electronics Lab",
+        duration_blocks=2,
+        sessions_total=6,
+        max_per_week=2,
+        company_id=company.id,
+        room_type=RoomType.LAB,
+        min_capacity=20,
+        needs_projector=True,
+        fixed_room_id=room_profile.id,
+    )
+    session.commit()
+
+    assert requirement.room_type == RoomType.LAB
+    assert requirement.min_capacity == 20
+    assert requirement.needs_projector is True
+    assert requirement.fixed_room_id == room_profile.id
+
+    updated = requirement_controller.update_requirement(
+        requirement.id,
+        min_capacity=18,
+        needs_projector=False,
+        fixed_room_id=None,
+    )
+    session.commit()
+
+    assert updated.min_capacity == 18
+    assert updated.needs_projector is False
+    assert updated.fixed_room_id is None
+
+
+def test_requirement_rejects_incompatible_fixed_room(session: Session) -> None:
+    requirement_controller = RequirementController(session=session)
+    resource_controller = ResourceController(session=session)
+
+    company = Company(name="Incompatible Room Company")
+    session.add(company)
+    session.flush()
+
+    building = Building(company_id=company.id, name="Second Building")
+    session.add(building)
+    session.flush()
+
+    room_resource = resource_controller.create_resource(
+        name="Lecture 101",
+        resource_type=ResourceType.ROOM,
+        company_id=company.id,
+    )
+    session.flush()
+
+    room_profile = RoomProfile(
+        company_id=company.id,
+        building_id=building.id,
+        resource_id=room_resource.id,
+        name="101",
+        room_type=RoomType.LECTURE_HALL,
+        capacity=120,
+        has_projector=False,
+    )
+    session.add(room_profile)
+    session.commit()
+
+    with pytest.raises(ValueError):
+        requirement_controller.create_requirement(
+            name="Computer Networks",
+            duration_blocks=1,
+            sessions_total=8,
+            max_per_week=2,
+            company_id=company.id,
+            room_type=RoomType.COMPUTER_LAB,
+            needs_projector=True,
+            fixed_room_id=room_profile.id,
+        )

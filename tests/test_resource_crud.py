@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.exc import IntegrityError
@@ -7,7 +9,7 @@ from app.controllers.academic_controller import AcademicController
 from app.controllers.resource_controller import ResourceController
 from app.domain.base import Base
 from app.domain.enums import ResourceType
-from app.domain.models import Company, Resource
+from app.domain.models import Company, Resource, ResourceBlackout
 
 
 @pytest.fixture()
@@ -262,3 +264,65 @@ def test_group_stream_reassignment_updates_subgroups(session: Session) -> None:
     assert refreshed_subgroup is not None
     assert refreshed_group.stream_id == stream_b.id
     assert refreshed_subgroup.stream_id == stream_b.id
+
+
+def test_resource_blackout_crud_operations(session: Session) -> None:
+    controller = ResourceController(session=session)
+    company = Company(name="Blackout Company")
+    session.add(company)
+    session.flush()
+
+    teacher = controller.create_resource(
+        name="Teacher Blackout",
+        resource_type=ResourceType.TEACHER,
+        company_id=company.id,
+    )
+    session.commit()
+
+    blackout = controller.create_blackout(
+        teacher.id,
+        starts_at=datetime(2026, 3, 2, 8, 30),
+        ends_at=datetime(2026, 3, 2, 10, 0),
+        title="Vacation",
+    )
+    session.commit()
+
+    listed = controller.list_blackouts(resource_id=teacher.id)
+    assert [item.id for item in listed] == [blackout.id]
+
+    updated = controller.update_blackout(
+        blackout.id,
+        ends_at=datetime(2026, 3, 2, 10, 30),
+        title="Vacation updated",
+    )
+    session.commit()
+
+    assert updated.ends_at == datetime(2026, 3, 2, 10, 30)
+    assert updated.title == "Vacation updated"
+
+    loaded = controller.get_blackout(blackout.id)
+    assert loaded is not None
+    assert loaded.resource_id == teacher.id
+
+    deleted = controller.delete_blackout(blackout.id)
+    session.commit()
+    assert deleted is True
+    assert controller.get_blackout(blackout.id) is None
+    assert session.query(ResourceBlackout).count() == 0
+
+
+def test_resource_blackout_rejects_invalid_time_range(session: Session) -> None:
+    controller = ResourceController(session=session)
+    teacher = controller.create_resource(
+        name="Teacher Invalid Blackout",
+        resource_type=ResourceType.TEACHER,
+    )
+    session.commit()
+
+    with pytest.raises(ValueError):
+        controller.create_blackout(
+            teacher.id,
+            starts_at=datetime(2026, 3, 2, 10, 0),
+            ends_at=datetime(2026, 3, 2, 9, 59),
+            title="Invalid",
+        )

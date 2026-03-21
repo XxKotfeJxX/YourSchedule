@@ -9,12 +9,15 @@ from app.controllers.requirement_controller import RequirementController
 from app.controllers.resource_controller import ResourceController
 from app.controllers.scheduler_controller import SchedulerController
 from app.domain.base import Base
-from app.domain.enums import MarkKind, ResourceType
+from app.domain.enums import MarkKind, ResourceType, RoomType
 from app.domain.models import (
+    Building,
     CalendarPeriod,
+    Company,
     DayPattern,
     DayPatternItem,
     MarkType,
+    RoomProfile,
     ScheduleEntry,
     TimeBlock,
     WeekPattern,
@@ -225,3 +228,167 @@ def test_scheduler_regeneration_replaces_existing_entries(session: Session) -> N
     session.commit()
     assert len(second_run.created_entries) == 2
     assert session.query(ScheduleEntry).count() == 2
+
+
+def test_scheduler_assigns_rooms_by_constraints(session: Session) -> None:
+    period = _create_calendar_period_with_blocks(
+        session=session,
+        start_date=date(2026, 3, 2),
+        end_date=date(2026, 3, 2),
+        marks=[(MarkKind.TEACHING, 45), (MarkKind.TEACHING, 45)],
+    )
+
+    resource_controller = ResourceController(session=session)
+    requirement_controller = RequirementController(session=session)
+    scheduler_controller = SchedulerController(session=session)
+
+    company = Company(name="Scheduler Rooms Company")
+    session.add(company)
+    session.flush()
+
+    building = Building(company_id=company.id, name="A")
+    session.add(building)
+    session.flush()
+
+    teacher = resource_controller.create_resource(
+        name="Teacher Room Constraint",
+        resource_type=ResourceType.TEACHER,
+        company_id=company.id,
+    )
+    room_bad = resource_controller.create_resource(
+        name="Room Bad",
+        resource_type=ResourceType.ROOM,
+        company_id=company.id,
+    )
+    room_good = resource_controller.create_resource(
+        name="Room Good",
+        resource_type=ResourceType.ROOM,
+        company_id=company.id,
+    )
+    session.flush()
+
+    session.add_all(
+        [
+            RoomProfile(
+                company_id=company.id,
+                building_id=building.id,
+                resource_id=room_bad.id,
+                name="Bad",
+                room_type=RoomType.CLASSROOM,
+                capacity=18,
+                has_projector=False,
+            ),
+            RoomProfile(
+                company_id=company.id,
+                building_id=building.id,
+                resource_id=room_good.id,
+                name="Good",
+                room_type=RoomType.LAB,
+                capacity=30,
+                has_projector=True,
+            ),
+        ]
+    )
+    session.flush()
+
+    requirement = requirement_controller.create_requirement(
+        name="Signal Processing",
+        duration_blocks=1,
+        sessions_total=1,
+        max_per_week=1,
+        company_id=company.id,
+        room_type=RoomType.LAB,
+        min_capacity=20,
+        needs_projector=True,
+    )
+    requirement_controller.assign_resource(requirement.id, teacher.id, "TEACHER")
+    session.commit()
+
+    result = scheduler_controller.build_schedule(calendar_period_id=period.id)
+    session.commit()
+
+    assert len(result.created_entries) == 1
+    entry = result.created_entries[0]
+    assert entry.room_resource_id == room_good.id
+
+
+def test_scheduler_respects_fixed_room_blackouts(session: Session) -> None:
+    period = _create_calendar_period_with_blocks(
+        session=session,
+        start_date=date(2026, 3, 2),
+        end_date=date(2026, 3, 3),
+        marks=[(MarkKind.TEACHING, 45)],
+    )
+
+    resource_controller = ResourceController(session=session)
+    requirement_controller = RequirementController(session=session)
+    scheduler_controller = SchedulerController(session=session)
+
+    company = Company(name="Scheduler Blackout Company")
+    session.add(company)
+    session.flush()
+
+    building = Building(company_id=company.id, name="B")
+    session.add(building)
+    session.flush()
+
+    teacher = resource_controller.create_resource(
+        name="Teacher Fixed Room",
+        resource_type=ResourceType.TEACHER,
+        company_id=company.id,
+    )
+    fixed_room_resource = resource_controller.create_resource(
+        name="Room Fixed",
+        resource_type=ResourceType.ROOM,
+        company_id=company.id,
+    )
+    session.flush()
+
+    fixed_room = RoomProfile(
+        company_id=company.id,
+        building_id=building.id,
+        resource_id=fixed_room_resource.id,
+        name="F1",
+        room_type=RoomType.CLASSROOM,
+        capacity=40,
+        has_projector=True,
+    )
+    session.add(fixed_room)
+    session.flush()
+
+    first_block = (
+        session.query(TimeBlock)
+        .filter(
+            TimeBlock.calendar_period_id == period.id,
+            TimeBlock.date == date(2026, 3, 2),
+            TimeBlock.order_in_day == 1,
+        )
+        .one()
+    )
+    resource_controller.create_blackout(
+        fixed_room_resource.id,
+        starts_at=first_block.start_timestamp,
+        ends_at=first_block.end_timestamp,
+        title="Maintenance",
+    )
+
+    requirement = requirement_controller.create_requirement(
+        name="Logic",
+        duration_blocks=1,
+        sessions_total=1,
+        max_per_week=1,
+        company_id=company.id,
+        fixed_room_id=fixed_room.id,
+    )
+    requirement_controller.assign_resource(requirement.id, teacher.id, "TEACHER")
+    session.commit()
+
+    result = scheduler_controller.build_schedule(calendar_period_id=period.id)
+    session.commit()
+
+    assert len(result.created_entries) == 1
+    entry = result.created_entries[0]
+    start_block = session.get(TimeBlock, entry.start_block_id)
+    assert start_block is not None
+    assert start_block.date == date(2026, 3, 3)
+    assert entry.room_resource_id == fixed_room_resource.id
