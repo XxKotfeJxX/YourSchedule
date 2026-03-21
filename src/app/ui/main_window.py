@@ -19,7 +19,7 @@ from app.controllers.room_controller import RoomController
 from app.controllers.schedule_validation_controller import ScheduleValidationController
 from app.controllers.schedule_view_controller import ScheduleViewController
 from app.controllers.scheduler_controller import SchedulerController
-from app.domain.enums import MarkKind, ResourceType, RoomType, UserRole
+from app.domain.enums import MarkKind, ResourceType, RoomType, TimePreference, UserRole
 from app.domain.models import User
 from app.repositories.calendar_repository import CalendarRepository
 from app.services.avatar_storage import AvatarStorageService
@@ -587,6 +587,25 @@ class ScheduleMainWindow:
         room_type_label_by_enum = {room_type: label for label, room_type in room_type_options if room_type is not None}
         requirements_state: dict[str, list[dict[str, object]]] = {"items": []}
 
+        policy_max_sessions_var = tk.StringVar(value="4")
+        policy_max_consecutive_var = tk.StringVar(value="3")
+        policy_no_gaps_var = tk.BooleanVar(value=False)
+        policy_time_pref_var = tk.StringVar(value="Баланс")
+        policy_weight_time_var = tk.StringVar(value="2")
+        policy_weight_compact_var = tk.StringVar(value="3")
+        policy_weight_building_var = tk.StringVar(value="2")
+        policy_time_pref_options = {
+            "Баланс": TimePreference.BALANCED,
+            "Ранок": TimePreference.MORNING,
+            "Вечір": TimePreference.EVENING,
+        }
+
+        manual_requirement_var = tk.StringVar()
+        manual_date_var = tk.StringVar()
+        manual_order_var = tk.StringVar(value="1")
+        manual_room_var = tk.StringVar(value="Авто")
+        manual_lock_var = tk.BooleanVar(value=True)
+
         header = ttk.Frame(parent, style="Card.TFrame")
         header.pack(fill=tk.X, pady=(0, 8))
 
@@ -769,6 +788,57 @@ class ScheduleMainWindow:
         requirements_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         requirements_table.configure(yscrollcommand=requirements_scroll.set)
 
+        policy_box = ttk.LabelFrame(parent, text="Політика генерації", padding=10)
+        policy_box.pack(fill=tk.X, pady=(8, 0))
+        ttk.Label(policy_box, text="Макс пар/день").grid(row=0, column=0, sticky="w")
+        ttk.Entry(policy_box, textvariable=policy_max_sessions_var, width=8).grid(row=0, column=1, sticky="w", padx=(6, 12))
+        ttk.Label(policy_box, text="Макс підряд блоків").grid(row=0, column=2, sticky="w")
+        ttk.Entry(policy_box, textvariable=policy_max_consecutive_var, width=8).grid(row=0, column=3, sticky="w", padx=(6, 12))
+        ttk.Checkbutton(policy_box, text="Заборонити вікна", variable=policy_no_gaps_var).grid(
+            row=0, column=4, sticky="w", padx=(0, 12)
+        )
+        ttk.Label(policy_box, text="Перевага часу").grid(row=0, column=5, sticky="w")
+        ttk.Combobox(
+            policy_box,
+            textvariable=policy_time_pref_var,
+            values=list(policy_time_pref_options.keys()),
+            state="readonly",
+            width=10,
+        ).grid(row=0, column=6, sticky="w", padx=(6, 12))
+        ttk.Label(policy_box, text="W час").grid(row=1, column=0, sticky="w", pady=(8, 0))
+        ttk.Entry(policy_box, textvariable=policy_weight_time_var, width=8).grid(row=1, column=1, sticky="w", padx=(6, 12), pady=(8, 0))
+        ttk.Label(policy_box, text="W компактність").grid(row=1, column=2, sticky="w", pady=(8, 0))
+        ttk.Entry(policy_box, textvariable=policy_weight_compact_var, width=8).grid(
+            row=1, column=3, sticky="w", padx=(6, 12), pady=(8, 0)
+        )
+        ttk.Label(policy_box, text="W переходи").grid(row=1, column=4, sticky="w", pady=(8, 0))
+        ttk.Entry(policy_box, textvariable=policy_weight_building_var, width=8).grid(
+            row=1, column=5, sticky="w", padx=(6, 12), pady=(8, 0)
+        )
+        policy_save_button = ttk.Button(policy_box, text="Зберегти політику")
+        policy_save_button.grid(row=1, column=6, sticky="w", pady=(8, 0))
+
+        manual_box = ttk.LabelFrame(parent, text="Ручний слот", padding=10)
+        manual_box.pack(fill=tk.X, pady=(8, 0))
+        ttk.Label(manual_box, text="Вимога").grid(row=0, column=0, sticky="w")
+        manual_requirement_box = ttk.Combobox(
+            manual_box,
+            textvariable=manual_requirement_var,
+            width=34,
+            state="readonly",
+        )
+        manual_requirement_box.grid(row=0, column=1, sticky="w", padx=(6, 12))
+        ttk.Label(manual_box, text="Дата").grid(row=0, column=2, sticky="w")
+        ttk.Entry(manual_box, textvariable=manual_date_var, width=12).grid(row=0, column=3, sticky="w", padx=(6, 12))
+        ttk.Label(manual_box, text="Номер блоку").grid(row=0, column=4, sticky="w")
+        ttk.Entry(manual_box, textvariable=manual_order_var, width=8).grid(row=0, column=5, sticky="w", padx=(6, 12))
+        ttk.Label(manual_box, text="Аудиторія").grid(row=0, column=6, sticky="w")
+        manual_room_box = ttk.Combobox(manual_box, textvariable=manual_room_var, width=24, state="readonly")
+        manual_room_box.grid(row=0, column=7, sticky="w", padx=(6, 12))
+        ttk.Checkbutton(manual_box, text="Закріпити (LOCK)", variable=manual_lock_var).grid(row=1, column=0, sticky="w", pady=(8, 0))
+        manual_add_button = ttk.Button(manual_box, text="Додати ручний слот")
+        manual_add_button.grid(row=1, column=1, sticky="w", pady=(8, 0))
+
         buttons = ttk.Frame(parent, style="Card.TFrame")
         buttons.pack(fill=tk.X, pady=(8, 8))
 
@@ -803,6 +873,18 @@ class ScheduleMainWindow:
                 raise ValueError(f"Поле '{field_name}' має бути цілим числом.") from exc
             if parsed <= 0:
                 raise ValueError(f"Поле '{field_name}' має бути більше нуля.")
+            return parsed
+
+        def parse_non_negative_int(raw: str, *, field_name: str) -> int:
+            value = raw.strip()
+            if not value:
+                raise ValueError(f"Заповніть поле '{field_name}'.")
+            try:
+                parsed = int(value)
+            except ValueError as exc:
+                raise ValueError(f"Поле '{field_name}' має бути цілим числом.") from exc
+            if parsed < 0:
+                raise ValueError(f"Поле '{field_name}' має бути невід'ємним.")
             return parsed
 
         def parse_datetime_input(raw: str, *, field_name: str) -> datetime:
@@ -869,6 +951,18 @@ class ScheduleMainWindow:
             if not raw:
                 raise ValueError("Оберіть ресурс для blackout.")
             return parse_prefixed_id(raw, field_name="ресурс blackout")
+
+        def selected_manual_requirement_id() -> int:
+            raw = manual_requirement_var.get().strip()
+            if not raw:
+                raise ValueError("Оберіть вимогу для ручного слота.")
+            return parse_prefixed_id(raw, field_name="вимога")
+
+        def selected_manual_room_resource_id() -> int | None:
+            raw = manual_room_var.get().strip()
+            if not raw or raw == "Авто":
+                return None
+            return parse_prefixed_id(raw, field_name="аудиторія")
 
         def refresh_subject_target_controls() -> None:
             is_stream = selected_subject_target() == "STREAM"
@@ -984,6 +1078,7 @@ class ScheduleMainWindow:
                     rows.append(
                         {
                             "id": int(requirement.id),
+                            "label": f"{int(requirement.id)} | {str(requirement.name)}",
                             "name": str(requirement.name),
                             "params": (
                                 f"{int(requirement.duration_blocks)} бл. | "
@@ -998,6 +1093,12 @@ class ScheduleMainWindow:
 
             requirements_state["items"] = rows
             render_requirements()
+            manual_values = [str(item["label"]) for item in rows]
+            manual_requirement_box["values"] = manual_values
+            if manual_values and manual_requirement_var.get() not in manual_values:
+                manual_requirement_var.set(manual_values[0])
+            if not manual_values:
+                manual_requirement_var.set("")
 
         def open_requirement_edit_modal() -> None:
             requirement_id = selected_requirement_id()
@@ -1343,6 +1444,15 @@ class ScheduleMainWindow:
             subject_fixed_room_box["values"] = ["Авто"] + room_profile_values
             if subject_fixed_room_var.get() not in subject_fixed_room_box["values"]:
                 subject_fixed_room_var.set("Авто")
+            manual_room_box["values"] = ["Авто"] + room_values
+            if manual_room_var.get() not in manual_room_box["values"]:
+                manual_room_var.set("Авто")
+            if period_values and not manual_date_var.get():
+                try:
+                    period_start = str(period_values[0].split("|", maxsplit=1)[1].split("..", maxsplit=1)[0]).strip()
+                    manual_date_var.set(period_start)
+                except Exception:
+                    pass
 
             blackout_resource_values_by_scope["Викладач"] = teacher_values
             blackout_resource_values_by_scope["Група"] = group_values
@@ -1427,6 +1537,68 @@ class ScheduleMainWindow:
             details = "\n".join(f"[{item.code}] {item.message}" for item in report.issues[:10])
             messagebox.showwarning("Проблеми перевірки", details)
             status_var.set(f"Знайдено проблем: {len(report.issues)}")
+
+        def load_policy() -> None:
+            try:
+                with session_scope() as session:
+                    policy = SchedulerController(session=session).get_policy(company_id=company_id)
+            except Exception as exc:
+                messagebox.showerror("Політика генерації", str(exc))
+                return
+            policy_max_sessions_var.set("" if policy.max_sessions_per_day is None else str(policy.max_sessions_per_day))
+            policy_max_consecutive_var.set("" if policy.max_consecutive_blocks is None else str(policy.max_consecutive_blocks))
+            policy_no_gaps_var.set(bool(policy.enforce_no_gaps))
+            reverse_map = {value: label for label, value in policy_time_pref_options.items()}
+            normalized_pref = policy.time_preference if isinstance(policy.time_preference, TimePreference) else TimePreference.BALANCED
+            policy_time_pref_var.set(reverse_map.get(normalized_pref, "Баланс"))
+            policy_weight_time_var.set(str(policy.weight_time_preference))
+            policy_weight_compact_var.set(str(policy.weight_compactness))
+            policy_weight_building_var.set(str(policy.weight_building_transition))
+
+        def on_save_policy() -> None:
+            try:
+                max_sessions = parse_optional_positive_int(policy_max_sessions_var.get(), field_name="Макс пар/день")
+                max_consecutive = parse_optional_positive_int(policy_max_consecutive_var.get(), field_name="Макс підряд блоків")
+                pref_label = policy_time_pref_var.get().strip() or "Баланс"
+                if pref_label not in policy_time_pref_options:
+                    raise ValueError("Оберіть коректну часову перевагу.")
+                weight_time = parse_non_negative_int(policy_weight_time_var.get(), field_name="W час")
+                weight_compact = parse_non_negative_int(policy_weight_compact_var.get(), field_name="W компактність")
+                weight_building = parse_non_negative_int(policy_weight_building_var.get(), field_name="W переходи")
+                with session_scope() as session:
+                    SchedulerController(session=session).update_policy(
+                        company_id=company_id,
+                        max_sessions_per_day=max_sessions,
+                        max_consecutive_blocks=max_consecutive,
+                        enforce_no_gaps=bool(policy_no_gaps_var.get()),
+                        time_preference=policy_time_pref_options[pref_label].value,
+                        weight_time_preference=weight_time,
+                        weight_compactness=weight_compact,
+                        weight_building_transition=weight_building,
+                    )
+            except Exception as exc:
+                messagebox.showerror("Політика генерації", str(exc))
+                return
+            status_var.set("Політику генерації збережено.")
+
+        def on_check_feasibility() -> None:
+            try:
+                period_id = parse_period_id()
+                with session_scope() as session:
+                    report = SchedulerController(session=session).analyze_feasibility(
+                        calendar_period_id=period_id,
+                        replace_existing=True,
+                    )
+            except Exception as exc:
+                messagebox.showerror("Перевірка здійсненності", str(exc))
+                return
+            if report.is_feasible:
+                messagebox.showinfo("Перевірка здійсненності", "Ознак нерозв'язності не знайдено.")
+                status_var.set("Перевірка здійсненності успішна.")
+                return
+            details = "\n".join(f"[{issue.code}] {issue.message}" for issue in report.issues[:10])
+            messagebox.showwarning("Перевірка здійсненності", details)
+            status_var.set(f"Знайдено ризиків: {len(report.issues)}")
 
         def on_add_subject() -> None:
             try:
@@ -1519,6 +1691,30 @@ class ScheduleMainWindow:
             load_blackouts()
             status_var.set("Blackout видалено.")
 
+        def on_add_manual_entry() -> None:
+            try:
+                period_id = parse_period_id()
+                requirement_id = selected_manual_requirement_id()
+                day = date.fromisoformat(manual_date_var.get().strip())
+                order_in_day = int(manual_order_var.get().strip())
+                if order_in_day <= 0:
+                    raise ValueError("Номер блоку має бути більшим за 0.")
+                room_resource_id = selected_manual_room_resource_id()
+                with session_scope() as session:
+                    SchedulerController(session=session).create_manual_entry(
+                        calendar_period_id=period_id,
+                        requirement_id=requirement_id,
+                        day=day,
+                        order_in_day=order_in_day,
+                        room_resource_id=room_resource_id,
+                        is_locked=bool(manual_lock_var.get()),
+                    )
+            except Exception as exc:
+                messagebox.showerror("Ручний слот", str(exc))
+                return
+            on_load_week()
+            status_var.set("Ручний слот додано.")
+
         def on_create_default_period() -> None:
             try:
                 start = date.today()
@@ -1565,6 +1761,13 @@ class ScheduleMainWindow:
         ).pack(side=tk.LEFT, padx=(0, 6))
         self._motion_button(
             buttons,
+            text="Здійсненність",
+            command=on_check_feasibility,
+            primary=False,
+            width=140,
+        ).pack(side=tk.LEFT, padx=(0, 6))
+        self._motion_button(
+            buttons,
             text="Додати предмет",
             command=on_add_subject,
             primary=False,
@@ -1581,11 +1784,14 @@ class ScheduleMainWindow:
         blackout_add_button.configure(command=on_add_blackout)
         blackout_delete_button.configure(command=on_delete_blackout)
         blackout_reload_button.configure(command=load_blackouts)
+        policy_save_button.configure(command=on_save_policy)
+        manual_add_button.configure(command=on_add_manual_entry)
         requirements_refresh_button.configure(command=load_requirements)
         requirements_edit_button.configure(command=open_requirement_edit_modal)
         requirements_delete_button.configure(command=on_delete_requirement)
 
         load_reference_data()
+        load_policy()
         load_blackouts()
         load_requirements()
         subject_target_box.bind("<<ComboboxSelected>>", lambda _e: refresh_subject_target_controls(), add="+")
