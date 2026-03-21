@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.domain.models import ScheduleEntry, ScheduleScenarioEntry
 from app.services.greedy_scheduler import (
+    CoverageDashboard,
     FeasibilityReport,
     GreedySchedulerService,
     ScheduleRunResult,
@@ -48,6 +49,20 @@ class SchedulerController:
             session=self.session,
             calendar_period_id=calendar_period_id,
             replace_existing=replace_existing,
+            scenario_id=scenario_id,
+            policy_options=policy_options,
+        )
+
+    def get_coverage_dashboard(
+        self,
+        *,
+        calendar_period_id: int,
+        scenario_id: int | None = None,
+        policy_options: SchedulerPolicyOptions | None = None,
+    ) -> CoverageDashboard:
+        return self.scheduler_service.build_coverage_dashboard(
+            session=self.session,
+            calendar_period_id=calendar_period_id,
             scenario_id=scenario_id,
             policy_options=policy_options,
         )

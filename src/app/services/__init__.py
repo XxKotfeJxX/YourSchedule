@@ -2,9 +2,12 @@
 
 from app.services.auth_service import AuthService
 from app.services.greedy_scheduler import (
+    CoverageDashboard,
+    CoverageReason,
     FeasibilityIssue,
     FeasibilityReport,
     GreedySchedulerService,
+    RequirementCoverageItem,
     ScheduleRunResult,
     ScheduleScenarioSummary,
     SchedulingDiagnostic,
@@ -40,6 +43,9 @@ __all__ = [
     "GreedySchedulerService",
     "ScheduleRunResult",
     "SchedulingDiagnostic",
+    "CoverageDashboard",
+    "CoverageReason",
+    "RequirementCoverageItem",
     "FeasibilityIssue",
     "FeasibilityReport",
     "ScheduleScenarioSummary",

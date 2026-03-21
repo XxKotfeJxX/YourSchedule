@@ -835,3 +835,52 @@ def test_scheduler_scenarios_compare_and_publish(session: Session) -> None:
     scenarios = scheduler_controller.list_scenarios(calendar_period_id=period.id)
     published_ids = {item.id for item in scenarios if item.is_published}
     assert published_ids == {scenario_b.id}
+
+
+def test_scheduler_coverage_dashboard_reports_uncovered_requirements(session: Session) -> None:
+    period = _create_calendar_period_with_blocks(
+        session=session,
+        start_date=date(2026, 3, 2),
+        end_date=date(2026, 3, 2),
+        marks=[(MarkKind.TEACHING, 45)],
+    )
+
+    resource_controller = ResourceController(session=session)
+    requirement_controller = RequirementController(session=session)
+    scheduler_controller = SchedulerController(session=session)
+
+    teacher_ok = resource_controller.create_resource(
+        name="Teacher Coverage OK",
+        resource_type=ResourceType.TEACHER,
+    )
+    teacher_bad = resource_controller.create_resource(
+        name="Teacher Coverage BAD",
+        resource_type=ResourceType.TEACHER,
+    )
+    req_ok = requirement_controller.create_requirement(
+        name="Covered Requirement",
+        duration_blocks=1,
+        sessions_total=1,
+        max_per_week=1,
+    )
+    requirement_controller.assign_resource(req_ok.id, teacher_ok.id, "TEACHER")
+    req_bad = requirement_controller.create_requirement(
+        name="Uncovered Requirement",
+        duration_blocks=1,
+        sessions_total=2,
+        max_per_week=2,
+    )
+    requirement_controller.assign_resource(req_bad.id, teacher_bad.id, "TEACHER")
+    session.commit()
+
+    scheduler_controller.build_schedule(calendar_period_id=period.id, replace_existing=True)
+    session.commit()
+
+    dashboard = scheduler_controller.get_coverage_dashboard(calendar_period_id=period.id)
+    assert dashboard.total_requirements == 2
+    assert dashboard.covered_requirements == 1
+    assert dashboard.uncovered_requirements == 1
+    assert dashboard.total_sessions_required == 3
+    assert dashboard.total_sessions_scheduled == 2
+    assert dashboard.reasons
+    assert any(item.requirement_id == req_bad.id for item in dashboard.uncovered_items)
