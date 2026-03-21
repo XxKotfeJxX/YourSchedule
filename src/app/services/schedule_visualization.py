@@ -8,7 +8,7 @@ from sqlalchemy import and_, select
 from sqlalchemy.orm import Session
 
 from app.domain.enums import MarkKind
-from app.domain.models import CalendarPeriod, Requirement, ScheduleEntry, TimeBlock
+from app.domain.models import CalendarPeriod, Requirement, ScheduleEntry, ScheduleScenarioEntry, TimeBlock
 
 
 WEEKDAY_LABELS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -35,6 +35,7 @@ class ScheduleVisualizationService:
         calendar_period_id: int,
         week_start: date | None = None,
         resource_id: int | None = None,
+        scenario_id: int | None = None,
     ) -> WeeklyScheduleGrid:
         period = session.get(CalendarPeriod, calendar_period_id)
         if period is None:
@@ -71,6 +72,7 @@ class ScheduleVisualizationService:
             block_by_key=block_by_key,
             resource_id=resource_id,
             company_id=period.company_id,
+            scenario_id=scenario_id,
         )
 
         row_orders = sorted({block.order_in_day for block in teaching_blocks})
@@ -139,22 +141,39 @@ class ScheduleVisualizationService:
         block_by_key: dict[tuple[date, int], TimeBlock],
         resource_id: int | None,
         company_id: int | None,
+        scenario_id: int | None,
     ) -> dict[tuple[int, int], list[str]]:
         cells: dict[tuple[int, int], list[str]] = defaultdict(list)
 
-        statement = (
-            select(ScheduleEntry, Requirement.name, TimeBlock.date, TimeBlock.order_in_day)
-            .join(TimeBlock, ScheduleEntry.start_block_id == TimeBlock.id)
-            .join(Requirement, ScheduleEntry.requirement_id == Requirement.id)
-            .where(
-                and_(
-                    TimeBlock.calendar_period_id == calendar_period_id,
-                    TimeBlock.date >= week_start,
-                    TimeBlock.date <= week_end,
+        if scenario_id is None:
+            statement = (
+                select(ScheduleEntry, Requirement.name, TimeBlock.date, TimeBlock.order_in_day)
+                .join(TimeBlock, ScheduleEntry.start_block_id == TimeBlock.id)
+                .join(Requirement, ScheduleEntry.requirement_id == Requirement.id)
+                .where(
+                    and_(
+                        TimeBlock.calendar_period_id == calendar_period_id,
+                        TimeBlock.date >= week_start,
+                        TimeBlock.date <= week_end,
+                    )
                 )
+                .order_by(TimeBlock.date.asc(), TimeBlock.order_in_day.asc())
             )
-            .order_by(TimeBlock.date.asc(), TimeBlock.order_in_day.asc())
-        )
+        else:
+            statement = (
+                select(ScheduleScenarioEntry, Requirement.name, TimeBlock.date, TimeBlock.order_in_day)
+                .join(TimeBlock, ScheduleScenarioEntry.start_block_id == TimeBlock.id)
+                .join(Requirement, ScheduleScenarioEntry.requirement_id == Requirement.id)
+                .where(
+                    and_(
+                        ScheduleScenarioEntry.scenario_id == scenario_id,
+                        TimeBlock.calendar_period_id == calendar_period_id,
+                        TimeBlock.date >= week_start,
+                        TimeBlock.date <= week_end,
+                    )
+                )
+                .order_by(TimeBlock.date.asc(), TimeBlock.order_in_day.asc())
+            )
         if company_id is not None:
             statement = statement.where(Requirement.company_id == company_id)
         if resource_id is not None:

@@ -14,6 +14,7 @@ from app.domain.models import (
     ResourceBlackout,
     RoomProfile,
     ScheduleEntry,
+    ScheduleScenarioEntry,
     TimeBlock,
 )
 
@@ -42,7 +43,13 @@ class ValidationReport:
 
 
 class ScheduleValidatorService:
-    def validate_period(self, session: Session, calendar_period_id: int) -> ValidationReport:
+    def validate_period(
+        self,
+        session: Session,
+        calendar_period_id: int,
+        *,
+        scenario_id: int | None = None,
+    ) -> ValidationReport:
         period = session.get(CalendarPeriod, calendar_period_id)
         if period is None:
             raise ValueError(f"CalendarPeriod with id={calendar_period_id} was not found")
@@ -75,7 +82,11 @@ class ScheduleValidatorService:
         block_by_id = {block.id: block for block in all_blocks}
         block_by_order_key = {(block.date, block.order_in_day): block for block in all_blocks}
 
-        schedule_entries = self._load_entries_for_period(session=session, calendar_period_id=calendar_period_id)
+        schedule_entries = self._load_entries_for_period(
+            session=session,
+            calendar_period_id=calendar_period_id,
+            scenario_id=scenario_id,
+        )
         issues: list[ValidationIssue] = []
 
         valid_entry_blocks: dict[int, list[int]] = {}
@@ -269,12 +280,29 @@ class ScheduleValidatorService:
         )
         return list(session.scalars(statement).all())
 
-    def _load_entries_for_period(self, session: Session, calendar_period_id: int) -> list[ScheduleEntry]:
+    def _load_entries_for_period(
+        self,
+        session: Session,
+        calendar_period_id: int,
+        *,
+        scenario_id: int | None = None,
+    ) -> list[ScheduleEntry | ScheduleScenarioEntry]:
+        if scenario_id is None:
+            statement = (
+                select(ScheduleEntry)
+                .join(TimeBlock, ScheduleEntry.start_block_id == TimeBlock.id)
+                .where(TimeBlock.calendar_period_id == calendar_period_id)
+                .order_by(ScheduleEntry.id.asc())
+            )
+            return list(session.scalars(statement).all())
         statement = (
-            select(ScheduleEntry)
-            .join(TimeBlock, ScheduleEntry.start_block_id == TimeBlock.id)
-            .where(TimeBlock.calendar_period_id == calendar_period_id)
-            .order_by(ScheduleEntry.id.asc())
+            select(ScheduleScenarioEntry)
+            .join(TimeBlock, ScheduleScenarioEntry.start_block_id == TimeBlock.id)
+            .where(
+                TimeBlock.calendar_period_id == calendar_period_id,
+                ScheduleScenarioEntry.scenario_id == scenario_id,
+            )
+            .order_by(ScheduleScenarioEntry.id.asc())
         )
         return list(session.scalars(statement).all())
 

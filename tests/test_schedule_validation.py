@@ -19,6 +19,8 @@ from app.domain.models import (
     ResourceBlackout,
     RoomProfile,
     ScheduleEntry,
+    ScheduleScenario,
+    ScheduleScenarioEntry,
     TimeBlock,
     WeekPattern,
 )
@@ -318,3 +320,66 @@ def test_validation_detects_room_constraint_mismatches(session: Session) -> None
     assert "ROOM_TYPE_MISMATCH" in issue_codes
     assert "ROOM_CAPACITY_MISMATCH" in issue_codes
     assert "ROOM_PROJECTOR_REQUIRED" in issue_codes
+
+
+def test_validation_can_target_draft_scenario(session: Session) -> None:
+    period = _create_period(
+        session=session,
+        start_date=date(2026, 3, 2),
+        end_date=date(2026, 3, 2),
+        marks=[(MarkKind.TEACHING, 45)],
+    )
+
+    teacher = Resource(name="Scenario Teacher", type=ResourceType.TEACHER)
+    req_a = Requirement(name="Scenario A", duration_blocks=1, sessions_total=1, max_per_week=1)
+    req_b = Requirement(name="Scenario B", duration_blocks=1, sessions_total=1, max_per_week=1)
+    session.add_all([teacher, req_a, req_b])
+    session.flush()
+    session.add_all(
+        [
+            RequirementResource(requirement_id=req_a.id, resource_id=teacher.id, role="LECTOR"),
+            RequirementResource(requirement_id=req_b.id, resource_id=teacher.id, role="LECTOR"),
+        ]
+    )
+    block = _get_block(session, period.id, date(2026, 3, 2), 1)
+
+    # Published schedule is clean.
+    session.add(
+        ScheduleEntry(
+            requirement_id=req_a.id,
+            start_block_id=block.id,
+            blocks_count=1,
+        )
+    )
+    scenario = ScheduleScenario(calendar_period_id=period.id, name="Чернетка A", is_published=False)
+    session.add(scenario)
+    session.flush()
+    # Draft has a deliberate resource conflict.
+    session.add_all(
+        [
+            ScheduleScenarioEntry(
+                scenario_id=scenario.id,
+                requirement_id=req_a.id,
+                start_block_id=block.id,
+                blocks_count=1,
+            ),
+            ScheduleScenarioEntry(
+                scenario_id=scenario.id,
+                requirement_id=req_b.id,
+                start_block_id=block.id,
+                blocks_count=1,
+            ),
+        ]
+    )
+    session.commit()
+
+    validator = ScheduleValidatorService()
+    published_report = validator.validate_period(session=session, calendar_period_id=period.id)
+    draft_report = validator.validate_period(
+        session=session,
+        calendar_period_id=period.id,
+        scenario_id=scenario.id,
+    )
+
+    assert "RESOURCE_CONFLICT" not in [item.code for item in published_report.issues]
+    assert "RESOURCE_CONFLICT" in [item.code for item in draft_report.issues]

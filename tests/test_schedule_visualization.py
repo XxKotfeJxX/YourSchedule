@@ -13,6 +13,8 @@ from app.domain.models import (
     MarkType,
     Requirement,
     ScheduleEntry,
+    ScheduleScenario,
+    ScheduleScenarioEntry,
     TimeBlock,
     WeekPattern,
 )
@@ -127,3 +129,61 @@ def test_week_start_is_normalized_to_monday(session: Session) -> None:
     )
 
     assert grid.week_start == date(2026, 3, 2)
+
+
+def test_weekly_grid_can_render_selected_scenario(session: Session) -> None:
+    period = _seed_period_with_teaching_blocks(session)
+    requirement = Requirement(name="Scenario Math", duration_blocks=1, sessions_total=1, max_per_week=1)
+    session.add(requirement)
+    session.flush()
+
+    monday_block_1 = (
+        session.query(TimeBlock)
+        .filter(
+            TimeBlock.calendar_period_id == period.id,
+            TimeBlock.date == date(2026, 3, 2),
+            TimeBlock.order_in_day == 1,
+        )
+        .one()
+    )
+    tuesday_block_1 = (
+        session.query(TimeBlock)
+        .filter(
+            TimeBlock.calendar_period_id == period.id,
+            TimeBlock.date == date(2026, 3, 3),
+            TimeBlock.order_in_day == 1,
+        )
+        .one()
+    )
+
+    session.add(
+        ScheduleEntry(
+            requirement_id=requirement.id,
+            start_block_id=monday_block_1.id,
+            blocks_count=1,
+        )
+    )
+    scenario = ScheduleScenario(calendar_period_id=period.id, name="Чернетка A", is_published=False)
+    session.add(scenario)
+    session.flush()
+    session.add(
+        ScheduleScenarioEntry(
+            scenario_id=scenario.id,
+            requirement_id=requirement.id,
+            start_block_id=tuesday_block_1.id,
+            blocks_count=1,
+        )
+    )
+    session.commit()
+
+    service = ScheduleVisualizationService()
+    grid = service.build_weekly_grid(
+        session=session,
+        calendar_period_id=period.id,
+        week_start=date(2026, 3, 2),
+        scenario_id=scenario.id,
+    )
+
+    first_row = grid.rows[0]
+    assert first_row.cells[0] == ""
+    assert "Scenario Math" in first_row.cells[1]
