@@ -95,7 +95,7 @@ class CompanyCurriculumTab:
 
     def build(self) -> None:
         tabs_bar = ttk.Frame(self.parent, style="Card.TFrame")
-        tabs_bar.pack(fill=tk.X, pady=(0, 8))
+        tabs_bar.pack(fill=tk.X, pady=(0, 4))
 
         content = ttk.Frame(self.parent, style="Card.TFrame")
         content.pack(fill=tk.BOTH, expand=True, padx=2, pady=(0, 2))
@@ -141,7 +141,7 @@ class CompanyCurriculumTab:
                 command=lambda selected=key: open_tab(selected),
                 primary=False,
                 width=150,
-                height=40,
+                height=36,
             )
             button.pack(side=tk.LEFT, padx=(0, 8))
             nav_buttons[key] = button
@@ -314,7 +314,7 @@ class CompanyCurriculumTab:
             font=("Segoe UI", 11),
             exportselection=False,
         )
-        self.teacher_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.teacher_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(2, 0), pady=2)
         scroll = ttk.Scrollbar(
             list_wrap,
             orient=tk.VERTICAL,
@@ -368,7 +368,7 @@ class CompanyCurriculumTab:
         self._teacher_name_by_id = {item.id: item.name for item in teachers}
         self.teacher_listbox.delete(0, tk.END)
         for item in teachers:
-            self.teacher_listbox.insert(tk.END, item.name)
+            self.teacher_listbox.insert(tk.END, f"  {item.name}")
         if selected_id is not None and selected_id in self._teacher_ids:
             idx = self._teacher_ids.index(selected_id)
             self.teacher_listbox.selection_set(idx)
@@ -454,16 +454,18 @@ class CompanyCurriculumTab:
         self.subject_listbox = tk.Listbox(
             list_wrap,
             activestyle="none",
-            bg=self.theme.SURFACE_ALT,
+            bg=self.theme.SURFACE,
             fg=self.theme.TEXT_PRIMARY,
-            selectbackground=self.theme.ACCENT,
-            selectforeground=self.theme.TEXT_LIGHT,
+            selectbackground=self.theme.LISTBOX_SELECTED_BG,
+            selectforeground=self.theme.TEXT_PRIMARY,
             borderwidth=0,
             highlightthickness=1,
             highlightbackground=self.theme.BORDER,
             relief=tk.FLAT,
+            font=("Segoe UI", 11),
+            exportselection=False,
         )
-        self.subject_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self.subject_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(2, 0), pady=2)
         scroll = ttk.Scrollbar(
             list_wrap,
             orient=tk.VERTICAL,
@@ -530,13 +532,15 @@ class CompanyCurriculumTab:
                 company_id=self.company_id,
                 include_archived=False,
             )
+        subjects = sorted(subjects, key=lambda item: item.name.casefold())
         self._subject_ids = [item.id for item in subjects]
         self._subject_name_by_id = {item.id: item.name for item in subjects}
         self.subject_listbox.delete(0, tk.END)
         for item in subjects:
             code = f" [{item.code}]" if item.code else ""
-            dept_name = self._department_name_by_id.get(item.department_id, "н/д")
-            self.subject_listbox.insert(tk.END, f"{item.id} | {item.name}{code} | {dept_name}")
+            dept_name = self._department_name_by_id.get(item.department_id)
+            dept_suffix = f" — {dept_name}" if dept_name else ""
+            self.subject_listbox.insert(tk.END, f"  {item.name}{code}{dept_suffix}")
         if selected_id is not None and selected_id in self._subject_ids:
             idx = self._subject_ids.index(selected_id)
             self.subject_listbox.selection_set(idx)
@@ -655,7 +659,7 @@ class CompanyCurriculumTab:
             font=("Segoe UI", 11),
             exportselection=False,
         )
-        self.plan_listbox.grid(row=1, column=0, sticky="nsew", pady=(4, 6))
+        self.plan_listbox.grid(row=1, column=0, sticky="nsew", padx=(2, 0), pady=(4, 6))
         plan_scroll = ttk.Scrollbar(
             left,
             orient=tk.VERTICAL,
@@ -670,7 +674,7 @@ class CompanyCurriculumTab:
             text="Оновити",
             command=self._load_plans,
             primary=False,
-            width=100,
+            width=120,
             height=34,
         ).grid(row=2, column=0, sticky="w")
 
@@ -755,7 +759,7 @@ class CompanyCurriculumTab:
             container=content,
             left=left,
             right=right_shell,
-            breakpoint=1220,
+            breakpoint=980,
             wide_left_weight=2,
             wide_right_weight=5,
             stacked_top_weight=1,
@@ -1006,7 +1010,7 @@ class CompanyCurriculumTab:
         self.plan_listbox.delete(0, tk.END)
         for item in plans:
             sem_suffix = f" (семестр {item.semester})" if item.semester is not None else ""
-            self.plan_listbox.insert(tk.END, f"{item.name}{sem_suffix}")
+            self.plan_listbox.insert(tk.END, f"  {item.name}{sem_suffix}")
 
         if selected_id is not None and selected_id in self._plan_ids:
             idx = self._plan_ids.index(selected_id)
