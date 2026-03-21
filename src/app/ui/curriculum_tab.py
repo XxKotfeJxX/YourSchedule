@@ -279,6 +279,53 @@ class CompanyCurriculumTab:
                 height=height,
             ).grid(row=row, column=column, sticky="ew", padx=padx, pady=pady)
 
+    def _setup_autohide_scrollbar(
+        self,
+        *,
+        listbox: tk.Listbox,
+        scrollbar: ttk.Scrollbar,
+        manager: str,
+        layout_kwargs: dict[str, object],
+    ) -> None:
+        state = {"visible": False}
+
+        def _show() -> None:
+            if state["visible"]:
+                return
+            if manager == "pack":
+                scrollbar.pack(**layout_kwargs)
+            else:
+                scrollbar.grid(**layout_kwargs)
+            state["visible"] = True
+
+        def _hide() -> None:
+            if not state["visible"]:
+                return
+            if manager == "pack":
+                scrollbar.pack_forget()
+            else:
+                scrollbar.grid_remove()
+            state["visible"] = False
+
+        def _sync(first: str, last: str) -> None:
+            scrollbar.set(first, last)
+            try:
+                needs_scroll = (float(last) - float(first)) < 0.999
+            except ValueError:
+                needs_scroll = True
+            if needs_scroll:
+                _show()
+            else:
+                _hide()
+
+        def _refresh(_event=None) -> None:
+            first, last = listbox.yview()
+            _sync(str(first), str(last))
+
+        listbox.configure(yscrollcommand=_sync)
+        listbox.bind("<Configure>", _refresh, add="+")
+        listbox.after_idle(_refresh)
+
     def _refresh_all(self) -> None:
         self._load_subject_departments()
         self._load_teachers()
@@ -321,8 +368,12 @@ class CompanyCurriculumTab:
             command=self.teacher_listbox.yview,
             style="App.Vertical.TScrollbar",
         )
-        scroll.pack(side=tk.RIGHT, fill=tk.Y, padx=(4, 0), pady=2)
-        self.teacher_listbox.configure(yscrollcommand=scroll.set)
+        self._setup_autohide_scrollbar(
+            listbox=self.teacher_listbox,
+            scrollbar=scroll,
+            manager="pack",
+            layout_kwargs={"side": tk.RIGHT, "fill": tk.Y, "padx": (4, 0), "pady": 2},
+        )
         self.teacher_listbox.bind("<<ListboxSelect>>", lambda _e: self._on_teacher_select(), add="+")
 
         form = ttk.Frame(content, style="Card.TFrame")
@@ -472,8 +523,12 @@ class CompanyCurriculumTab:
             command=self.subject_listbox.yview,
             style="App.Vertical.TScrollbar",
         )
-        scroll.pack(side=tk.RIGHT, fill=tk.Y, padx=(4, 0), pady=2)
-        self.subject_listbox.configure(yscrollcommand=scroll.set)
+        self._setup_autohide_scrollbar(
+            listbox=self.subject_listbox,
+            scrollbar=scroll,
+            manager="pack",
+            layout_kwargs={"side": tk.RIGHT, "fill": tk.Y, "padx": (4, 0), "pady": 2},
+        )
         self.subject_listbox.bind("<<ListboxSelect>>", lambda _e: self._on_subject_select(), add="+")
 
         form = ttk.Frame(content, style="Card.TFrame")
@@ -666,8 +721,12 @@ class CompanyCurriculumTab:
             command=self.plan_listbox.yview,
             style="App.Vertical.TScrollbar",
         )
-        plan_scroll.grid(row=1, column=1, sticky="ns", padx=(4, 0), pady=(4, 6))
-        self.plan_listbox.configure(yscrollcommand=plan_scroll.set)
+        self._setup_autohide_scrollbar(
+            listbox=self.plan_listbox,
+            scrollbar=plan_scroll,
+            manager="grid",
+            layout_kwargs={"row": 1, "column": 1, "sticky": "ns", "padx": (4, 0), "pady": (4, 6)},
+        )
         self.plan_listbox.bind("<<ListboxSelect>>", lambda _e: self._on_plan_select(), add="+")
         self._motion_button(
             left,
@@ -769,7 +828,7 @@ class CompanyCurriculumTab:
         )
 
         def _bind_plans_wheel_recursive(widget: tk.Widget) -> None:
-            if not isinstance(widget, (ttk.Treeview, tk.Listbox, tk.Canvas)):
+            if not isinstance(widget, (ttk.Treeview, tk.Listbox)):
                 widget.bind("<MouseWheel>", _on_plans_wheel, add="+")
                 widget.bind("<Button-4>", _on_plans_up, add="+")
                 widget.bind("<Button-5>", _on_plans_down, add="+")
