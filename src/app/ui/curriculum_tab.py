@@ -167,6 +167,74 @@ class CompanyCurriculumTab:
         else:
             variable.set("")
 
+    def _bind_responsive_split(
+        self,
+        *,
+        container: ttk.Frame,
+        left: ttk.Frame,
+        right: ttk.Frame,
+        breakpoint: int,
+        wide_left_weight: int,
+        wide_right_weight: int,
+        stacked_top_weight: int = 1,
+        stacked_bottom_weight: int = 1,
+    ) -> None:
+        state = {"mode": ""}
+
+        def apply_layout() -> None:
+            width = container.winfo_width() or container.winfo_reqwidth()
+            mode = "wide" if width >= breakpoint else "stacked"
+            if state["mode"] == mode:
+                return
+            state["mode"] = mode
+
+            if mode == "wide":
+                container.grid_columnconfigure(0, weight=wide_left_weight)
+                container.grid_columnconfigure(1, weight=wide_right_weight)
+                container.grid_rowconfigure(0, weight=1)
+                container.grid_rowconfigure(1, weight=0)
+                left.grid(row=0, column=0, sticky="nsew", padx=(0, 8), pady=0)
+                right.grid(row=0, column=1, sticky="nsew")
+                return
+
+            container.grid_columnconfigure(0, weight=1)
+            container.grid_columnconfigure(1, weight=0)
+            container.grid_rowconfigure(0, weight=stacked_top_weight)
+            container.grid_rowconfigure(1, weight=stacked_bottom_weight)
+            left.grid(row=0, column=0, sticky="nsew", padx=0, pady=(0, 6))
+            right.grid(row=1, column=0, sticky="nsew")
+
+        container.bind("<Configure>", lambda _e: apply_layout(), add="+")
+        container.after_idle(apply_layout)
+
+    def _grid_action_buttons(
+        self,
+        *,
+        parent: ttk.Frame,
+        items: list[tuple[str, Callable[[], None], bool]],
+        columns: int,
+        width: int,
+        height: int,
+    ) -> None:
+        for column in range(columns):
+            parent.grid_columnconfigure(column, weight=1, uniform=f"actions-{id(parent)}")
+
+        for idx, (text, command, primary) in enumerate(items):
+            row = idx // columns
+            column = idx % columns
+            is_last_column = column == columns - 1
+            is_last_row = row == (len(items) - 1) // columns
+            padx = (0, 6) if not is_last_column else 0
+            pady = (0, 6) if not is_last_row else 0
+            self._motion_button(
+                parent,
+                text=text,
+                command=command,
+                primary=primary,
+                width=width,
+                height=height,
+            ).grid(row=row, column=column, sticky="ew", padx=padx, pady=pady)
+
     def _refresh_all(self) -> None:
         self._load_subject_departments()
         self._load_teachers()
@@ -186,12 +254,8 @@ class CompanyCurriculumTab:
     def _build_teachers_tab(self, parent: ttk.Frame) -> None:
         content = ttk.Frame(parent, style="Card.TFrame")
         content.pack(fill=tk.BOTH, expand=True)
-        content.grid_columnconfigure(0, weight=1)
-        content.grid_columnconfigure(1, weight=2)
-        content.grid_rowconfigure(0, weight=1)
 
         list_wrap = ttk.Frame(content, style="Card.TFrame")
-        list_wrap.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
         self.teacher_listbox = tk.Listbox(
             list_wrap,
             activestyle="none",
@@ -200,7 +264,9 @@ class CompanyCurriculumTab:
             selectbackground=self.theme.ACCENT,
             selectforeground=self.theme.TEXT_LIGHT,
             borderwidth=0,
-            highlightthickness=0,
+            highlightthickness=1,
+            highlightbackground=self.theme.BORDER,
+            relief=tk.FLAT,
         )
         self.teacher_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scroll = ttk.Scrollbar(
@@ -214,45 +280,33 @@ class CompanyCurriculumTab:
         self.teacher_listbox.bind("<<ListboxSelect>>", lambda _e: self._on_teacher_select(), add="+")
 
         form = ttk.Frame(content, style="Card.TFrame")
-        form.grid(row=0, column=1, sticky="nsew")
         form.grid_columnconfigure(0, weight=1)
         ttk.Label(form, text="Ім'я викладача", style="Card.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Entry(form, textvariable=self.teacher_name_var).grid(row=1, column=0, sticky="ew", pady=(4, 8))
+        ttk.Entry(form, textvariable=self.teacher_name_var).grid(row=1, column=0, sticky="ew", pady=(4, 6))
 
         buttons = ttk.Frame(form, style="Card.TFrame")
-        buttons.grid(row=2, column=0, sticky="w")
-        self._motion_button(
-            buttons,
-            text="Додати",
-            command=self._add_teacher,
-            primary=True,
-            width=100,
-            height=36,
-        ).pack(side=tk.LEFT, padx=(0, 6))
-        self._motion_button(
-            buttons,
-            text="Змінити",
-            command=self._update_teacher,
-            primary=False,
-            width=110,
-            height=36,
-        ).pack(side=tk.LEFT, padx=(0, 6))
-        self._motion_button(
-            buttons,
-            text="Видалити",
-            command=self._delete_teacher,
-            primary=False,
-            width=100,
-            height=36,
-        ).pack(side=tk.LEFT, padx=(0, 6))
-        self._motion_button(
-            buttons,
-            text="Оновити",
-            command=self._load_teachers,
-            primary=False,
-            width=100,
-            height=36,
-        ).pack(side=tk.LEFT)
+        buttons.grid(row=2, column=0, sticky="ew")
+        self._grid_action_buttons(
+            parent=buttons,
+            items=[
+                ("Додати", self._add_teacher, True),
+                ("Змінити", self._update_teacher, False),
+                ("Видалити", self._delete_teacher, False),
+                ("Оновити", self._load_teachers, False),
+            ],
+            columns=2,
+            width=120,
+            height=34,
+        )
+
+        self._bind_responsive_split(
+            container=content,
+            left=list_wrap,
+            right=form,
+            breakpoint=930,
+            wide_left_weight=3,
+            wide_right_weight=5,
+        )
 
     def _load_teachers(self) -> None:
         if self.teacher_listbox is None:
@@ -348,12 +402,8 @@ class CompanyCurriculumTab:
     def _build_subjects_tab(self, parent: ttk.Frame) -> None:
         content = ttk.Frame(parent, style="Card.TFrame")
         content.pack(fill=tk.BOTH, expand=True)
-        content.grid_columnconfigure(0, weight=1)
-        content.grid_columnconfigure(1, weight=2)
-        content.grid_rowconfigure(0, weight=1)
 
         list_wrap = ttk.Frame(content, style="Card.TFrame")
-        list_wrap.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
         self.subject_listbox = tk.Listbox(
             list_wrap,
             activestyle="none",
@@ -362,7 +412,9 @@ class CompanyCurriculumTab:
             selectbackground=self.theme.ACCENT,
             selectforeground=self.theme.TEXT_LIGHT,
             borderwidth=0,
-            highlightthickness=0,
+            highlightthickness=1,
+            highlightbackground=self.theme.BORDER,
+            relief=tk.FLAT,
         )
         self.subject_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scroll = ttk.Scrollbar(
@@ -376,50 +428,38 @@ class CompanyCurriculumTab:
         self.subject_listbox.bind("<<ListboxSelect>>", lambda _e: self._on_subject_select(), add="+")
 
         form = ttk.Frame(content, style="Card.TFrame")
-        form.grid(row=0, column=1, sticky="nsew")
         form.grid_columnconfigure(0, weight=1)
         ttk.Label(form, text="Назва предмета", style="Card.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Entry(form, textvariable=self.subject_name_var).grid(row=1, column=0, sticky="ew", pady=(4, 8))
+        ttk.Entry(form, textvariable=self.subject_name_var).grid(row=1, column=0, sticky="ew", pady=(4, 6))
         ttk.Label(form, text="Код (необов'язково)", style="Card.TLabel").grid(row=2, column=0, sticky="w")
-        ttk.Entry(form, textvariable=self.subject_code_var).grid(row=3, column=0, sticky="ew", pady=(4, 8))
+        ttk.Entry(form, textvariable=self.subject_code_var).grid(row=3, column=0, sticky="ew", pady=(4, 6))
         ttk.Label(form, text="Кафедра (необов'язково)", style="Card.TLabel").grid(row=4, column=0, sticky="w")
         self.subject_department_box = ttk.Combobox(form, textvariable=self.subject_department_var, state="readonly")
-        self.subject_department_box.grid(row=5, column=0, sticky="ew", pady=(4, 8))
+        self.subject_department_box.grid(row=5, column=0, sticky="ew", pady=(4, 6))
 
         buttons = ttk.Frame(form, style="Card.TFrame")
-        buttons.grid(row=6, column=0, sticky="w")
-        self._motion_button(
-            buttons,
-            text="Додати",
-            command=self._add_subject,
-            primary=True,
-            width=100,
-            height=36,
-        ).pack(side=tk.LEFT, padx=(0, 6))
-        self._motion_button(
-            buttons,
-            text="Змінити",
-            command=self._update_subject,
-            primary=False,
-            width=110,
-            height=36,
-        ).pack(side=tk.LEFT, padx=(0, 6))
-        self._motion_button(
-            buttons,
-            text="Видалити",
-            command=self._delete_subject,
-            primary=False,
-            width=100,
-            height=36,
-        ).pack(side=tk.LEFT, padx=(0, 6))
-        self._motion_button(
-            buttons,
-            text="Оновити",
-            command=self._refresh_subjects,
-            primary=False,
-            width=100,
-            height=36,
-        ).pack(side=tk.LEFT)
+        buttons.grid(row=6, column=0, sticky="ew")
+        self._grid_action_buttons(
+            parent=buttons,
+            items=[
+                ("Додати", self._add_subject, True),
+                ("Змінити", self._update_subject, False),
+                ("Видалити", self._delete_subject, False),
+                ("Оновити", self._refresh_subjects, False),
+            ],
+            columns=2,
+            width=120,
+            height=34,
+        )
+
+        self._bind_responsive_split(
+            container=content,
+            left=list_wrap,
+            right=form,
+            breakpoint=960,
+            wide_left_weight=3,
+            wide_right_weight=5,
+        )
 
     def _load_subject_departments(self) -> None:
         with session_scope() as session:
@@ -548,12 +588,9 @@ class CompanyCurriculumTab:
     def _build_plans_tab(self, parent: ttk.Frame) -> None:
         content = ttk.Frame(parent, style="Card.TFrame")
         content.pack(fill=tk.BOTH, expand=True)
-        content.grid_columnconfigure(0, weight=1)
-        content.grid_columnconfigure(1, weight=3)
-        content.grid_rowconfigure(0, weight=1)
 
         left = ttk.Frame(content, style="Card.TFrame")
-        left.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
         left.grid_rowconfigure(1, weight=1)
         ttk.Label(left, text="Плани", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")
         self.plan_listbox = tk.Listbox(
@@ -564,16 +601,18 @@ class CompanyCurriculumTab:
             selectbackground=self.theme.ACCENT,
             selectforeground=self.theme.TEXT_LIGHT,
             borderwidth=0,
-            highlightthickness=0,
+            highlightthickness=1,
+            highlightbackground=self.theme.BORDER,
+            relief=tk.FLAT,
         )
-        self.plan_listbox.grid(row=1, column=0, sticky="nsew", pady=(6, 8))
+        self.plan_listbox.grid(row=1, column=0, sticky="nsew", pady=(4, 6))
         plan_scroll = ttk.Scrollbar(
             left,
             orient=tk.VERTICAL,
             command=self.plan_listbox.yview,
             style="App.Vertical.TScrollbar",
         )
-        plan_scroll.grid(row=1, column=1, sticky="ns", pady=(6, 8))
+        plan_scroll.grid(row=1, column=1, sticky="ns", pady=(4, 6))
         self.plan_listbox.configure(yscrollcommand=plan_scroll.set)
         self.plan_listbox.bind("<<ListboxSelect>>", lambda _e: self._on_plan_select(), add="+")
         self._motion_button(
@@ -595,36 +634,56 @@ class CompanyCurriculumTab:
         self._build_components_editor(right)
         self._build_assignments_editor(right)
 
+        self._bind_responsive_split(
+            container=content,
+            left=left,
+            right=right,
+            breakpoint=1220,
+            wide_left_weight=2,
+            wide_right_weight=5,
+            stacked_top_weight=0,
+            stacked_bottom_weight=1,
+        )
+
     def _build_plan_editor(self, parent: ttk.Frame) -> None:
         plan_editor = ttk.Frame(parent, style="Card.TFrame")
         plan_editor.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        plan_editor.grid_columnconfigure(0, weight=1)
         plan_editor.grid_columnconfigure(1, weight=1)
-        plan_editor.grid_columnconfigure(3, weight=1)
+        plan_editor.grid_columnconfigure(2, weight=1)
 
-        ttk.Label(plan_editor, text="Параметри плану", style="Card.TLabel").grid(row=0, column=0, columnspan=4, sticky="w", pady=(0, 4))
+        ttk.Label(plan_editor, text="Параметри плану", style="Card.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", pady=(0, 4))
 
         ttk.Label(plan_editor, text="Назва").grid(row=1, column=0, sticky="w")
-        ttk.Entry(plan_editor, textvariable=self.plan_name_var).grid(row=1, column=1, sticky="ew", padx=(6, 12), pady=(0, 4))
-        ttk.Label(plan_editor, text="Семестр").grid(row=1, column=2, sticky="w")
-        ttk.Entry(plan_editor, textvariable=self.plan_semester_var, width=10).grid(row=1, column=3, sticky="w", padx=(6, 0), pady=(0, 4))
+        ttk.Entry(plan_editor, textvariable=self.plan_name_var).grid(row=2, column=0, sticky="ew", padx=(0, 8), pady=(2, 4))
+        ttk.Label(plan_editor, text="Семестр").grid(row=1, column=1, sticky="w")
+        ttk.Entry(plan_editor, textvariable=self.plan_semester_var).grid(row=2, column=1, sticky="ew", padx=(0, 8), pady=(2, 4))
 
-        ttk.Label(plan_editor, text="Спеціальність").grid(row=2, column=0, sticky="w")
-        self.plan_specialty_box = ttk.Combobox(plan_editor, textvariable=self.plan_specialty_var, state="readonly")
-        self.plan_specialty_box.grid(row=2, column=1, sticky="ew", padx=(6, 12), pady=(0, 4))
-        ttk.Label(plan_editor, text="Курс").grid(row=2, column=2, sticky="w")
-        self.plan_course_box = ttk.Combobox(plan_editor, textvariable=self.plan_course_var, state="readonly")
-        self.plan_course_box.grid(row=2, column=3, sticky="ew", padx=(6, 0), pady=(0, 4))
-
-        ttk.Label(plan_editor, text="Потік").grid(row=3, column=0, sticky="w")
+        ttk.Label(plan_editor, text="Потік").grid(row=1, column=2, sticky="w")
         self.plan_stream_box = ttk.Combobox(plan_editor, textvariable=self.plan_stream_var, state="readonly")
-        self.plan_stream_box.grid(row=3, column=1, sticky="ew", padx=(6, 12), pady=(0, 4))
+        self.plan_stream_box.grid(row=2, column=2, sticky="ew", pady=(2, 4))
+
+        ttk.Label(plan_editor, text="Спеціальність").grid(row=3, column=0, sticky="w")
+        self.plan_specialty_box = ttk.Combobox(plan_editor, textvariable=self.plan_specialty_var, state="readonly")
+        self.plan_specialty_box.grid(row=4, column=0, sticky="ew", padx=(0, 8), pady=(2, 4))
+        ttk.Label(plan_editor, text="Курс").grid(row=3, column=1, sticky="w")
+        self.plan_course_box = ttk.Combobox(plan_editor, textvariable=self.plan_course_var, state="readonly")
+        self.plan_course_box.grid(row=4, column=1, sticky="ew", padx=(0, 8), pady=(2, 4))
 
         buttons = ttk.Frame(plan_editor, style="Card.TFrame")
-        buttons.grid(row=4, column=0, columnspan=4, sticky="w", pady=(2, 0))
-        self._motion_button(buttons, text="Створити", command=self._create_plan, primary=True, width=100, height=34).pack(side=tk.LEFT, padx=(0, 6))
-        self._motion_button(buttons, text="Змінити", command=self._update_plan, primary=False, width=100, height=34).pack(side=tk.LEFT, padx=(0, 6))
-        self._motion_button(buttons, text="Видалити", command=self._delete_plan, primary=False, width=100, height=34).pack(side=tk.LEFT, padx=(0, 6))
-        self._motion_button(buttons, text="Синхр. план", command=self._sync_plan, primary=False, width=120, height=34).pack(side=tk.LEFT)
+        buttons.grid(row=5, column=0, columnspan=3, sticky="ew", pady=(2, 0))
+        self._grid_action_buttons(
+            parent=buttons,
+            items=[
+                ("Створити", self._create_plan, True),
+                ("Змінити", self._update_plan, False),
+                ("Видалити", self._delete_plan, False),
+                ("Синхр. план", self._sync_plan, False),
+            ],
+            columns=2,
+            width=118,
+            height=34,
+        )
 
     def _build_components_editor(self, parent: ttk.Frame) -> None:
         components = ttk.Frame(parent, style="Card.TFrame")
@@ -658,36 +717,44 @@ class CompanyCurriculumTab:
 
         form = ttk.Frame(components, style="Card.TFrame")
         form.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+        form.grid_columnconfigure(0, weight=1)
         form.grid_columnconfigure(1, weight=1)
-        form.grid_columnconfigure(3, weight=1)
-        form.grid_columnconfigure(5, weight=1)
+        form.grid_columnconfigure(2, weight=1)
 
         ttk.Label(form, text="Предмет").grid(row=0, column=0, sticky="w")
+        ttk.Label(form, text="Тип").grid(row=0, column=1, sticky="w")
+        ttk.Label(form, text="Тривалість").grid(row=0, column=2, sticky="w")
+
         self.component_subject_box = ttk.Combobox(form, textvariable=self.component_subject_var, state="readonly")
-        self.component_subject_box.grid(row=0, column=1, sticky="ew", padx=(6, 10), pady=(0, 4))
-        ttk.Label(form, text="Тип").grid(row=0, column=2, sticky="w")
+        self.component_subject_box.grid(row=1, column=0, sticky="ew", padx=(0, 8), pady=(2, 4))
         ttk.Combobox(
             form,
             textvariable=self.component_type_var,
             values=[item.value for item in PlanComponentType],
             state="readonly",
-            width=12,
-        ).grid(row=0, column=3, sticky="w", padx=(6, 10), pady=(0, 4))
-        ttk.Label(form, text="Тривалість").grid(row=0, column=4, sticky="w")
-        ttk.Entry(form, textvariable=self.component_duration_var, width=8).grid(row=0, column=5, sticky="w", padx=(6, 10), pady=(0, 4))
+        ).grid(row=1, column=1, sticky="ew", padx=(0, 8), pady=(2, 4))
+        ttk.Entry(form, textvariable=self.component_duration_var).grid(row=1, column=2, sticky="ew", pady=(2, 4))
 
-        ttk.Label(form, text="Занять").grid(row=1, column=0, sticky="w")
-        ttk.Entry(form, textvariable=self.component_sessions_var, width=8).grid(row=1, column=1, sticky="w", padx=(6, 10), pady=(0, 4))
-        ttk.Label(form, text="Макс/тижд").grid(row=1, column=2, sticky="w")
-        ttk.Entry(form, textvariable=self.component_max_per_week_var, width=8).grid(row=1, column=3, sticky="w", padx=(6, 10), pady=(0, 4))
-        ttk.Label(form, text="Нотатки").grid(row=1, column=4, sticky="w")
-        ttk.Entry(form, textvariable=self.component_notes_var).grid(row=1, column=5, sticky="ew", padx=(6, 10), pady=(0, 4))
+        ttk.Label(form, text="Занять").grid(row=2, column=0, sticky="w")
+        ttk.Label(form, text="Макс/тижд").grid(row=2, column=1, sticky="w")
+        ttk.Label(form, text="Нотатки").grid(row=2, column=2, sticky="w")
+        ttk.Entry(form, textvariable=self.component_sessions_var).grid(row=3, column=0, sticky="ew", padx=(0, 8), pady=(2, 4))
+        ttk.Entry(form, textvariable=self.component_max_per_week_var).grid(row=3, column=1, sticky="ew", padx=(0, 8), pady=(2, 4))
+        ttk.Entry(form, textvariable=self.component_notes_var).grid(row=3, column=2, sticky="ew", pady=(2, 4))
 
         buttons = ttk.Frame(form, style="Card.TFrame")
-        buttons.grid(row=2, column=0, columnspan=6, sticky="w", pady=(2, 0))
-        self._motion_button(buttons, text="Додати", command=self._create_component, primary=True, width=90, height=32).pack(side=tk.LEFT, padx=(0, 6))
-        self._motion_button(buttons, text="Змінити", command=self._update_component, primary=False, width=90, height=32).pack(side=tk.LEFT, padx=(0, 6))
-        self._motion_button(buttons, text="Видалити", command=self._delete_component, primary=False, width=90, height=32).pack(side=tk.LEFT)
+        buttons.grid(row=4, column=0, columnspan=3, sticky="ew", pady=(2, 0))
+        self._grid_action_buttons(
+            parent=buttons,
+            items=[
+                ("Додати", self._create_component, True),
+                ("Змінити", self._update_component, False),
+                ("Видалити", self._delete_component, False),
+            ],
+            columns=3,
+            width=108,
+            height=32,
+        )
 
     def _build_assignments_editor(self, parent: ttk.Frame) -> None:
         assignments = ttk.Frame(parent, style="Card.TFrame")
@@ -721,45 +788,54 @@ class CompanyCurriculumTab:
 
         form = ttk.Frame(assignments, style="Card.TFrame")
         form.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(4, 0))
+        form.grid_columnconfigure(0, weight=1)
         form.grid_columnconfigure(1, weight=1)
-        form.grid_columnconfigure(3, weight=1)
-        form.grid_columnconfigure(5, weight=1)
+        form.grid_columnconfigure(2, weight=1)
 
         ttk.Label(form, text="Викладач").grid(row=0, column=0, sticky="w")
+        ttk.Label(form, text="Тип цілі").grid(row=0, column=1, sticky="w")
+        ttk.Label(form, text="Потік").grid(row=0, column=2, sticky="w")
+
         self.assignment_teacher_box = ttk.Combobox(form, textvariable=self.assignment_teacher_var, state="readonly")
-        self.assignment_teacher_box.grid(row=0, column=1, sticky="ew", padx=(6, 10), pady=(0, 4))
-        ttk.Label(form, text="Тип цілі").grid(row=0, column=2, sticky="w")
+        self.assignment_teacher_box.grid(row=1, column=0, sticky="ew", padx=(0, 8), pady=(2, 4))
         self.assignment_target_type_box = ttk.Combobox(
             form,
             textvariable=self.assignment_target_type_var,
             values=[item.value for item in PlanTargetType],
             state="readonly",
-            width=12,
         )
-        self.assignment_target_type_box.grid(row=0, column=3, sticky="w", padx=(6, 10), pady=(0, 4))
+        self.assignment_target_type_box.grid(row=1, column=1, sticky="ew", padx=(0, 8), pady=(2, 4))
         self.assignment_target_type_box.bind("<<ComboboxSelected>>", lambda _e: self._refresh_assignment_target_controls(), add="+")
-
-        ttk.Label(form, text="Потік").grid(row=1, column=0, sticky="w")
         self.assignment_stream_box = ttk.Combobox(form, textvariable=self.assignment_stream_var, state="readonly")
-        self.assignment_stream_box.grid(row=1, column=1, sticky="ew", padx=(6, 10), pady=(0, 4))
-        ttk.Label(form, text="Група").grid(row=1, column=2, sticky="w")
-        self.assignment_group_box = ttk.Combobox(form, textvariable=self.assignment_group_var, state="readonly")
-        self.assignment_group_box.grid(row=1, column=3, sticky="ew", padx=(6, 10), pady=(0, 4))
-        ttk.Label(form, text="Підгрупа").grid(row=1, column=4, sticky="w")
-        self.assignment_subgroup_box = ttk.Combobox(form, textvariable=self.assignment_subgroup_var, state="readonly")
-        self.assignment_subgroup_box.grid(row=1, column=5, sticky="ew", padx=(6, 10), pady=(0, 4))
+        self.assignment_stream_box.grid(row=1, column=2, sticky="ew", pady=(2, 4))
 
-        ttk.Label(form, text="Занять (порожньо = як у компонента)").grid(row=2, column=0, sticky="w")
-        ttk.Entry(form, textvariable=self.assignment_sessions_var, width=10).grid(row=2, column=1, sticky="w", padx=(6, 10), pady=(0, 4))
-        ttk.Label(form, text="Макс/тиж (порожньо = як у компонента)").grid(row=2, column=2, sticky="w")
-        ttk.Entry(form, textvariable=self.assignment_max_per_week_var, width=10).grid(row=2, column=3, sticky="w", padx=(6, 10), pady=(0, 4))
+        ttk.Label(form, text="Група").grid(row=2, column=0, sticky="w")
+        ttk.Label(form, text="Підгрупа").grid(row=2, column=1, sticky="w")
+        ttk.Label(form, text="Занять (порожньо = авто)").grid(row=2, column=2, sticky="w")
+
+        self.assignment_group_box = ttk.Combobox(form, textvariable=self.assignment_group_var, state="readonly")
+        self.assignment_group_box.grid(row=3, column=0, sticky="ew", padx=(0, 8), pady=(2, 4))
+        self.assignment_subgroup_box = ttk.Combobox(form, textvariable=self.assignment_subgroup_var, state="readonly")
+        self.assignment_subgroup_box.grid(row=3, column=1, sticky="ew", padx=(0, 8), pady=(2, 4))
+        ttk.Entry(form, textvariable=self.assignment_sessions_var).grid(row=3, column=2, sticky="ew", pady=(2, 4))
+
+        ttk.Label(form, text="Макс/тиж (порожньо = авто)").grid(row=4, column=0, sticky="w")
+        ttk.Entry(form, textvariable=self.assignment_max_per_week_var).grid(row=5, column=0, sticky="ew", padx=(0, 8), pady=(2, 4))
 
         buttons = ttk.Frame(form, style="Card.TFrame")
-        buttons.grid(row=3, column=0, columnspan=6, sticky="w", pady=(2, 0))
-        self._motion_button(buttons, text="Додати", command=self._create_assignment, primary=True, width=90, height=32).pack(side=tk.LEFT, padx=(0, 6))
-        self._motion_button(buttons, text="Змінити", command=self._update_assignment, primary=False, width=90, height=32).pack(side=tk.LEFT, padx=(0, 6))
-        self._motion_button(buttons, text="Видалити", command=self._delete_assignment, primary=False, width=90, height=32).pack(side=tk.LEFT, padx=(0, 6))
-        self._motion_button(buttons, text="Синхр.", command=self._sync_assignment, primary=False, width=90, height=32).pack(side=tk.LEFT)
+        buttons.grid(row=6, column=0, columnspan=3, sticky="ew", pady=(2, 0))
+        self._grid_action_buttons(
+            parent=buttons,
+            items=[
+                ("Додати", self._create_assignment, True),
+                ("Змінити", self._update_assignment, False),
+                ("Видалити", self._delete_assignment, False),
+                ("Синхр.", self._sync_assignment, False),
+            ],
+            columns=2,
+            width=108,
+            height=32,
+        )
 
     def _load_plan_reference_data(self) -> None:
         with session_scope() as session:
