@@ -25,6 +25,7 @@ from app.repositories.calendar_repository import CalendarRepository
 from app.services.avatar_storage import AvatarStorageService
 from app.services.schedule_visualization import WEEKDAY_LABELS
 from app.ui.avatar_template import draw_default_company_avatar
+from app.ui.curriculum_tab import CompanyCurriculumTab
 from app.ui.fx_widgets import HoverCircleIconButton, RoundedMotionButton, RoundedMotionCard
 from app.ui.profile_data import DEFAULT_LANGUAGE_CODE, DEFAULT_TIMEZONE, LANGUAGE_OPTIONS, all_timezones
 from app.ui.templates import CompanyTemplatesTab
@@ -455,7 +456,7 @@ class ScheduleMainWindow:
         ttk.Label(sidebar, text=company_name, style="SidebarMeta.TLabel").pack(anchor="w", pady=(0, 16))
 
         views: dict[str, ttk.Frame] = {}
-        for key in ("schedule", "groups", "rooms", "settings"):
+        for key in ("schedule", "groups", "rooms", "curriculum", "settings"):
             frame = ttk.Frame(views_container, style="Card.TFrame", padding=18)
             views[key] = frame
 
@@ -509,6 +510,7 @@ class ScheduleMainWindow:
         _add_nav_button(key="schedule", label="Розклад")
         _add_nav_button(key="groups", label="Групи")
         _add_nav_button(key="rooms", label="Приміщення")
+        _add_nav_button(key="curriculum", label="Curriculum")
         _add_nav_button(key="settings", label="Налаштування")
 
         ttk.Frame(sidebar, style="Sidebar.TFrame").pack(fill=tk.BOTH, expand=True)
@@ -530,6 +532,7 @@ class ScheduleMainWindow:
         self._build_company_schedule_view(views["schedule"], user.company_id)
         self._build_company_groups_view(views["groups"], user.company_id)
         self._build_company_rooms_view(views["rooms"], user.company_id)
+        self._build_company_curriculum_view(views["curriculum"], user.company_id)
         self._build_company_settings_view(views["settings"], user.company_id, user.username)
 
         selected_view = initial_view if initial_view in views else "schedule"
@@ -878,6 +881,15 @@ class ScheduleMainWindow:
         subject_target_box.bind("<<ComboboxSelected>>", lambda _e: refresh_subject_target_controls(), add="+")
         if period_var.get():
             on_load_week()
+
+
+    def _build_company_curriculum_view(self, parent: ttk.Frame, company_id: int) -> None:
+        CompanyCurriculumTab(
+            parent=parent,
+            company_id=company_id,
+            theme=self.theme,
+            motion_button_factory=self._motion_button,
+        ).build()
 
 
     def _build_company_groups_view(self, parent: ttk.Frame, company_id: int) -> None:
