@@ -454,6 +454,33 @@ class UiTheme:
         )
 
         style.configure(
+            "FlatTabs.TNotebook",
+            background=self.SURFACE,
+            borderwidth=0,
+            tabmargins=(0, 0, 0, 0),
+        )
+        style.configure(
+            "FlatTabs.TNotebook.Tab",
+            background=self.SURFACE_ALT,
+            foreground=self.TEXT_PRIMARY,
+            padding=(12, 8),
+            borderwidth=0,
+            lightcolor=self.BORDER,
+            darkcolor=self.BORDER,
+        )
+        style.map(
+            "FlatTabs.TNotebook.Tab",
+            background=[
+                ("selected", self.ACCENT),
+                ("active", self.SECONDARY_HOVER),
+            ],
+            foreground=[
+                ("selected", self.TEXT_LIGHT),
+                ("active", self.TEXT_PRIMARY),
+            ],
+        )
+
+        style.configure(
             "Treeview",
             rowheight=32,
             background=self.SURFACE,
