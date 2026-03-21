@@ -510,7 +510,7 @@ class ScheduleMainWindow:
         _add_nav_button(key="schedule", label="Розклад")
         _add_nav_button(key="groups", label="Групи")
         _add_nav_button(key="rooms", label="Приміщення")
-        _add_nav_button(key="curriculum", label="Curriculum")
+        _add_nav_button(key="curriculum", label="Навчальні плани")
         _add_nav_button(key="settings", label="Налаштування")
 
         ttk.Frame(sidebar, style="Sidebar.TFrame").pack(fill=tk.BOTH, expand=True)
