@@ -9,7 +9,7 @@ from app.controllers.requirement_controller import RequirementController
 from app.controllers.resource_controller import ResourceController
 from app.controllers.scheduler_controller import SchedulerController
 from app.domain.base import Base
-from app.domain.enums import MarkKind, ResourceType, RoomType
+from app.domain.enums import MarkKind, ResourceType, RoomType, TimePreference
 from app.domain.models import (
     Building,
     CalendarPeriod,
@@ -23,6 +23,7 @@ from app.domain.models import (
     WeekPattern,
 )
 from app.services.time_block_generator import TimeBlockGeneratorService
+from app.services.greedy_scheduler import SchedulerPolicyOptions
 
 
 @pytest.fixture()
@@ -392,3 +393,340 @@ def test_scheduler_respects_fixed_room_blackouts(session: Session) -> None:
     assert start_block is not None
     assert start_block.date == date(2026, 3, 3)
     assert entry.room_resource_id == fixed_room_resource.id
+
+
+def test_scheduler_keeps_locked_manual_entries_on_regeneration(session: Session) -> None:
+    period = _create_calendar_period_with_blocks(
+        session=session,
+        start_date=date(2026, 3, 2),
+        end_date=date(2026, 3, 2),
+        marks=[(MarkKind.TEACHING, 45), (MarkKind.TEACHING, 45)],
+    )
+
+    resource_controller = ResourceController(session=session)
+    requirement_controller = RequirementController(session=session)
+    scheduler_controller = SchedulerController(session=session)
+
+    teacher = resource_controller.create_resource(
+        name="Teacher Manual Lock",
+        resource_type=ResourceType.TEACHER,
+    )
+    requirement = requirement_controller.create_requirement(
+        name="Manual Slot Subject",
+        duration_blocks=1,
+        sessions_total=1,
+        max_per_week=1,
+    )
+    requirement_controller.assign_resource(requirement.id, teacher.id, "TEACHER")
+    session.commit()
+
+    locked_entry = scheduler_controller.create_manual_entry(
+        calendar_period_id=period.id,
+        requirement_id=requirement.id,
+        day=date(2026, 3, 2),
+        order_in_day=2,
+        is_locked=True,
+    )
+    session.commit()
+    assert locked_entry.is_manual is True
+    assert locked_entry.is_locked is True
+
+    result = scheduler_controller.build_schedule(
+        calendar_period_id=period.id,
+        replace_existing=True,
+    )
+    session.commit()
+
+    entries = session.query(ScheduleEntry).all()
+    assert len(result.created_entries) == 0
+    assert len(entries) == 1
+    assert entries[0].id == locked_entry.id
+    assert entries[0].is_manual is True
+    assert entries[0].is_locked is True
+
+
+def test_scheduler_feasibility_reports_capacity_shortage(session: Session) -> None:
+    period = _create_calendar_period_with_blocks(
+        session=session,
+        start_date=date(2026, 3, 2),
+        end_date=date(2026, 3, 2),
+        marks=[(MarkKind.TEACHING, 45)],
+    )
+
+    resource_controller = ResourceController(session=session)
+    requirement_controller = RequirementController(session=session)
+    scheduler_controller = SchedulerController(session=session)
+
+    teacher = resource_controller.create_resource(
+        name="Teacher Feasibility",
+        resource_type=ResourceType.TEACHER,
+    )
+    requirement = requirement_controller.create_requirement(
+        name="Capacity Check Subject",
+        duration_blocks=1,
+        sessions_total=2,
+        max_per_week=2,
+    )
+    requirement_controller.assign_resource(requirement.id, teacher.id, "TEACHER")
+    session.commit()
+
+    report = scheduler_controller.analyze_feasibility(
+        calendar_period_id=period.id,
+        replace_existing=True,
+    )
+
+    codes = {issue.code for issue in report.issues}
+    assert report.is_feasible is False
+    assert report.candidate_capacity[requirement.id] == 1
+    assert "CANDIDATE_CAPACITY_LOW" in codes
+
+
+def test_scheduler_policy_max_sessions_per_day_limit(session: Session) -> None:
+    period = _create_calendar_period_with_blocks(
+        session=session,
+        start_date=date(2026, 3, 2),
+        end_date=date(2026, 3, 2),
+        marks=[(MarkKind.TEACHING, 45), (MarkKind.TEACHING, 45)],
+    )
+
+    resource_controller = ResourceController(session=session)
+    requirement_controller = RequirementController(session=session)
+    scheduler_controller = SchedulerController(session=session)
+
+    teacher = resource_controller.create_resource(
+        name="Teacher Max Per Day",
+        resource_type=ResourceType.TEACHER,
+    )
+    requirement_a = requirement_controller.create_requirement(
+        name="Constraint Subject A",
+        duration_blocks=1,
+        sessions_total=1,
+        max_per_week=1,
+    )
+    requirement_controller.assign_resource(requirement_a.id, teacher.id, "TEACHER")
+    requirement_b = requirement_controller.create_requirement(
+        name="Constraint Subject B",
+        duration_blocks=1,
+        sessions_total=1,
+        max_per_week=1,
+    )
+    requirement_controller.assign_resource(requirement_b.id, teacher.id, "TEACHER")
+    session.commit()
+
+    policy = SchedulerPolicyOptions(
+        max_sessions_per_day=1,
+        max_consecutive_blocks=None,
+        enforce_no_gaps=False,
+        time_preference=TimePreference.BALANCED,
+        weight_time_preference=0,
+        weight_compactness=0,
+        weight_building_transition=0,
+    )
+    result = scheduler_controller.build_schedule(
+        calendar_period_id=period.id,
+        replace_existing=True,
+        policy_options=policy,
+    )
+    session.commit()
+
+    entries = session.query(ScheduleEntry).all()
+    assert len(entries) == 1
+    assert len(result.unscheduled_sessions) == 1
+    assert sum(result.unscheduled_sessions.values()) == 1
+
+
+def test_scheduler_policy_max_consecutive_blocks_limit(session: Session) -> None:
+    period = _create_calendar_period_with_blocks(
+        session=session,
+        start_date=date(2026, 3, 2),
+        end_date=date(2026, 3, 2),
+        marks=[
+            (MarkKind.TEACHING, 45),
+            (MarkKind.TEACHING, 45),
+            (MarkKind.TEACHING, 45),
+        ],
+    )
+
+    resource_controller = ResourceController(session=session)
+    requirement_controller = RequirementController(session=session)
+    scheduler_controller = SchedulerController(session=session)
+
+    teacher = resource_controller.create_resource(
+        name="Teacher Max Consecutive",
+        resource_type=ResourceType.TEACHER,
+    )
+    long_requirement = requirement_controller.create_requirement(
+        name="Long Requirement",
+        duration_blocks=2,
+        sessions_total=1,
+        max_per_week=1,
+    )
+    requirement_controller.assign_resource(long_requirement.id, teacher.id, "TEACHER")
+    short_requirement = requirement_controller.create_requirement(
+        name="Short Requirement",
+        duration_blocks=1,
+        sessions_total=1,
+        max_per_week=1,
+    )
+    requirement_controller.assign_resource(short_requirement.id, teacher.id, "TEACHER")
+    session.commit()
+
+    policy = SchedulerPolicyOptions(
+        max_sessions_per_day=None,
+        max_consecutive_blocks=2,
+        enforce_no_gaps=False,
+        time_preference=TimePreference.BALANCED,
+        weight_time_preference=0,
+        weight_compactness=0,
+        weight_building_transition=0,
+    )
+    result = scheduler_controller.build_schedule(
+        calendar_period_id=period.id,
+        replace_existing=True,
+        policy_options=policy,
+    )
+    session.commit()
+
+    entries = session.query(ScheduleEntry).all()
+    assert len(entries) == 1
+    assert entries[0].requirement_id == long_requirement.id
+    assert result.unscheduled_sessions == {short_requirement.id: 1}
+
+
+def test_scheduler_policy_no_gaps_places_adjacent_blocks(session: Session) -> None:
+    period = _create_calendar_period_with_blocks(
+        session=session,
+        start_date=date(2026, 3, 2),
+        end_date=date(2026, 3, 2),
+        marks=[
+            (MarkKind.TEACHING, 45),
+            (MarkKind.TEACHING, 45),
+            (MarkKind.TEACHING, 45),
+        ],
+    )
+
+    resource_controller = ResourceController(session=session)
+    requirement_controller = RequirementController(session=session)
+    scheduler_controller = SchedulerController(session=session)
+
+    teacher = resource_controller.create_resource(
+        name="Teacher No Gaps",
+        resource_type=ResourceType.TEACHER,
+    )
+    anchor_requirement = requirement_controller.create_requirement(
+        name="Anchor Requirement",
+        duration_blocks=1,
+        sessions_total=1,
+        max_per_week=1,
+    )
+    requirement_controller.assign_resource(anchor_requirement.id, teacher.id, "TEACHER")
+    target_requirement = requirement_controller.create_requirement(
+        name="Target Requirement",
+        duration_blocks=1,
+        sessions_total=1,
+        max_per_week=1,
+    )
+    requirement_controller.assign_resource(target_requirement.id, teacher.id, "TEACHER")
+    session.commit()
+
+    scheduler_controller.create_manual_entry(
+        calendar_period_id=period.id,
+        requirement_id=anchor_requirement.id,
+        day=date(2026, 3, 2),
+        order_in_day=1,
+        is_locked=True,
+    )
+    session.commit()
+
+    policy = SchedulerPolicyOptions(
+        max_sessions_per_day=None,
+        max_consecutive_blocks=None,
+        enforce_no_gaps=True,
+        time_preference=TimePreference.BALANCED,
+        weight_time_preference=0,
+        weight_compactness=0,
+        weight_building_transition=0,
+    )
+    scheduler_controller.build_schedule(
+        calendar_period_id=period.id,
+        replace_existing=True,
+        policy_options=policy,
+    )
+    session.commit()
+
+    target_entry = (
+        session.query(ScheduleEntry)
+        .filter(ScheduleEntry.requirement_id == target_requirement.id)
+        .one()
+    )
+    target_start_block = session.get(TimeBlock, target_entry.start_block_id)
+    assert target_start_block is not None
+    assert target_start_block.order_in_day == 2
+
+
+def test_scheduler_policy_time_preference_changes_selected_slot(session: Session) -> None:
+    period = _create_calendar_period_with_blocks(
+        session=session,
+        start_date=date(2026, 3, 2),
+        end_date=date(2026, 3, 2),
+        marks=[
+            (MarkKind.TEACHING, 45),
+            (MarkKind.TEACHING, 45),
+            (MarkKind.TEACHING, 45),
+        ],
+    )
+
+    resource_controller = ResourceController(session=session)
+    requirement_controller = RequirementController(session=session)
+    scheduler_controller = SchedulerController(session=session)
+
+    teacher = resource_controller.create_resource(
+        name="Teacher Time Preference",
+        resource_type=ResourceType.TEACHER,
+    )
+    requirement = requirement_controller.create_requirement(
+        name="Preference Requirement",
+        duration_blocks=1,
+        sessions_total=1,
+        max_per_week=1,
+    )
+    requirement_controller.assign_resource(requirement.id, teacher.id, "TEACHER")
+    session.commit()
+
+    morning_policy = SchedulerPolicyOptions(
+        max_sessions_per_day=None,
+        max_consecutive_blocks=None,
+        enforce_no_gaps=False,
+        time_preference=TimePreference.MORNING,
+        weight_time_preference=10,
+        weight_compactness=0,
+        weight_building_transition=0,
+    )
+    morning_result = scheduler_controller.build_schedule(
+        calendar_period_id=period.id,
+        replace_existing=True,
+        policy_options=morning_policy,
+    )
+    session.commit()
+    morning_start = session.get(TimeBlock, morning_result.created_entries[0].start_block_id)
+    assert morning_start is not None
+    assert morning_start.order_in_day == 1
+
+    evening_policy = SchedulerPolicyOptions(
+        max_sessions_per_day=None,
+        max_consecutive_blocks=None,
+        enforce_no_gaps=False,
+        time_preference=TimePreference.EVENING,
+        weight_time_preference=10,
+        weight_compactness=0,
+        weight_building_transition=0,
+    )
+    evening_result = scheduler_controller.build_schedule(
+        calendar_period_id=period.id,
+        replace_existing=True,
+        policy_options=evening_policy,
+    )
+    session.commit()
+    evening_start = session.get(TimeBlock, evening_result.created_entries[0].start_block_id)
+    assert evening_start is not None
+    assert evening_start.order_in_day == 3

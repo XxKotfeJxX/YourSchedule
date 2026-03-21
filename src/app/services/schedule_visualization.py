@@ -166,11 +166,16 @@ class ScheduleVisualizationService:
             ).where(RequirementResource.resource_id == resource_id)
 
         for entry, requirement_name, entry_date, start_order in session.execute(statement).all():
+            entry_label = requirement_name
+            if entry.is_manual:
+                entry_label = f"{entry_label} [MAN]"
+            elif entry.is_locked:
+                entry_label = f"{entry_label} [LOCK]"
             for offset in range(entry.blocks_count):
                 key = (entry_date, start_order + offset)
                 block = block_by_key.get(key)
                 if block is None:
                     continue
-                cells[(block.order_in_day, block.date.weekday())].append(requirement_name)
+                cells[(block.order_in_day, block.date.weekday())].append(entry_label)
 
         return cells
