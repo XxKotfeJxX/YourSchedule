@@ -46,6 +46,7 @@ def test_room_crud_filters_and_resource_sync(session: Session) -> None:
         room_type=RoomType.CLASSROOM,
         capacity=32,
         floor=1,
+        has_projector=True,
         home_department_id=department.id,
         company_id=company.id,
     )
@@ -55,6 +56,7 @@ def test_room_crud_filters_and_resource_sync(session: Session) -> None:
         room_type=RoomType.LAB,
         capacity=18,
         floor=2,
+        has_projector=False,
         company_id=company.id,
     )
     session.commit()
@@ -78,17 +80,23 @@ def test_room_crud_filters_and_resource_sync(session: Session) -> None:
     assert len(by_department) == 1
     assert by_department[0].id == created.id
 
+    by_projector = controller.list_rooms(building_id=building.id, has_projector=True)
+    assert len(by_projector) == 1
+    assert by_projector[0].id == created.id
+
     updated = controller.update_room(
         created.id,
         name="101A",
         capacity=None,
         floor=None,
+        has_projector=False,
         home_department_id=None,
     )
     session.commit()
     assert updated.name == "101A"
     assert updated.capacity is None
     assert updated.floor is None
+    assert updated.has_projector is False
     assert updated.home_department_id is None
 
     resource = session.get(Resource, updated.resource_id)
@@ -149,6 +157,7 @@ def test_bulk_create_rooms_with_duplicate_policies(session: Session) -> None:
         room_type=RoomType.LAB,
         capacity=12,
         floor=3,
+        has_projector=True,
         duplicate_policy="update",
         company_id=company.id,
     )
@@ -164,6 +173,7 @@ def test_bulk_create_rooms_with_duplicate_policies(session: Session) -> None:
     assert refreshed.room_type == RoomType.LAB
     assert refreshed.capacity == 12
     assert refreshed.floor == 3
+    assert refreshed.has_projector is True
 
 
 def test_room_archive_toggle_and_manual_booking(session: Session) -> None:

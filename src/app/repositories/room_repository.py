@@ -23,6 +23,7 @@ class RoomRepository:
         room_type: RoomType,
         capacity: int | None = None,
         floor: int | None = None,
+        has_projector: bool = False,
         home_department_id: int | None = None,
         company_id: int | None = None,
     ) -> RoomProfile:
@@ -58,6 +59,7 @@ class RoomRepository:
             room_type=room_type,
             capacity=capacity,
             floor=floor,
+            has_projector=bool(has_projector),
             is_archived=False,
         )
         self.session.add(room)
@@ -93,6 +95,7 @@ class RoomRepository:
         search: str | None = None,
         room_type: RoomType | None = None,
         min_capacity: int | None = None,
+        has_projector: bool | None = None,
         home_department_id: int | None = None,
     ) -> list[RoomProfile]:
         statement = select(RoomProfile).order_by(RoomProfile.name.asc(), RoomProfile.id.asc())
@@ -114,6 +117,8 @@ class RoomRepository:
                     RoomProfile.capacity >= min_capacity,
                 )
             )
+        if has_projector is not None:
+            statement = statement.where(RoomProfile.has_projector.is_(bool(has_projector)))
         if home_department_id is not None:
             statement = statement.where(RoomProfile.home_department_id == home_department_id)
         return list(self.session.scalars(statement).all())
@@ -126,6 +131,7 @@ class RoomRepository:
         room_type: RoomType | object = _UNSET,
         capacity: int | None | object = _UNSET,
         floor: int | None | object = _UNSET,
+        has_projector: bool | object = _UNSET,
         home_department_id: int | None | object = _UNSET,
         is_archived: bool | object = _UNSET,
     ) -> RoomProfile:
@@ -144,6 +150,8 @@ class RoomRepository:
             room.capacity = capacity
         if floor is not _UNSET:
             room.floor = floor
+        if has_projector is not _UNSET:
+            room.has_projector = bool(has_projector)
         if home_department_id is not _UNSET:
             self._validate_department_reference(
                 home_department_id=home_department_id,

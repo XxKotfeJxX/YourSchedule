@@ -23,6 +23,7 @@ class RoomController:
         room_type: RoomType,
         capacity: int | None = None,
         floor: int | None = None,
+        has_projector: bool = False,
         home_department_id: int | None = None,
         company_id: int | None = None,
     ) -> RoomProfile:
@@ -32,6 +33,7 @@ class RoomController:
             room_type=room_type,
             capacity=capacity,
             floor=floor,
+            has_projector=has_projector,
             home_department_id=home_department_id,
             company_id=company_id,
         )
@@ -44,6 +46,7 @@ class RoomController:
         room_type: RoomType,
         capacity: int | None = None,
         floor: int | None = None,
+        has_projector: bool = False,
         home_department_id: int | None = None,
         company_id: int | None = None,
         duplicate_policy: str = "skip",
@@ -79,6 +82,7 @@ class RoomController:
                     room_type=room_type,
                     capacity=capacity,
                     floor=floor,
+                    has_projector=has_projector,
                     home_department_id=home_department_id,
                     company_id=company_id,
                 )
@@ -97,6 +101,7 @@ class RoomController:
                 room_type=room_type,
                 capacity=capacity,
                 floor=floor,
+                has_projector=has_projector,
                 home_department_id=home_department_id,
                 is_archived=False,
             )
@@ -116,6 +121,7 @@ class RoomController:
         search: str | None = None,
         room_type: RoomType | None = None,
         min_capacity: int | None = None,
+        has_projector: bool | None = None,
         home_department_id: int | None = None,
     ) -> list[RoomProfile]:
         return self.repository.list_rooms(
@@ -125,6 +131,7 @@ class RoomController:
             search=search,
             room_type=room_type,
             min_capacity=min_capacity,
+            has_projector=has_projector,
             home_department_id=home_department_id,
         )
 
@@ -136,6 +143,7 @@ class RoomController:
         room_type: RoomType | object = _UNSET,
         capacity: int | None | object = _UNSET,
         floor: int | None | object = _UNSET,
+        has_projector: bool | object = _UNSET,
         home_department_id: int | None | object = _UNSET,
         is_archived: bool | object = _UNSET,
     ) -> RoomProfile:
@@ -148,6 +156,8 @@ class RoomController:
             kwargs["capacity"] = capacity
         if floor is not _UNSET:
             kwargs["floor"] = floor
+        if has_projector is not _UNSET:
+            kwargs["has_projector"] = has_projector
         if home_department_id is not _UNSET:
             kwargs["home_department_id"] = home_department_id
         if is_archived is not _UNSET:

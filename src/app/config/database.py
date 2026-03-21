@@ -62,6 +62,11 @@ def _apply_lightweight_schema_upgrades() -> None:
         if not _column_exists(connection, "room_profiles", "home_department_id"):
             connection.execute(text("ALTER TABLE room_profiles ADD COLUMN home_department_id INTEGER"))
 
+        if not _column_exists(connection, "room_profiles", "has_projector"):
+            connection.execute(
+                text("ALTER TABLE room_profiles ADD COLUMN has_projector BOOLEAN NOT NULL DEFAULT FALSE")
+            )
+
         if dialect == "postgresql":
             connection.execute(
                 text(

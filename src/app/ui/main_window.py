@@ -1098,6 +1098,17 @@ class ScheduleMainWindow:
         )
         back_button.pack(side=tk.LEFT)
         ttk.Label(detail_nav, textvariable=detail_title_var, style="CardTitle.TLabel").pack(side=tk.LEFT, padx=(10, 0))
+        detail_actions = ttk.Frame(detail_nav, style="Card.TFrame")
+        detail_actions.pack(side=tk.RIGHT)
+        reassign_stream_button = self._motion_button(
+            detail_actions,
+            text="Змінити курс/потік",
+            command=lambda: open_reassign_group_stream_modal(),
+            primary=False,
+            width=188,
+            height=38,
+        )
+        reassign_stream_button.pack(side=tk.RIGHT)
         detail_meta_var = tk.StringVar(value="")
         detail_subtitle = ttk.Label(
             detail_body,
@@ -1351,19 +1362,13 @@ class ScheduleMainWindow:
             return parse_selected_prefixed_id(stream_filter_var.get())
 
         def compute_main_columns(width: int) -> int:
-            if width >= 1480:
-                return 4
-            if width >= 1160:
-                return 3
-            if width >= 820:
-                return 2
-            return 1
+            return 4
 
         def compute_main_card_width(width: int, columns: int) -> int:
-            spacing_per_card = 16
+            spacing_per_card = 12
             usable_width = max(320, int(width) - 8)
             raw_width = (usable_width - (columns * spacing_per_card)) // max(1, columns)
-            return max(240, min(420, raw_width))
+            return max(140, min(420, raw_width))
 
         def refresh_header_actions() -> None:
             for widget in (add_group_button, add_stream_button, add_course_button, add_specialty_button, add_department_button):
@@ -1377,7 +1382,6 @@ class ScheduleMainWindow:
                 add_group_button.pack(side=tk.RIGHT)
                 add_stream_button.pack(side=tk.RIGHT, padx=(0, 6))
                 add_course_button.pack(side=tk.RIGHT, padx=(0, 6))
-
         def refresh_hierarchy_nav() -> None:
             level = str(browse_state["level"])
             department = structure_state["department_by_id"].get(selected_department_id())
@@ -1385,13 +1389,18 @@ class ScheduleMainWindow:
 
             if level == "departments":
                 hierarchy_path_var.set("Кафедри")
+                hierarchy_back_button.pack_forget()
             elif level == "specialties":
                 dep_name = department.name if department is not None else "Кафедра"
                 hierarchy_path_var.set(f"Кафедри / {dep_name}")
+                if not hierarchy_back_button.winfo_ismapped():
+                    hierarchy_back_button.pack(side=tk.LEFT)
             else:
                 dep_name = department.name if department is not None else "Кафедра"
                 spec_name = specialty.code or specialty.name if specialty is not None else "Спеціальність"
                 hierarchy_path_var.set(f"Кафедри / {dep_name} / {spec_name}")
+                if not hierarchy_back_button.winfo_ismapped():
+                    hierarchy_back_button.pack(side=tk.LEFT)
 
         def refresh_group_filter_options() -> None:
             specialty_id = selected_specialty_id()
@@ -1463,14 +1472,29 @@ class ScheduleMainWindow:
                 browse_state["level"] = "specialties"
 
         def set_hierarchy_level(level: str, *, department_id: int | None = None, specialty_id: int | None = None) -> None:
+            previous_level = str(browse_state["level"])
+            previous_department_id = selected_department_id()
+            previous_specialty_id = selected_specialty_id()
             browse_state["level"] = level
             browse_state["department_id"] = department_id
             browse_state["specialty_id"] = specialty_id
-
+            if (
+                previous_level != level
+                or previous_department_id != department_id
+                or previous_specialty_id != specialty_id
+            ):
+                cards_canvas.yview_moveto(0.0)
         def on_hierarchy_back() -> None:
             level = str(browse_state["level"])
             if level == "groups":
-                set_hierarchy_level("specialties", department_id=selected_department_id(), specialty_id=None)
+                department_id = selected_department_id()
+                if department_id is None:
+                    specialty_id = selected_specialty_id()
+                    if specialty_id is not None:
+                        specialty = structure_state["specialty_by_id"].get(specialty_id)
+                        if specialty is not None:
+                            department_id = specialty.department_id
+                set_hierarchy_level("specialties", department_id=department_id, specialty_id=None)
             elif level == "specialties":
                 set_hierarchy_level("departments", department_id=None, specialty_id=None)
             render_main_cards()
@@ -1876,7 +1900,21 @@ class ScheduleMainWindow:
             else:
                 render_main_cards()
 
-        cards_layout_state = {"columns": 4, "card_width": 280}
+        cards_layout_state = {"columns": 1, "card_width": 260}
+
+        def refresh_cards_layout() -> bool:
+            viewport_width = cards_canvas.winfo_width()
+            if viewport_width <= 1:
+                viewport_width = cards_scroll_wrap.winfo_width()
+            if viewport_width <= 1:
+                viewport_width = max(1, main_view.winfo_width() - 24)
+            columns = compute_main_columns(viewport_width)
+            card_width = compute_main_card_width(viewport_width, columns)
+            if cards_layout_state["columns"] == columns and cards_layout_state["card_width"] == card_width:
+                return False
+            cards_layout_state["columns"] = columns
+            cards_layout_state["card_width"] = card_width
+            return True
 
         def clear_cards_container() -> None:
             for child in cards_container.winfo_children():
@@ -1888,12 +1926,6 @@ class ScheduleMainWindow:
 
         def card_wrap_width() -> int:
             return max(160, int(cards_layout_state["card_width"]) - 34)
-
-        def trim_card_text(value: str, *, limit: int = 110) -> str:
-            text = value.strip()
-            if len(text) <= limit:
-                return text
-            return text[: max(0, limit - 1)].rstrip() + "…"
 
         def render_empty_main(text: str) -> None:
             clear_cards_container()
@@ -1957,12 +1989,12 @@ class ScheduleMainWindow:
                     shadow_offset=4,
                     motion_enabled=True,
                     width=card_width,
-                    height=166,
+                    height=188,
                 )
                 card.grid(row=row, column=column, padx=8, pady=8, sticky="nsew")
                 title = ttk.Label(
                     card.content,
-                    text=trim_card_text(department.name, limit=100),
+                    text=department.name,
                     style="CardAltTitle.TLabel",
                     wraplength=wrap,
                     justify=tk.LEFT,
@@ -1989,6 +2021,13 @@ class ScheduleMainWindow:
                     justify=tk.LEFT,
                 )
                 hint.pack(anchor="w", pady=(3, 0))
+
+                def on_card_resize(event: tk.Event, labels: tuple[ttk.Label, ...] = (title, subtitle, hint)) -> None:
+                    line_wrap = max(120, event.width - 24)
+                    for label in labels:
+                        label.configure(wraplength=line_wrap)
+
+                card.content.bind("<Configure>", on_card_resize, add="+")
                 for widget in (card, card.canvas, card.content, title, subtitle, hint):
                     widget.bind(
                         "<Button-1>",
@@ -2046,13 +2085,13 @@ class ScheduleMainWindow:
                     shadow_offset=4,
                     motion_enabled=True,
                     width=card_width,
-                    height=156,
+                    height=180,
                 )
                 card.grid(row=row, column=column, padx=8, pady=8, sticky="nsew")
                 title_text = f"{specialty.code} • {specialty.name}" if specialty.code else specialty.name
                 title = ttk.Label(
                     card.content,
-                    text=trim_card_text(title_text, limit=96),
+                    text=title_text,
                     style="CardAltTitle.TLabel",
                     wraplength=wrap,
                     justify=tk.LEFT,
@@ -2075,6 +2114,13 @@ class ScheduleMainWindow:
                     justify=tk.LEFT,
                 )
                 detail.pack(anchor="w", pady=(3, 0))
+
+                def on_card_resize(event: tk.Event, labels: tuple[ttk.Label, ...] = (title, stats, detail)) -> None:
+                    line_wrap = max(120, event.width - 24)
+                    for label in labels:
+                        label.configure(wraplength=line_wrap)
+
+                card.content.bind("<Configure>", on_card_resize, add="+")
                 for widget in (card, card.canvas, card.content, title, stats, detail):
                     widget.bind(
                         "<Button-1>",
@@ -2182,12 +2228,12 @@ class ScheduleMainWindow:
                     shadow_offset=4,
                     motion_enabled=True,
                     width=card_width,
-                    height=148,
+                    height=176,
                 )
                 card.grid(row=row, column=column, padx=8, pady=8, sticky="nsew")
                 title = ttk.Label(
                     card.content,
-                    text=trim_card_text(group_name, limit=96),
+                    text=group_name,
                     style="CardAltTitle.TLabel",
                     wraplength=wrap,
                     justify=tk.LEFT,
@@ -2195,7 +2241,7 @@ class ScheduleMainWindow:
                 title.pack(anchor="w", pady=(4, 2))
                 meta = ttk.Label(
                     card.content,
-                    text=trim_card_text(stream_label, limit=120),
+                    text=stream_label,
                     style="CardAltSubtle.TLabel",
                     wraplength=wrap,
                     justify=tk.LEFT,
@@ -2209,12 +2255,21 @@ class ScheduleMainWindow:
                     justify=tk.LEFT,
                 )
                 count.pack(anchor="w", pady=(2, 0))
+
+                def on_card_resize(event: tk.Event, labels: tuple[ttk.Label, ...] = (title, meta, count)) -> None:
+                    line_wrap = max(120, event.width - 24)
+                    for label in labels:
+                        label.configure(wraplength=line_wrap)
+
+                card.content.bind("<Configure>", on_card_resize, add="+")
                 for widget in (card, card.canvas, card.content, title, meta, count):
                     widget.bind("<Button-1>", lambda _e, gid=group_id, gname=group_name: open_group_view(gid, gname))
                     widget.bind("<Button-3>", lambda e, gid=group_id, gname=group_name: on_card_context(e, gid, gname))
 
-        def render_main_cards(_event=None) -> None:
-            load_structure_state()
+        def render_main_cards(_event=None, *, reload_structure: bool = True) -> None:
+            if reload_structure:
+                load_structure_state()
+            refresh_cards_layout()
             refresh_header_actions()
             refresh_hierarchy_nav()
 
@@ -2229,16 +2284,13 @@ class ScheduleMainWindow:
                     render_specialty_cards()
                 else:
                     render_department_cards()
+            _sync_cards_scroll()
 
         def on_cards_resize(_event=None) -> None:
-            width = max(1, cards_canvas.winfo_width())
-            columns = compute_main_columns(width)
-            card_width = compute_main_card_width(width, columns)
-            if cards_layout_state["columns"] == columns and cards_layout_state["card_width"] == card_width:
+            _sync_cards_scroll()
+            if not refresh_cards_layout():
                 return
-            cards_layout_state["columns"] = columns
-            cards_layout_state["card_width"] = card_width
-            render_main_cards()
+            render_main_cards(reload_structure=False)
     
         def render_participant_cards(users: list[User]) -> None:
             for child in participants_cards_frame.winfo_children():
@@ -2386,6 +2438,165 @@ class ScheduleMainWindow:
             participant_input_box["values"] = available_usernames
             if participant_username_var.get().strip() not in available_usernames:
                 participant_username_var.set("")
+
+        def open_reassign_group_stream_modal() -> None:
+            group_id = group_state["id"]
+            if group_id is None:
+                return
+
+            with session_scope() as session:
+                resource_controller = ResourceController(session=session)
+                academic_controller = AcademicController(session=session)
+                group = resource_controller.get_resource(int(group_id))
+                if group is None or group.type != ResourceType.GROUP:
+                    messagebox.showerror("Помилка", "Групу не знайдено.")
+                    open_main_view()
+                    return
+                streams = academic_controller.list_streams(company_id=company_id, include_archived=True)
+                courses = academic_controller.list_courses(company_id=company_id, include_archived=True)
+                specialties = academic_controller.list_specialties(company_id=company_id, include_archived=True)
+
+            if not streams:
+                messagebox.showerror("Курс/потік", "Немає доступних потоків для переназначення.", parent=self.root)
+                return
+
+            course_by_id = {item.id: item for item in courses}
+            specialty_by_id = {item.id: item for item in specialties}
+            stream_by_id = {item.id: item for item in streams}
+
+            stream_labels_by_course_id: dict[int | None, list[str]] = {}
+            stream_id_by_label: dict[str, int] = {}
+            for stream in streams:
+                course = course_by_id.get(stream.course_id) if stream.course_id is not None else None
+                course_name = (course.code or course.name) if course is not None else "Без курсу"
+                year_suffix = f" • набір {stream.admission_year}" if stream.admission_year is not None else ""
+                label = f"{stream.id} | {course_name} • {stream.name}{year_suffix}"
+                stream_id_by_label[label] = stream.id
+                stream_labels_by_course_id.setdefault(stream.course_id, []).append(label)
+
+            course_values: list[str] = []
+            course_id_by_label: dict[str, int | None] = {}
+            for course_id in sorted(stream_labels_by_course_id.keys(), key=lambda value: (value is None, value or 0)):
+                if course_id is None:
+                    label = "Без курсу"
+                else:
+                    course = course_by_id.get(course_id)
+                    if course is None:
+                        label = f"{course_id} | Курс"
+                    else:
+                        specialty = specialty_by_id.get(course.specialty_id)
+                        specialty_prefix = f"{specialty.code} / " if specialty is not None and specialty.code else ""
+                        course_label = f"{course.code} — {course.name}" if course.code else course.name
+                        label = f"{course.id} | {specialty_prefix}{course_label}"
+                course_values.append(label)
+                course_id_by_label[label] = course_id
+
+            if not course_values:
+                messagebox.showerror("Курс/потік", "Немає доступних курсів для переназначення.", parent=self.root)
+                return
+
+            current_stream = stream_by_id.get(group.stream_id) if group.stream_id is not None else None
+            current_course_id = current_stream.course_id if current_stream is not None else None
+            current_stream_label = None
+            if current_stream is not None:
+                for label, stream_id in stream_id_by_label.items():
+                    if stream_id == current_stream.id:
+                        current_stream_label = label
+                        break
+
+            modal = tk.Toplevel(self.root)
+            modal.title("Переназначення курсу та потоку")
+            modal.transient(self.root)
+            modal.resizable(False, False)
+            modal.grab_set()
+
+            shell = ttk.Frame(modal, style="Card.TFrame", padding=14)
+            shell.pack(fill=tk.BOTH, expand=True)
+            ttk.Label(shell, text="Переназначення групи", style="CardTitle.TLabel").pack(anchor="w")
+            ttk.Label(
+                shell,
+                text=f"Група: {group.name}",
+                style="CardSubtle.TLabel",
+            ).pack(anchor="w", pady=(2, 0))
+
+            course_var = tk.StringVar()
+            stream_var = tk.StringVar()
+
+            ttk.Label(shell, text="Курс", style="Card.TLabel").pack(anchor="w", pady=(10, 0))
+            course_box = ttk.Combobox(
+                shell,
+                textvariable=course_var,
+                values=course_values,
+                state="readonly",
+                width=58,
+            )
+            course_box.pack(fill=tk.X, pady=(6, 8))
+
+            ttk.Label(shell, text="Потік", style="Card.TLabel").pack(anchor="w")
+            stream_box = ttk.Combobox(
+                shell,
+                textvariable=stream_var,
+                values=[],
+                state="readonly",
+                width=58,
+            )
+            stream_box.pack(fill=tk.X, pady=(6, 10))
+
+            stream_hint_var = tk.StringVar(value="")
+            ttk.Label(shell, textvariable=stream_hint_var, style="CardSubtle.TLabel").pack(anchor="w")
+
+            def _refresh_stream_values(*_args) -> None:
+                selected_course_id = course_id_by_label.get(course_var.get().strip())
+                values = stream_labels_by_course_id.get(selected_course_id, [])
+                stream_box["values"] = values
+                if stream_var.get().strip() not in values:
+                    if current_stream_label is not None and current_stream_label in values:
+                        stream_var.set(current_stream_label)
+                    elif values:
+                        stream_var.set(values[0])
+                    else:
+                        stream_var.set("")
+                stream_hint_var.set(f"Доступно потоків: {len(values)}")
+
+            initial_course_label = None
+            for label, course_id in course_id_by_label.items():
+                if course_id == current_course_id:
+                    initial_course_label = label
+                    break
+            course_var.set(initial_course_label or course_values[0])
+            _refresh_stream_values()
+            course_box.bind("<<ComboboxSelected>>", _refresh_stream_values, add="+")
+
+            footer = ttk.Frame(shell, style="Card.TFrame")
+            footer.pack(fill=tk.X, pady=(10, 0))
+
+            def on_submit_reassign_stream() -> None:
+                selected_stream_id = stream_id_by_label.get(stream_var.get().strip())
+                if selected_stream_id is None:
+                    messagebox.showerror("Некоректні дані", "Оберіть потік зі списку.", parent=modal)
+                    return
+                try:
+                    with session_scope() as session:
+                        ResourceController(session=session).update_resource(
+                            int(group_id),
+                            stream_id=int(selected_stream_id),
+                        )
+                except Exception as exc:
+                    messagebox.showerror("Не вдалося переназначити потік", str(exc), parent=modal)
+                    return
+
+                modal.destroy()
+                load_group_detail()
+                render_group_cards()
+
+            self._motion_button(footer, text="Скасувати", command=modal.destroy, primary=False, width=130).pack(side=tk.RIGHT)
+            self._motion_button(footer, text="Зберегти", command=on_submit_reassign_stream, primary=True, width=130).pack(
+                side=tk.RIGHT,
+                padx=(0, 8),
+            )
+
+            modal.update_idletasks()
+            modal.geometry(f"+{self.root.winfo_rootx() + 230}+{self.root.winfo_rooty() + 130}")
 
         def on_add_participant() -> None:
             group_id = group_state["id"]
@@ -2837,6 +3048,7 @@ class ScheduleMainWindow:
         course_filter_box.bind("<<ComboboxSelected>>", on_course_filter_change, add="+")
         stream_filter_box.bind("<<ComboboxSelected>>", on_stream_filter_change, add="+")
         cards_canvas.bind("<Configure>", on_cards_resize, add="+")
+        main_view.bind("<Map>", lambda _event: on_cards_resize(), add="+")
 
         hierarchy_back_button.command = on_hierarchy_back
         back_button.command = open_main_view
@@ -2932,6 +3144,13 @@ class ScheduleMainWindow:
         room_type_filter_var = tk.StringVar(value="Усі")
         room_min_capacity_var = tk.StringVar(value="")
         room_department_filter_var = tk.StringVar(value="Усі кафедри")
+        room_projector_filter_var = tk.StringVar(value="Усі")
+        room_projector_filter_options: list[tuple[str, bool | None]] = [
+            ("Усі", None),
+            ("Є проєктор", True),
+            ("Немає проєктора", False),
+        ]
+        room_projector_filter_by_label = {label: value for label, value in room_projector_filter_options}
         room_department_label_by_id: dict[int, str] = {}
         room_department_id_by_label: dict[str, int] = {}
         room_status_all_var = tk.BooleanVar(value=True)
@@ -2978,9 +3197,18 @@ class ScheduleMainWindow:
             width=24,
         )
         room_department_box.grid(row=0, column=7, sticky="w", padx=(8, 12))
+        ttk.Label(filters_shell, text="Проєктор", style="Card.TLabel").grid(row=0, column=8, sticky="w")
+        room_projector_box = ttk.Combobox(
+            filters_shell,
+            textvariable=room_projector_filter_var,
+            values=[label for label, _ in room_projector_filter_options],
+            state="readonly",
+            width=18,
+        )
+        room_projector_box.grid(row=0, column=9, sticky="w", padx=(8, 12))
 
         status_wrap = ttk.Frame(filters_shell, style="Card.TFrame")
-        status_wrap.grid(row=1, column=0, columnspan=9, sticky="ew", pady=(12, 0))
+        status_wrap.grid(row=1, column=0, columnspan=11, sticky="ew", pady=(12, 0))
         ttk.Label(status_wrap, text="Статус:", style="CardSubtle.TLabel").pack(side=tk.LEFT, padx=(0, 8))
         status_buttons_wrap = ttk.Frame(status_wrap, style="Card.TFrame")
         status_buttons_wrap.pack(side=tk.LEFT, fill=tk.X, expand=True)
@@ -3032,22 +3260,24 @@ class ScheduleMainWindow:
                 room_type_box.grid(row=1, column=2, sticky="w", padx=(8, 12), pady=(6, 0))
                 room_capacity_entry.grid(row=1, column=4, sticky="w", padx=(8, 12), pady=(6, 0))
                 room_department_box.grid_configure(row=1, column=6, sticky="w", padx=(8, 12), pady=(6, 0))
-                reset_filters_button.grid_configure(row=1, column=8, sticky="e", padx=(0, 0), pady=(6, 0))
-                status_wrap.grid_configure(row=2, column=0, columnspan=9, pady=(10, 0))
+                room_projector_box.grid_configure(row=1, column=8, sticky="w", padx=(8, 12), pady=(6, 0))
+                reset_filters_button.grid_configure(row=1, column=10, sticky="e", padx=(0, 0), pady=(6, 0))
+                status_wrap.grid_configure(row=2, column=0, columnspan=11, pady=(10, 0))
             else:
                 filters_shell.grid_columnconfigure(1, weight=1)
                 room_search_entry.grid_configure(row=0, column=1, columnspan=1, sticky="ew", padx=(8, 12), pady=(0, 0))
                 room_type_box.grid_configure(row=0, column=3, sticky="w", padx=(8, 12), pady=(0, 0))
                 room_capacity_entry.grid_configure(row=0, column=5, sticky="w", padx=(8, 12), pady=(0, 0))
                 room_department_box.grid_configure(row=0, column=7, sticky="w", padx=(8, 12), pady=(0, 0))
-                reset_filters_button.grid_configure(row=0, column=8, sticky="e", padx=(0, 0), pady=(0, 0))
-                status_wrap.grid_configure(row=1, column=0, columnspan=9, pady=(12, 0))
+                room_projector_box.grid_configure(row=0, column=9, sticky="w", padx=(8, 12), pady=(0, 0))
+                reset_filters_button.grid_configure(row=0, column=10, sticky="e", padx=(0, 0), pady=(0, 0))
+                status_wrap.grid_configure(row=1, column=0, columnspan=11, pady=(12, 0))
 
         rooms_table_wrap = ttk.Frame(detail_body, style="Card.TFrame")
         rooms_table_wrap.pack(fill=tk.BOTH, expand=True, pady=(2, 0))
         rooms_table = ttk.Treeview(
             rooms_table_wrap,
-            columns=("name", "type", "capacity", "floor", "department", "status"),
+            columns=("name", "type", "capacity", "floor", "department", "projector", "status"),
             show="headings",
             height=18,
         )
@@ -3056,13 +3286,15 @@ class ScheduleMainWindow:
         rooms_table.heading("capacity", text="Місткість")
         rooms_table.heading("floor", text="Поверх")
         rooms_table.heading("department", text="Кафедра")
+        rooms_table.heading("projector", text="Проєктор")
         rooms_table.heading("status", text="Статус")
         rooms_table.column("name", width=280, anchor="w")
         rooms_table.column("type", width=150, anchor="center")
         rooms_table.column("capacity", width=110, anchor="center")
         rooms_table.column("floor", width=110, anchor="center")
         rooms_table.column("department", width=170, anchor="center")
-        rooms_table.column("status", width=220, anchor="center")
+        rooms_table.column("projector", width=110, anchor="center")
+        rooms_table.column("status", width=200, anchor="center")
         rooms_table.tag_configure("room_archived", background="#f4e8ef")
         rooms_table.tag_configure("room_booked", background="#e8f0ff")
         rooms_table.tag_configure("room_archived_booked", background="#efe6f8")
@@ -3089,6 +3321,7 @@ class ScheduleMainWindow:
             room_type_filter_var.set("Усі")
             room_min_capacity_var.set("")
             room_department_filter_var.set("Усі кафедри")
+            room_projector_filter_var.set("Усі")
             room_status_all_var.set(True)
             room_status_active_var.set(True)
             room_status_archived_var.set(True)
@@ -3258,6 +3491,7 @@ class ScheduleMainWindow:
                         "" if room.capacity is None else str(room.capacity),
                         "" if room.floor is None else str(room.floor),
                         room_department_label_by_id.get(room.home_department_id, "—") if room.home_department_id is not None else "—",
+                        "Так" if bool(room.has_projector) else "Ні",
                         status_text,
                     ),
                     tags=row_tags,
@@ -3285,6 +3519,11 @@ class ScheduleMainWindow:
                     return
                 min_capacity = int(raw_capacity)
             home_department_id = selected_room_department_id()
+            selected_projector_label = room_projector_filter_var.get().strip() or "Усі"
+            if selected_projector_label not in room_projector_filter_by_label:
+                messagebox.showerror("Некоректний фільтр", "Невідомий стан фільтра проєктора.", parent=self.root)
+                return
+            has_projector_filter = room_projector_filter_by_label[selected_projector_label]
 
             with session_scope() as session:
                 controller = RoomController(session=session)
@@ -3294,6 +3533,7 @@ class ScheduleMainWindow:
                     search=room_search_var.get().strip() or None,
                     room_type=room_type_filter,
                     min_capacity=min_capacity,
+                    has_projector=has_projector_filter,
                     home_department_id=home_department_id,
                 )
                 room_booking_state.clear()
@@ -3345,6 +3585,7 @@ class ScheduleMainWindow:
             type_var = tk.StringVar(value=room_type_label_by_enum.get(room.room_type, "Клас") if is_edit else "Клас")
             capacity_var = tk.StringVar(value="" if (not is_edit or room.capacity is None) else str(room.capacity))
             floor_var = tk.StringVar(value="" if (not is_edit or room.floor is None) else str(room.floor))
+            has_projector_var = tk.BooleanVar(value=bool(room.has_projector) if is_edit else False)
             department_values = ["Не вказано"] + list(room_department_id_by_label.keys())
             department_var = tk.StringVar(value=room_department_display_value(room.home_department_id) if is_edit else "Не вказано")
 
@@ -3379,6 +3620,14 @@ class ScheduleMainWindow:
                 width=32,
             ).pack(side=tk.LEFT, padx=(8, 0))
 
+            projector_row = ttk.Frame(shell, style="Card.TFrame")
+            projector_row.pack(fill=tk.X, pady=(0, 12))
+            ttk.Checkbutton(
+                projector_row,
+                text="Є проєктор",
+                variable=has_projector_var,
+            ).pack(anchor="w")
+
             actions = ttk.Frame(shell, style="Card.TFrame")
             actions.pack(fill=tk.X)
 
@@ -3411,6 +3660,7 @@ class ScheduleMainWindow:
                                 room_type=selected_type,
                                 capacity=capacity,
                                 floor=floor,
+                                has_projector=bool(has_projector_var.get()),
                                 home_department_id=department_id,
                                 is_archived=False,
                             )
@@ -3421,6 +3671,7 @@ class ScheduleMainWindow:
                                 room_type=selected_type,
                                 capacity=capacity,
                                 floor=floor,
+                                has_projector=bool(has_projector_var.get()),
                                 home_department_id=department_id,
                                 company_id=company_id,
                             )
@@ -3700,6 +3951,7 @@ class ScheduleMainWindow:
             type_var = tk.StringVar(value="Клас")
             capacity_var = tk.StringVar(value="")
             floor_var = tk.StringVar(value="")
+            bulk_has_projector_var = tk.BooleanVar(value=False)
             bulk_department_values = ["Не вказано"] + list(room_department_id_by_label.keys())
             bulk_department_var = tk.StringVar(value="Не вказано")
             policy_var = tk.StringVar(value="Пропустити дублікати")
@@ -3713,6 +3965,11 @@ class ScheduleMainWindow:
             ttk.Entry(settings_row, textvariable=capacity_var, width=8).pack(side=tk.LEFT, padx=(6, 10))
             ttk.Label(settings_row, text="Поверх", style="Card.TLabel").pack(side=tk.LEFT)
             ttk.Entry(settings_row, textvariable=floor_var, width=8).pack(side=tk.LEFT, padx=(6, 10))
+            ttk.Checkbutton(
+                settings_row,
+                text="Проєктор",
+                variable=bulk_has_projector_var,
+            ).pack(side=tk.LEFT, padx=(0, 10))
             ttk.Label(settings_row, text="Кафедра", style="Card.TLabel").pack(side=tk.LEFT)
             ttk.Combobox(
                 settings_row,
@@ -3797,6 +4054,7 @@ class ScheduleMainWindow:
                             room_type=selected_type,
                             capacity=capacity,
                             floor=floor,
+                            has_projector=bool(bulk_has_projector_var.get()),
                             home_department_id=home_department_id,
                             company_id=company_id,
                             duplicate_policy=policy,
@@ -3948,6 +4206,7 @@ class ScheduleMainWindow:
             room_type_filter_var.set("Усі")
             room_min_capacity_var.set("")
             room_department_filter_var.set("Усі кафедри")
+            room_projector_filter_var.set("Усі")
             room_status_all_var.set(True)
             room_status_active_var.set(True)
             room_status_archived_var.set(True)
@@ -4098,6 +4357,7 @@ class ScheduleMainWindow:
         room_status_booked_var.trace_add("write", on_room_status_partial_changed)
         room_type_box.bind("<<ComboboxSelected>>", lambda _e: load_rooms(), add="+")
         room_department_box.bind("<<ComboboxSelected>>", lambda _e: load_rooms(), add="+")
+        room_projector_box.bind("<<ComboboxSelected>>", lambda _e: load_rooms(), add="+")
         filters_shell.bind("<Configure>", on_filter_panel_resize, add="+")
         detail_actions.bind("<Configure>", relayout_room_actions, add="+")
         relayout_room_actions()

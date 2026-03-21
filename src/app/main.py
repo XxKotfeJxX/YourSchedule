@@ -4,6 +4,13 @@ import argparse
 import io
 import os
 import sys
+from pathlib import Path
+
+if __package__ is None or __package__ == "":
+    src_root = Path(__file__).resolve().parents[1]
+    src_root_str = str(src_root)
+    if src_root_str not in sys.path:
+        sys.path.insert(0, src_root_str)
 
 from app.config.database import init_db
 

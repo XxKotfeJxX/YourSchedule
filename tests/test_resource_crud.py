@@ -207,3 +207,58 @@ def test_group_stream_validation(session: Session) -> None:
             company_id=company_a.id,
             stream_id=stream_b.id,
         )
+
+
+def test_group_stream_reassignment_updates_subgroups(session: Session) -> None:
+    controller = ResourceController(session=session)
+    academic = AcademicController(session=session)
+    company = Company(name="Company Reassign")
+    session.add(company)
+    session.flush()
+
+    department = academic.create_department(name="Dept", company_id=company.id)
+    specialty = academic.create_specialty(
+        department_id=department.id,
+        name="Spec",
+        company_id=company.id,
+    )
+    course = academic.create_course(
+        specialty_id=specialty.id,
+        name="Course",
+        company_id=company.id,
+    )
+    stream_a = academic.create_stream(
+        course_id=course.id,
+        name="Stream A",
+        company_id=company.id,
+    )
+    stream_b = academic.create_stream(
+        course_id=course.id,
+        name="Stream B",
+        company_id=company.id,
+    )
+    session.commit()
+
+    group = controller.create_resource(
+        name="Group R",
+        resource_type=ResourceType.GROUP,
+        company_id=company.id,
+        stream_id=stream_a.id,
+    )
+    subgroup = controller.create_resource(
+        name="Group R::Sub 1",
+        resource_type=ResourceType.SUBGROUP,
+        company_id=company.id,
+        parent_group_id=group.id,
+    )
+    session.commit()
+
+    controller.update_resource(group.id, stream_id=stream_b.id)
+    session.commit()
+
+    refreshed_group = controller.get_resource(group.id)
+    refreshed_subgroup = controller.get_resource(subgroup.id)
+    assert refreshed_group is not None
+    assert refreshed_subgroup is not None
+    assert refreshed_group.stream_id == stream_b.id
+    assert refreshed_subgroup.stream_id == stream_b.id

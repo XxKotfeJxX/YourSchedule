@@ -99,6 +99,7 @@ class ResourceRepository:
         if resource is None:
             raise ValueError(f"Resource with id={resource_id} was not found")
 
+        stream_was_updated = False
         if name is not None:
             clean_name = name.strip()
             if not clean_name:
@@ -121,6 +122,12 @@ class ResourceRepository:
                         owner_company_id=resource.company_id,
                     )
                     resource.stream_id = stream.id
+            stream_was_updated = True
+
+        # Keep subgroup stream links consistent when group stream changes.
+        if stream_was_updated and resource.type == ResourceType.GROUP:
+            for subgroup in self.list_subgroups(group_id=resource.id):
+                subgroup.stream_id = resource.stream_id
 
         self.session.flush()
         return resource

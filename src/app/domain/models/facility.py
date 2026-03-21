@@ -70,6 +70,7 @@ class RoomProfile(Base):
     )
     capacity: Mapped[int | None] = mapped_column(Integer, nullable=True)
     floor: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    has_projector: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     is_archived: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
