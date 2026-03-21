@@ -4,6 +4,7 @@ from app.controllers.auth_controller import AuthController
 from app.controllers.academic_controller import AcademicController
 from app.controllers.building_controller import BuildingController
 from app.controllers.calendar_controller import CalendarController
+from app.controllers.curriculum_controller import CurriculumController
 from app.controllers.requirement_controller import RequirementController
 from app.controllers.resource_controller import ResourceController
 from app.controllers.room_controller import RoomController
@@ -17,6 +18,7 @@ __all__ = [
     "AcademicController",
     "BuildingController",
     "CalendarController",
+    "CurriculumController",
     "ResourceController",
     "RoomController",
     "RequirementController",

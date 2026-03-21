@@ -4,6 +4,7 @@ from app.repositories.auth_repository import AuthRepository
 from app.repositories.academic_repository import AcademicRepository
 from app.repositories.building_repository import BuildingRepository
 from app.repositories.calendar_repository import CalendarRepository
+from app.repositories.curriculum_repository import CurriculumRepository
 from app.repositories.requirement_repository import RequirementRepository
 from app.repositories.resource_repository import ResourceRepository
 from app.repositories.room_repository import RoomRepository
@@ -15,6 +16,7 @@ __all__ = [
     "AcademicRepository",
     "BuildingRepository",
     "CalendarRepository",
+    "CurriculumRepository",
     "ResourceRepository",
     "RoomRepository",
     "RequirementRepository",

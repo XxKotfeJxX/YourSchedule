@@ -33,6 +33,19 @@ class RoomType(str, Enum):
     OTHER = "OTHER"
 
 
+class PlanComponentType(str, Enum):
+    LECTURE = "LECTURE"
+    PRACTICE = "PRACTICE"
+    LAB = "LAB"
+    OTHER = "OTHER"
+
+
+class PlanTargetType(str, Enum):
+    STREAM = "STREAM"
+    GROUP = "GROUP"
+    SUBGROUP = "SUBGROUP"
+
+
 class UserRole(str, Enum):
     COMPANY = "COMPANY"
     PERSONAL = "PERSONAL"

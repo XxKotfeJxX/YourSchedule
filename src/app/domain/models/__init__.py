@@ -12,6 +12,12 @@ from app.domain.models.requirement import Requirement, RequirementResource
 from app.domain.models.schedule import ScheduleEntry
 from app.domain.models.resource import Resource
 from app.domain.models.facility import Building, RoomBooking, RoomProfile
+from app.domain.models.curriculum import (
+    CurriculumPlan,
+    PlanComponent,
+    PlanComponentAssignment,
+    Subject,
+)
 
 __all__ = [
     "Company",
@@ -34,4 +40,8 @@ __all__ = [
     "Requirement",
     "RequirementResource",
     "ScheduleEntry",
+    "Subject",
+    "CurriculumPlan",
+    "PlanComponent",
+    "PlanComponentAssignment",
 ]
