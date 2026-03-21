@@ -87,6 +87,17 @@ class ResourceController:
             title=title,
         )
 
+    def create_blackouts_batch(
+        self,
+        resource_id: int,
+        *,
+        intervals: list[tuple[datetime, datetime, str | None]],
+    ) -> list[ResourceBlackout]:
+        return self.repository.create_blackouts_batch(
+            resource_id=resource_id,
+            intervals=intervals,
+        )
+
     def get_blackout(self, blackout_id: int) -> ResourceBlackout | None:
         return self.repository.get_blackout(blackout_id=blackout_id)
 

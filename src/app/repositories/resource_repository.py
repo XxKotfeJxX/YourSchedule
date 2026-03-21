@@ -192,6 +192,33 @@ class ResourceRepository:
         self.session.flush()
         return blackout
 
+    def create_blackouts_batch(
+        self,
+        resource_id: int,
+        *,
+        intervals: list[tuple[datetime, datetime, str | None]],
+    ) -> list[ResourceBlackout]:
+        resource = self.get_resource(resource_id)
+        if resource is None:
+            raise ValueError(f"Resource with id={resource_id} was not found")
+        if not intervals:
+            return []
+
+        created: list[ResourceBlackout] = []
+        for starts_at, ends_at, title in intervals:
+            if ends_at <= starts_at:
+                raise ValueError("Blackout ends_at must be greater than starts_at")
+            blackout = ResourceBlackout(
+                resource_id=resource_id,
+                starts_at=starts_at,
+                ends_at=ends_at,
+                title=(title or "").strip() or None,
+            )
+            self.session.add(blackout)
+            created.append(blackout)
+        self.session.flush()
+        return created
+
     def get_blackout(self, blackout_id: int) -> ResourceBlackout | None:
         return self.session.get(ResourceBlackout, blackout_id)
 

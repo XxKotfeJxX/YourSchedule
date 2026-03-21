@@ -326,3 +326,44 @@ def test_resource_blackout_rejects_invalid_time_range(session: Session) -> None:
             ends_at=datetime(2026, 3, 2, 9, 59),
             title="Invalid",
         )
+
+
+def test_resource_blackout_batch_create(session: Session) -> None:
+    controller = ResourceController(session=session)
+    teacher = controller.create_resource(
+        name="Teacher Batch Blackout",
+        resource_type=ResourceType.TEACHER,
+    )
+    session.commit()
+
+    created = controller.create_blackouts_batch(
+        teacher.id,
+        intervals=[
+            (datetime(2026, 3, 2, 8, 30), datetime(2026, 3, 2, 18, 0), "Vacation"),
+            (datetime(2026, 3, 3, 8, 30), datetime(2026, 3, 3, 18, 0), "Vacation"),
+            (datetime(2026, 3, 4, 8, 30), datetime(2026, 3, 4, 18, 0), "Vacation"),
+        ],
+    )
+    session.commit()
+
+    assert len(created) == 3
+    listed = controller.list_blackouts(resource_id=teacher.id)
+    assert len(listed) == 3
+    assert all(item.title == "Vacation" for item in listed)
+
+
+def test_resource_blackout_batch_rejects_invalid_interval(session: Session) -> None:
+    controller = ResourceController(session=session)
+    teacher = controller.create_resource(
+        name="Teacher Batch Invalid",
+        resource_type=ResourceType.TEACHER,
+    )
+    session.commit()
+
+    with pytest.raises(ValueError):
+        controller.create_blackouts_batch(
+            teacher.id,
+            intervals=[
+                (datetime(2026, 3, 2, 10, 0), datetime(2026, 3, 2, 9, 0), "Broken"),
+            ],
+        )
