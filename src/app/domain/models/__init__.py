@@ -10,6 +10,7 @@ from app.domain.models.calendar import (
 )
 from app.domain.models.requirement import Requirement, RequirementResource
 from app.domain.models.schedule import ScheduleEntry
+from app.domain.models.schedule_scenario import ScheduleScenario, ScheduleScenarioEntry
 from app.domain.models.scheduler_policy import SchedulerPolicy
 from app.domain.models.resource import Resource, ResourceBlackout
 from app.domain.models.facility import Building, RoomBooking, RoomProfile
@@ -42,6 +43,8 @@ __all__ = [
     "Requirement",
     "RequirementResource",
     "ScheduleEntry",
+    "ScheduleScenario",
+    "ScheduleScenarioEntry",
     "SchedulerPolicy",
     "Subject",
     "CurriculumPlan",

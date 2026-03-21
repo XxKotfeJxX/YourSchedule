@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 
 from sqlalchemy import select
@@ -15,6 +15,8 @@ from app.domain.models import (
     ResourceBlackout,
     RoomProfile,
     ScheduleEntry,
+    ScheduleScenario,
+    ScheduleScenarioEntry,
     SchedulerPolicy,
     TimeBlock,
 )
@@ -32,8 +34,20 @@ class ScheduleCandidate:
 
 @dataclass
 class ScheduleRunResult:
-    created_entries: list[ScheduleEntry]
+    created_entries: list[ScheduleEntry | ScheduleScenarioEntry]
     unscheduled_sessions: dict[int, int]
+    diagnostics: list["SchedulingDiagnostic"] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class SchedulingDiagnostic:
+    code: str
+    message: str
+    requirement_id: int | None = None
+    resource_id: int | None = None
+    block_id: int | None = None
+    day: date | None = None
+    order_in_day: int | None = None
 
 
 @dataclass(frozen=True)
@@ -42,6 +56,39 @@ class FeasibilityIssue:
     message: str
     requirement_id: int | None = None
     resource_id: int | None = None
+    block_id: int | None = None
+    day: date | None = None
+    order_in_day: int | None = None
+
+
+@dataclass(frozen=True)
+class ScheduleScenarioSummary:
+    id: int
+    calendar_period_id: int
+    name: str
+    is_published: bool
+    entries_count: int
+
+
+@dataclass(frozen=True)
+class ScenarioDiffItem:
+    code: str
+    requirement_id: int
+    left_block_id: int | None
+    right_block_id: int | None
+    left_room_resource_id: int | None
+    right_room_resource_id: int | None
+    message: str
+
+
+@dataclass
+class ScenarioComparison:
+    left_label: str
+    right_label: str
+    only_left_count: int
+    only_right_count: int
+    changed_count: int
+    items: list[ScenarioDiffItem]
 
 
 @dataclass
@@ -99,6 +146,218 @@ class GreedySchedulerService:
     def __init__(self) -> None:
         self.schedule_repository_cls = ScheduleRepository
 
+    def _scenario_summary_from_model(
+        self,
+        *,
+        model: ScheduleScenario,
+        entries_count: int,
+    ) -> ScheduleScenarioSummary:
+        return ScheduleScenarioSummary(
+            id=int(model.id),
+            calendar_period_id=int(model.calendar_period_id),
+            name=str(model.name),
+            is_published=bool(model.is_published),
+            entries_count=int(entries_count),
+        )
+
+    def list_scenarios(self, session: Session, calendar_period_id: int) -> list[ScheduleScenarioSummary]:
+        schedule_repository = self.schedule_repository_cls(session=session)
+        scenarios = schedule_repository.list_scenarios(calendar_period_id=calendar_period_id)
+        if not scenarios:
+            return []
+        summaries: list[ScheduleScenarioSummary] = []
+        for scenario in scenarios:
+            entry_count = len(
+                schedule_repository.list_entries_for_period(
+                    calendar_period_id=calendar_period_id,
+                    scenario_id=int(scenario.id),
+                )
+            )
+            summaries.append(
+                self._scenario_summary_from_model(
+                    model=scenario,
+                    entries_count=entry_count,
+                )
+            )
+        return summaries
+
+    def create_scenario(
+        self,
+        session: Session,
+        *,
+        calendar_period_id: int,
+        name: str,
+        source_scenario_id: int | None = None,
+        copy_from_published: bool = True,
+    ) -> ScheduleScenarioSummary:
+        trimmed_name = name.strip()
+        if not trimmed_name:
+            raise ValueError("Scenario name must not be empty")
+
+        calendar_period = session.get(CalendarPeriod, calendar_period_id)
+        if calendar_period is None:
+            raise ValueError(f"CalendarPeriod with id={calendar_period_id} was not found")
+
+        schedule_repository = self.schedule_repository_cls(session=session)
+        existing_scenarios = schedule_repository.list_scenarios(calendar_period_id=calendar_period_id)
+        if any(str(item.name).strip().lower() == trimmed_name.lower() for item in existing_scenarios):
+            raise ValueError(f"Scenario '{trimmed_name}' already exists")
+
+        scenario = schedule_repository.create_scenario(
+            company_id=calendar_period.company_id,
+            calendar_period_id=calendar_period_id,
+            name=trimmed_name,
+        )
+
+        source_entries: list[ScheduleEntry | ScheduleScenarioEntry] = []
+        if source_scenario_id is not None:
+            source_model = schedule_repository.get_scenario(source_scenario_id)
+            if source_model is None:
+                raise ValueError(f"ScheduleScenario with id={source_scenario_id} was not found")
+            if int(source_model.calendar_period_id) != int(calendar_period_id):
+                raise ValueError("Source scenario belongs to a different calendar period")
+            source_entries = schedule_repository.list_entries_for_period(
+                calendar_period_id=calendar_period_id,
+                scenario_id=source_scenario_id,
+            )
+        elif copy_from_published:
+            source_entries = schedule_repository.list_entries_for_period(
+                calendar_period_id=calendar_period_id,
+                scenario_id=None,
+            )
+
+        for entry in source_entries:
+            schedule_repository.create_entry(
+                company_id=calendar_period.company_id,
+                requirement_id=int(entry.requirement_id),
+                start_block_id=int(entry.start_block_id),
+                blocks_count=int(entry.blocks_count),
+                room_resource_id=None if entry.room_resource_id is None else int(entry.room_resource_id),
+                is_locked=bool(entry.is_locked),
+                is_manual=bool(entry.is_manual),
+                scenario_id=int(scenario.id),
+            )
+
+        return self._scenario_summary_from_model(
+            model=scenario,
+            entries_count=len(source_entries),
+        )
+
+    def publish_scenario(self, session: Session, *, scenario_id: int) -> int:
+        schedule_repository = self.schedule_repository_cls(session=session)
+        scenario = schedule_repository.get_scenario(scenario_id)
+        if scenario is None:
+            raise ValueError(f"ScheduleScenario with id={scenario_id} was not found")
+
+        calendar_period = session.get(CalendarPeriod, scenario.calendar_period_id)
+        if calendar_period is None:
+            raise ValueError(f"CalendarPeriod with id={scenario.calendar_period_id} was not found")
+
+        draft_entries = schedule_repository.list_entries_for_period(
+            calendar_period_id=calendar_period.id,
+            scenario_id=scenario_id,
+        )
+        schedule_repository.clear_entries_for_period(
+            calendar_period_id=calendar_period.id,
+            keep_locked=False,
+            scenario_id=None,
+        )
+        for entry in draft_entries:
+            schedule_repository.create_entry(
+                company_id=calendar_period.company_id,
+                requirement_id=int(entry.requirement_id),
+                start_block_id=int(entry.start_block_id),
+                blocks_count=int(entry.blocks_count),
+                room_resource_id=None if entry.room_resource_id is None else int(entry.room_resource_id),
+                is_locked=bool(entry.is_locked),
+                is_manual=bool(entry.is_manual),
+                scenario_id=None,
+            )
+        schedule_repository.set_published_scenario(scenario_id=scenario_id)
+        return len(draft_entries)
+
+    def compare_scenarios(
+        self,
+        session: Session,
+        *,
+        calendar_period_id: int,
+        left_scenario_id: int | None,
+        right_scenario_id: int | None,
+    ) -> ScenarioComparison:
+        schedule_repository = self.schedule_repository_cls(session=session)
+
+        left_entries = schedule_repository.list_entries_for_period(
+            calendar_period_id=calendar_period_id,
+            scenario_id=left_scenario_id,
+        )
+        right_entries = schedule_repository.list_entries_for_period(
+            calendar_period_id=calendar_period_id,
+            scenario_id=right_scenario_id,
+        )
+
+        def entry_key(item: ScheduleEntry | ScheduleScenarioEntry) -> tuple[int, int, int, int | None]:
+            return (
+                int(item.requirement_id),
+                int(item.start_block_id),
+                int(item.blocks_count),
+                None if item.room_resource_id is None else int(item.room_resource_id),
+            )
+
+        left_set = {entry_key(item) for item in left_entries}
+        right_set = {entry_key(item) for item in right_entries}
+        only_left = sorted(left_set - right_set)
+        only_right = sorted(right_set - left_set)
+
+        left_by_requirement: dict[int, set[tuple[int, int, int | None]]] = defaultdict(set)
+        right_by_requirement: dict[int, set[tuple[int, int, int | None]]] = defaultdict(set)
+        for requirement_id, start_block_id, blocks_count, room_resource_id in left_set:
+            left_by_requirement[requirement_id].add((start_block_id, blocks_count, room_resource_id))
+        for requirement_id, start_block_id, blocks_count, room_resource_id in right_set:
+            right_by_requirement[requirement_id].add((start_block_id, blocks_count, room_resource_id))
+
+        changed_requirements = {
+            requirement_id
+            for requirement_id in set(left_by_requirement) | set(right_by_requirement)
+            if left_by_requirement.get(requirement_id, set()) != right_by_requirement.get(requirement_id, set())
+            and left_by_requirement.get(requirement_id, set())
+            and right_by_requirement.get(requirement_id, set())
+        }
+
+        items: list[ScenarioDiffItem] = []
+        for requirement_id, start_block_id, blocks_count, room_resource_id in only_left[:10]:
+            items.append(
+                ScenarioDiffItem(
+                    code="ONLY_LEFT",
+                    requirement_id=requirement_id,
+                    left_block_id=start_block_id,
+                    right_block_id=None,
+                    left_room_resource_id=room_resource_id,
+                    right_room_resource_id=None,
+                    message=f"Requirement {requirement_id} exists only in left scenario at block {start_block_id}.",
+                )
+            )
+        for requirement_id, start_block_id, blocks_count, room_resource_id in only_right[:10]:
+            items.append(
+                ScenarioDiffItem(
+                    code="ONLY_RIGHT",
+                    requirement_id=requirement_id,
+                    left_block_id=None,
+                    right_block_id=start_block_id,
+                    left_room_resource_id=None,
+                    right_room_resource_id=room_resource_id,
+                    message=f"Requirement {requirement_id} exists only in right scenario at block {start_block_id}.",
+                )
+            )
+
+        return ScenarioComparison(
+            left_label="Published" if left_scenario_id is None else f"Scenario #{left_scenario_id}",
+            right_label="Published" if right_scenario_id is None else f"Scenario #{right_scenario_id}",
+            only_left_count=len(only_left),
+            only_right_count=len(only_right),
+            changed_count=len(changed_requirements),
+            items=items,
+        )
+
     def get_policy(self, session: Session, company_id: int | None) -> SchedulerPolicyOptions:
         if company_id is None:
             return SchedulerPolicyOptions.defaults()
@@ -153,16 +412,38 @@ class GreedySchedulerService:
         normalized.validate()
         return normalized
 
+    def _validate_scenario_context(
+        self,
+        *,
+        session: Session,
+        calendar_period_id: int,
+        scenario_id: int | None,
+    ) -> None:
+        if scenario_id is None:
+            return
+        schedule_repository = self.schedule_repository_cls(session=session)
+        scenario = schedule_repository.get_scenario(scenario_id)
+        if scenario is None:
+            raise ValueError(f"ScheduleScenario with id={scenario_id} was not found")
+        if int(scenario.calendar_period_id) != int(calendar_period_id):
+            raise ValueError("Scenario belongs to a different calendar period")
+
     def analyze_feasibility(
         self,
         session: Session,
         calendar_period_id: int,
         replace_existing: bool = True,
+        scenario_id: int | None = None,
         policy_options: SchedulerPolicyOptions | None = None,
     ) -> FeasibilityReport:
         calendar_period = session.get(CalendarPeriod, calendar_period_id)
         if calendar_period is None:
             raise ValueError(f"CalendarPeriod with id={calendar_period_id} was not found")
+        self._validate_scenario_context(
+            session=session,
+            calendar_period_id=calendar_period_id,
+            scenario_id=scenario_id,
+        )
         policy = self._resolve_policy(
             session=session,
             company_id=calendar_period.company_id,
@@ -213,7 +494,10 @@ class GreedySchedulerService:
         )
 
         schedule_repository = self.schedule_repository_cls(session=session)
-        existing_entries = schedule_repository.list_entries_for_period(calendar_period_id=calendar_period_id)
+        existing_entries = schedule_repository.list_entries_for_period(
+            calendar_period_id=calendar_period_id,
+            scenario_id=scenario_id,
+        )
         if replace_existing:
             existing_entries = [entry for entry in existing_entries if bool(entry.is_locked)]
 
@@ -346,15 +630,21 @@ class GreedySchedulerService:
         session: Session,
         *,
         calendar_period_id: int,
+        scenario_id: int | None = None,
         requirement_id: int,
         day: date,
         order_in_day: int,
         room_resource_id: int | None = None,
         is_locked: bool = True,
-    ) -> ScheduleEntry:
+    ) -> ScheduleEntry | ScheduleScenarioEntry:
         calendar_period = session.get(CalendarPeriod, calendar_period_id)
         if calendar_period is None:
             raise ValueError(f"CalendarPeriod with id={calendar_period_id} was not found")
+        self._validate_scenario_context(
+            session=session,
+            calendar_period_id=calendar_period_id,
+            scenario_id=scenario_id,
+        )
 
         requirement = session.get(Requirement, requirement_id)
         if requirement is None:
@@ -434,7 +724,10 @@ class GreedySchedulerService:
                 raise ValueError("Обрана аудиторія належить іншій компанії")
 
         schedule_repository = self.schedule_repository_cls(session=session)
-        existing_entries = schedule_repository.list_entries_for_period(calendar_period_id=calendar_period_id)
+        existing_entries = schedule_repository.list_entries_for_period(
+            calendar_period_id=calendar_period_id,
+            scenario_id=scenario_id,
+        )
         resource_reservations = self._build_resource_reservations(
             existing_entries=existing_entries,
             block_by_key=block_by_key,
@@ -513,6 +806,7 @@ class GreedySchedulerService:
             room_resource_id=selected_room_resource_id,
             is_locked=bool(is_locked),
             is_manual=True,
+            scenario_id=scenario_id,
         )
 
     def build_schedule(
@@ -520,11 +814,17 @@ class GreedySchedulerService:
         session: Session,
         calendar_period_id: int,
         replace_existing: bool = True,
+        scenario_id: int | None = None,
         policy_options: SchedulerPolicyOptions | None = None,
     ) -> ScheduleRunResult:
         calendar_period = session.get(CalendarPeriod, calendar_period_id)
         if calendar_period is None:
             raise ValueError(f"CalendarPeriod with id={calendar_period_id} was not found")
+        self._validate_scenario_context(
+            session=session,
+            calendar_period_id=calendar_period_id,
+            scenario_id=scenario_id,
+        )
         policy = self._resolve_policy(
             session=session,
             company_id=calendar_period.company_id,
@@ -578,8 +878,12 @@ class GreedySchedulerService:
             schedule_repository.clear_entries_for_period(
                 calendar_period_id=calendar_period_id,
                 keep_locked=True,
+                scenario_id=scenario_id,
             )
-        existing_entries = schedule_repository.list_entries_for_period(calendar_period_id=calendar_period_id)
+        existing_entries = schedule_repository.list_entries_for_period(
+            calendar_period_id=calendar_period_id,
+            scenario_id=scenario_id,
+        )
 
         resource_reservations = self._build_resource_reservations(
             existing_entries=existing_entries,
@@ -641,8 +945,9 @@ class GreedySchedulerService:
             policy=policy,
         )
 
-        created_entries: list[ScheduleEntry] = []
+        created_entries: list[ScheduleEntry | ScheduleScenarioEntry] = []
         unscheduled_sessions: dict[int, int] = {}
+        diagnostics: list[SchedulingDiagnostic] = []
 
         for requirement in sorted_requirements:
             required_sessions = max(
@@ -669,7 +974,26 @@ class GreedySchedulerService:
                     policy=policy,
                 )
                 if not candidates:
-                    unscheduled_sessions[requirement.id] = required_sessions - placed_sessions
+                    remaining = required_sessions - placed_sessions
+                    unscheduled_sessions[requirement.id] = remaining
+                    diagnostics.extend(
+                        self._diagnose_requirement_failures(
+                            requirement=requirement,
+                            remaining_sessions=remaining,
+                            teaching_blocks=teaching_blocks,
+                            block_by_key=block_by_key,
+                            block_by_id=block_by_id,
+                            requirement_non_room_resource_ids=requirement_non_room_resource_ids,
+                            requirement_actor_resource_ids=requirement_actor_resource_ids,
+                            room_options_by_requirement=room_options_by_requirement,
+                            resource_reservations=resource_reservations,
+                            requirement_block_reservations=requirement_block_reservations,
+                            weekly_usage=weekly_usage,
+                            resource_day_orders=resource_day_orders,
+                            resource_day_sessions=resource_day_sessions,
+                            policy=policy,
+                        )
+                    )
                     break
 
                 candidate = candidates[0]
@@ -681,6 +1005,7 @@ class GreedySchedulerService:
                     room_resource_id=candidate.room_resource_id,
                     is_locked=False,
                     is_manual=False,
+                    scenario_id=scenario_id,
                 )
                 created_entries.append(entry)
                 placed_sessions += 1
@@ -711,6 +1036,7 @@ class GreedySchedulerService:
         return ScheduleRunResult(
             created_entries=created_entries,
             unscheduled_sessions=unscheduled_sessions,
+            diagnostics=diagnostics,
         )
 
     def _load_teaching_blocks(
@@ -736,7 +1062,7 @@ class GreedySchedulerService:
 
     def _build_resource_reservations(
         self,
-        existing_entries: list[ScheduleEntry],
+        existing_entries: list[ScheduleEntry | ScheduleScenarioEntry],
         block_by_key: dict[tuple[date, int], TimeBlock],
         block_by_id: dict[int, TimeBlock],
         requirement_non_room_resource_ids: dict[int, set[int]],
@@ -765,7 +1091,7 @@ class GreedySchedulerService:
 
     def _build_requirement_block_reservations(
         self,
-        existing_entries: list[ScheduleEntry],
+        existing_entries: list[ScheduleEntry | ScheduleScenarioEntry],
         block_by_key: dict[tuple[date, int], TimeBlock],
         block_by_id: dict[int, TimeBlock],
     ) -> dict[int, set[int]]:
@@ -786,7 +1112,7 @@ class GreedySchedulerService:
 
     def _build_weekly_usage(
         self,
-        existing_entries: list[ScheduleEntry],
+        existing_entries: list[ScheduleEntry | ScheduleScenarioEntry],
         block_by_id: dict[int, TimeBlock],
     ) -> dict[tuple[int, int, int], int]:
         weekly_usage: dict[tuple[int, int, int], int] = defaultdict(int)
@@ -800,7 +1126,7 @@ class GreedySchedulerService:
 
     def _build_existing_session_counts(
         self,
-        existing_entries: list[ScheduleEntry],
+        existing_entries: list[ScheduleEntry | ScheduleScenarioEntry],
     ) -> dict[int, int]:
         counts: dict[int, int] = defaultdict(int)
         for entry in existing_entries:
@@ -987,6 +1313,296 @@ class GreedySchedulerService:
         )
         return candidates
 
+    def _diagnose_requirement_failures(
+        self,
+        *,
+        requirement: Requirement,
+        remaining_sessions: int,
+        teaching_blocks: list[TimeBlock],
+        block_by_key: dict[tuple[date, int], TimeBlock],
+        block_by_id: dict[int, TimeBlock],
+        requirement_non_room_resource_ids: dict[int, set[int]],
+        requirement_actor_resource_ids: dict[int, set[int]],
+        room_options_by_requirement: dict[int, tuple[int, ...]],
+        resource_reservations: dict[int, set[int]],
+        requirement_block_reservations: dict[int, set[int]],
+        weekly_usage: dict[tuple[int, int, int], int],
+        resource_day_orders: dict[tuple[int, date], set[int]],
+        resource_day_sessions: dict[tuple[int, date], int],
+        policy: SchedulerPolicyOptions,
+    ) -> list[SchedulingDiagnostic]:
+        diagnostics: list[SchedulingDiagnostic] = []
+        dedup: set[tuple[str, int | None, int | None]] = set()
+
+        def append_diagnostic(item: SchedulingDiagnostic) -> None:
+            key = (item.code, item.resource_id, item.block_id)
+            if key in dedup:
+                return
+            dedup.add(key)
+            diagnostics.append(item)
+
+        room_options = room_options_by_requirement.get(requirement.id)
+        if room_options is not None and not room_options:
+            append_diagnostic(
+                SchedulingDiagnostic(
+                    code="ROOM_OPTIONS_EMPTY",
+                    message=(
+                        f"Requirement {requirement.id}: no compatible rooms for room constraints."
+                    ),
+                    requirement_id=requirement.id,
+                )
+            )
+            return diagnostics
+
+        required_resources = requirement_non_room_resource_ids.get(requirement.id, set())
+        actor_resources = requirement_actor_resource_ids.get(requirement.id, set())
+        occupied_by_requirement = requirement_block_reservations.get(requirement.id, set())
+        all_weekly_limited = True
+
+        for start_block in teaching_blocks:
+            if len(diagnostics) >= 12:
+                break
+            week_key = self._week_key(start_block.date)
+            if weekly_usage[(requirement.id, week_key[0], week_key[1])] >= requirement.max_per_week:
+                continue
+            all_weekly_limited = False
+
+            block_ids = self._resolve_block_ids(
+                start_block=start_block,
+                blocks_count=requirement.duration_blocks,
+                block_by_key=block_by_key,
+            )
+            if not block_ids:
+                append_diagnostic(
+                    SchedulingDiagnostic(
+                        code="NO_CONTIGUOUS_BLOCKS",
+                        message=(
+                            f"Requirement {requirement.id}: slot {start_block.date} "
+                            f"#{start_block.order_in_day} has no contiguous span of "
+                            f"{requirement.duration_blocks} blocks."
+                        ),
+                        requirement_id=requirement.id,
+                        block_id=start_block.id,
+                        day=start_block.date,
+                        order_in_day=start_block.order_in_day,
+                    )
+                )
+                continue
+
+            overlap_block_id = next((block_id for block_id in block_ids if block_id in occupied_by_requirement), None)
+            if overlap_block_id is not None:
+                overlap_block = block_by_id.get(overlap_block_id)
+                append_diagnostic(
+                    SchedulingDiagnostic(
+                        code="REQUIREMENT_OVERLAP",
+                        message=(
+                            f"Requirement {requirement.id} already has a session in block {overlap_block_id}."
+                        ),
+                        requirement_id=requirement.id,
+                        block_id=overlap_block_id,
+                        day=None if overlap_block is None else overlap_block.date,
+                        order_in_day=None if overlap_block is None else overlap_block.order_in_day,
+                    )
+                )
+                continue
+
+            conflict = self._first_conflicting_resource(
+                block_ids=block_ids,
+                required_resources=required_resources,
+                resource_reservations=resource_reservations,
+            )
+            if conflict is not None:
+                conflict_resource_id, conflict_block_id = conflict
+                conflict_block = block_by_id.get(conflict_block_id)
+                append_diagnostic(
+                    SchedulingDiagnostic(
+                        code="RESOURCE_BUSY",
+                        message=(
+                            f"Requirement {requirement.id}: resource {conflict_resource_id} "
+                            f"is busy in block {conflict_block_id}."
+                        ),
+                        requirement_id=requirement.id,
+                        resource_id=conflict_resource_id,
+                        block_id=conflict_block_id,
+                        day=None if conflict_block is None else conflict_block.date,
+                        order_in_day=None if conflict_block is None else conflict_block.order_in_day,
+                    )
+                )
+                continue
+
+            candidate_orders = tuple(start_block.order_in_day + offset for offset in range(requirement.duration_blocks))
+            hard_violation = self._diagnose_hard_constraint_violation(
+                policy=policy,
+                actor_resource_ids=actor_resources,
+                day=start_block.date,
+                candidate_orders=candidate_orders,
+                resource_day_orders=resource_day_orders,
+                resource_day_sessions=resource_day_sessions,
+                requirement_id=requirement.id,
+                block_id=start_block.id,
+            )
+            if hard_violation is not None:
+                append_diagnostic(hard_violation)
+                continue
+
+            if room_options is None:
+                continue
+
+            first_room_conflict: tuple[int, int] | None = None
+            has_available_room = False
+            for room_resource_id in room_options:
+                room_conflict_block_id = next(
+                    (
+                        block_id
+                        for block_id in block_ids
+                        if room_resource_id in resource_reservations.get(block_id, set())
+                    ),
+                    None,
+                )
+                if room_conflict_block_id is None:
+                    has_available_room = True
+                    break
+                if first_room_conflict is None:
+                    first_room_conflict = (room_resource_id, room_conflict_block_id)
+            if has_available_room:
+                continue
+            if first_room_conflict is not None:
+                room_resource_id, room_conflict_block_id = first_room_conflict
+                conflict_block = block_by_id.get(room_conflict_block_id)
+                append_diagnostic(
+                    SchedulingDiagnostic(
+                        code="ROOM_BUSY",
+                        message=(
+                            f"Requirement {requirement.id}: all rooms are busy; "
+                            f"room resource {room_resource_id} conflicts in block {room_conflict_block_id}."
+                        ),
+                        requirement_id=requirement.id,
+                        resource_id=room_resource_id,
+                        block_id=room_conflict_block_id,
+                        day=None if conflict_block is None else conflict_block.date,
+                        order_in_day=None if conflict_block is None else conflict_block.order_in_day,
+                    )
+                )
+
+        if all_weekly_limited:
+            append_diagnostic(
+                SchedulingDiagnostic(
+                    code="MAX_PER_WEEK_REACHED",
+                    message=(
+                        f"Requirement {requirement.id}: weekly limit {requirement.max_per_week} "
+                        "already reached in all weeks."
+                    ),
+                    requirement_id=requirement.id,
+                )
+            )
+
+        if not diagnostics:
+            append_diagnostic(
+                SchedulingDiagnostic(
+                    code="NO_CANDIDATES",
+                    message=f"Requirement {requirement.id}: no valid candidate slots.",
+                    requirement_id=requirement.id,
+                )
+            )
+
+        if remaining_sessions > 1:
+            append_diagnostic(
+                SchedulingDiagnostic(
+                    code="UNSCHEDULED_REMAINING",
+                    message=(
+                        f"Requirement {requirement.id}: {remaining_sessions} sessions left unscheduled."
+                    ),
+                    requirement_id=requirement.id,
+                )
+            )
+
+        return diagnostics
+
+    def _first_conflicting_resource(
+        self,
+        *,
+        block_ids: list[int],
+        required_resources: set[int],
+        resource_reservations: dict[int, set[int]],
+    ) -> tuple[int, int] | None:
+        if not required_resources:
+            return None
+        for block_id in block_ids:
+            occupied_resources = resource_reservations.get(block_id, set())
+            conflict_ids = occupied_resources & required_resources
+            if conflict_ids:
+                return min(conflict_ids), block_id
+        return None
+
+    def _diagnose_hard_constraint_violation(
+        self,
+        *,
+        policy: SchedulerPolicyOptions,
+        actor_resource_ids: set[int],
+        day: date,
+        candidate_orders: tuple[int, ...],
+        resource_day_orders: dict[tuple[int, date], set[int]],
+        resource_day_sessions: dict[tuple[int, date], int],
+        requirement_id: int,
+        block_id: int,
+    ) -> SchedulingDiagnostic | None:
+        if not actor_resource_ids:
+            return None
+
+        candidate_order_set = set(candidate_orders)
+        for actor_id in actor_resource_ids:
+            key = (actor_id, day)
+            sessions = resource_day_sessions.get(key, 0)
+            if (
+                policy.max_sessions_per_day is not None
+                and sessions + 1 > policy.max_sessions_per_day
+            ):
+                return SchedulingDiagnostic(
+                    code="MAX_SESSIONS_PER_DAY",
+                    message=(
+                        f"Requirement {requirement_id}: actor resource {actor_id} exceeds "
+                        f"max sessions/day ({policy.max_sessions_per_day})."
+                    ),
+                    requirement_id=requirement_id,
+                    resource_id=actor_id,
+                    block_id=block_id,
+                    day=day,
+                    order_in_day=candidate_orders[0],
+                )
+
+            existing_orders = resource_day_orders.get(key, set())
+            merged_orders = set(existing_orders) | candidate_order_set
+            if (
+                policy.max_consecutive_blocks is not None
+                and self._longest_streak(merged_orders) > policy.max_consecutive_blocks
+            ):
+                return SchedulingDiagnostic(
+                    code="MAX_CONSECUTIVE_BLOCKS",
+                    message=(
+                        f"Requirement {requirement_id}: actor resource {actor_id} exceeds "
+                        f"max consecutive blocks ({policy.max_consecutive_blocks})."
+                    ),
+                    requirement_id=requirement_id,
+                    resource_id=actor_id,
+                    block_id=block_id,
+                    day=day,
+                    order_in_day=candidate_orders[0],
+                )
+            if policy.enforce_no_gaps and self._gap_count(merged_orders) > 0:
+                return SchedulingDiagnostic(
+                    code="NO_GAPS_VIOLATION",
+                    message=(
+                        f"Requirement {requirement_id}: actor resource {actor_id} creates an "
+                        "in-day gap while no-gaps policy is enabled."
+                    ),
+                    requirement_id=requirement_id,
+                    resource_id=actor_id,
+                    block_id=block_id,
+                    day=day,
+                    order_in_day=candidate_orders[0],
+                )
+        return None
+
     def _build_room_options_by_requirement(
         self,
         *,
@@ -1077,7 +1693,7 @@ class GreedySchedulerService:
     def _build_resource_day_states(
         self,
         *,
-        existing_entries: list[ScheduleEntry],
+        existing_entries: list[ScheduleEntry | ScheduleScenarioEntry],
         block_by_id: dict[int, TimeBlock],
         block_by_key: dict[tuple[date, int], TimeBlock],
         requirement_actor_resource_ids: dict[int, set[int]],
@@ -1150,7 +1766,7 @@ class GreedySchedulerService:
         *,
         requirement_non_room_resource_ids: dict[int, set[int]],
         room_options_by_requirement: dict[int, tuple[int, ...]],
-        existing_entries: list[ScheduleEntry],
+        existing_entries: list[ScheduleEntry | ScheduleScenarioEntry],
     ) -> set[int]:
         resource_ids = {
             resource_id

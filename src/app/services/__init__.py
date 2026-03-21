@@ -1,7 +1,16 @@
 """Services layer package."""
 
 from app.services.auth_service import AuthService
-from app.services.greedy_scheduler import GreedySchedulerService, ScheduleRunResult
+from app.services.greedy_scheduler import (
+    FeasibilityIssue,
+    FeasibilityReport,
+    GreedySchedulerService,
+    ScheduleRunResult,
+    ScheduleScenarioSummary,
+    SchedulingDiagnostic,
+    ScenarioComparison,
+    ScenarioDiffItem,
+)
 from app.services.schedule_visualization import (
     ScheduleVisualizationService,
     WeeklyGridRow,
@@ -30,6 +39,12 @@ __all__ = [
     "TimeBlockGeneratorService",
     "GreedySchedulerService",
     "ScheduleRunResult",
+    "SchedulingDiagnostic",
+    "FeasibilityIssue",
+    "FeasibilityReport",
+    "ScheduleScenarioSummary",
+    "ScenarioComparison",
+    "ScenarioDiffItem",
     "ScheduleVisualizationService",
     "WeeklyGridRow",
     "WeeklyScheduleGrid",
