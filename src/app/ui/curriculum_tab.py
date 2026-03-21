@@ -693,8 +693,8 @@ class CompanyCurriculumTab:
             command=right_canvas.yview,
             style="App.Vertical.TScrollbar",
         )
-        right_scroll.pack(side=tk.RIGHT, fill=tk.Y, padx=(4, 0), pady=2)
         right_canvas.configure(yscrollcommand=right_scroll.set)
+        plans_scroll_state = {"visible": False}
 
         right = ttk.Frame(right_canvas, style="Card.TFrame")
         right_window = right_canvas.create_window((0, 0), anchor="nw", window=right)
@@ -707,6 +707,20 @@ class CompanyCurriculumTab:
         def _sync_plans_scroll(_event=None) -> None:
             viewport_width = max(1, right_canvas.winfo_width())
             right_canvas.itemconfigure(right_window, width=viewport_width)
+            requested_height = max(1, right.winfo_reqheight())
+            viewport_height = max(1, right_canvas.winfo_height())
+            needs_scroll = requested_height > (viewport_height + 1)
+
+            if needs_scroll and not plans_scroll_state["visible"]:
+                right_scroll.pack(side=tk.RIGHT, fill=tk.Y, padx=(4, 0), pady=2)
+                plans_scroll_state["visible"] = True
+                right_canvas.after_idle(_sync_plans_scroll)
+            elif (not needs_scroll) and plans_scroll_state["visible"]:
+                right_scroll.pack_forget()
+                plans_scroll_state["visible"] = False
+                right_canvas.yview_moveto(0.0)
+                right_canvas.after_idle(_sync_plans_scroll)
+
             bbox = right_canvas.bbox("all")
             if bbox is not None:
                 right_canvas.configure(scrollregion=bbox)
