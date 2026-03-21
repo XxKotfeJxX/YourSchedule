@@ -552,6 +552,38 @@ class ScheduleMainWindow:
         subject_target_var = tk.StringVar(value="Група")
         subject_group_var = tk.StringVar()
         subject_stream_var = tk.StringVar()
+        subject_room_type_var = tk.StringVar(value="Не важливо")
+        subject_min_capacity_var = tk.StringVar()
+        subject_needs_projector_var = tk.BooleanVar(value=False)
+        subject_fixed_room_var = tk.StringVar(value="Авто")
+
+        blackout_scope_var = tk.StringVar(value="Викладач")
+        blackout_resource_var = tk.StringVar()
+        blackout_start_var = tk.StringVar()
+        blackout_end_var = tk.StringVar()
+        blackout_title_var = tk.StringVar()
+
+        room_type_options: list[tuple[str, RoomType | None]] = [
+            ("Не важливо", None),
+            ("Лекційна", RoomType.LECTURE_HALL),
+            ("Клас", RoomType.CLASSROOM),
+            ("Лабораторія", RoomType.LAB),
+            ("Комп'ютерна", RoomType.COMPUTER_LAB),
+            ("Інше", RoomType.OTHER),
+        ]
+        room_type_by_label = {label: room_type for label, room_type in room_type_options}
+        room_type_labels = [label for label, _ in room_type_options]
+
+        blackout_scope_options: list[tuple[str, ResourceType]] = [
+            ("Викладач", ResourceType.TEACHER),
+            ("Група", ResourceType.GROUP),
+            ("Аудиторія", ResourceType.ROOM),
+        ]
+        blackout_scope_type_by_label = {label: resource_type for label, resource_type in blackout_scope_options}
+        blackout_scope_labels = [label for label, _ in blackout_scope_options]
+        blackout_resource_values_by_scope: dict[str, list[str]] = {label: [] for label in blackout_scope_labels}
+        blackout_resource_name_by_id: dict[int, str] = {}
+        blackout_resource_scope_by_id: dict[int, str] = {}
 
         header = ttk.Frame(parent, style="Card.TFrame")
         header.pack(fill=tk.X, pady=(0, 8))
@@ -616,6 +648,90 @@ class ScheduleMainWindow:
         ttk.Label(subject_box, text="Потік").grid(row=1, column=6, sticky="w", pady=(8, 0))
         subject_stream_box = ttk.Combobox(subject_box, textvariable=subject_stream_var, width=22, state="readonly")
         subject_stream_box.grid(row=1, column=7, sticky="w", padx=(6, 0), pady=(8, 0))
+        ttk.Label(subject_box, text="Тип аудиторії").grid(row=2, column=0, sticky="w", pady=(8, 0))
+        subject_room_type_box = ttk.Combobox(
+            subject_box,
+            textvariable=subject_room_type_var,
+            values=room_type_labels,
+            width=20,
+            state="readonly",
+        )
+        subject_room_type_box.grid(row=2, column=1, sticky="w", padx=(6, 12), pady=(8, 0))
+        ttk.Label(subject_box, text="Мін. місткість").grid(row=2, column=2, sticky="w", pady=(8, 0))
+        ttk.Entry(subject_box, textvariable=subject_min_capacity_var, width=6).grid(
+            row=2, column=3, sticky="w", padx=(6, 12), pady=(8, 0)
+        )
+        ttk.Checkbutton(
+            subject_box,
+            text="Потрібен проєктор",
+            variable=subject_needs_projector_var,
+        ).grid(row=2, column=4, columnspan=2, sticky="w", pady=(8, 0))
+        ttk.Label(subject_box, text="Фікс. аудиторія").grid(row=2, column=6, sticky="w", pady=(8, 0))
+        subject_fixed_room_box = ttk.Combobox(subject_box, textvariable=subject_fixed_room_var, width=22, state="readonly")
+        subject_fixed_room_box.grid(row=2, column=7, sticky="w", padx=(6, 0), pady=(8, 0))
+
+        blackout_box = ttk.LabelFrame(parent, text="Недоступності ресурсів", padding=10)
+        blackout_box.pack(fill=tk.X, pady=(8, 0))
+        blackout_box.columnconfigure(1, weight=1)
+        blackout_box.columnconfigure(3, weight=1)
+
+        ttk.Label(blackout_box, text="Ресурс").grid(row=0, column=0, sticky="w")
+        blackout_scope_box = ttk.Combobox(
+            blackout_box,
+            textvariable=blackout_scope_var,
+            values=blackout_scope_labels,
+            width=11,
+            state="readonly",
+        )
+        blackout_scope_box.grid(row=0, column=1, sticky="w", padx=(6, 12))
+        blackout_resource_box = ttk.Combobox(
+            blackout_box,
+            textvariable=blackout_resource_var,
+            width=34,
+            state="readonly",
+        )
+        blackout_resource_box.grid(row=0, column=2, columnspan=2, sticky="ew", padx=(0, 12))
+        ttk.Label(blackout_box, text="Початок").grid(row=0, column=4, sticky="w")
+        ttk.Entry(blackout_box, textvariable=blackout_start_var, width=17).grid(row=0, column=5, sticky="w", padx=(6, 12))
+        ttk.Label(blackout_box, text="Кінець").grid(row=0, column=6, sticky="w")
+        ttk.Entry(blackout_box, textvariable=blackout_end_var, width=17).grid(row=0, column=7, sticky="w", padx=(6, 0))
+
+        ttk.Label(blackout_box, text="Причина").grid(row=1, column=0, sticky="w", pady=(8, 0))
+        ttk.Entry(blackout_box, textvariable=blackout_title_var).grid(
+            row=1,
+            column=1,
+            columnspan=3,
+            sticky="ew",
+            padx=(6, 12),
+            pady=(8, 0),
+        )
+        blackout_add_button = ttk.Button(blackout_box, text="Додати blackout")
+        blackout_add_button.grid(row=1, column=5, sticky="w", padx=(6, 12), pady=(8, 0))
+        blackout_delete_button = ttk.Button(blackout_box, text="Видалити")
+        blackout_delete_button.grid(row=1, column=6, sticky="w", padx=(0, 12), pady=(8, 0))
+        blackout_reload_button = ttk.Button(blackout_box, text="Оновити")
+        blackout_reload_button.grid(row=1, column=7, sticky="w", pady=(8, 0))
+
+        blackout_table_wrap = ttk.Frame(blackout_box, style="Card.TFrame")
+        blackout_table_wrap.grid(row=2, column=0, columnspan=8, sticky="ew", pady=(10, 0))
+        blackout_table = ttk.Treeview(
+            blackout_table_wrap,
+            columns=("resource", "start", "end", "title"),
+            show="headings",
+            height=5,
+        )
+        blackout_table.heading("resource", text="Ресурс")
+        blackout_table.heading("start", text="Початок")
+        blackout_table.heading("end", text="Кінець")
+        blackout_table.heading("title", text="Причина")
+        blackout_table.column("resource", width=280, anchor="w")
+        blackout_table.column("start", width=160, anchor="center")
+        blackout_table.column("end", width=160, anchor="center")
+        blackout_table.column("title", width=300, anchor="w")
+        blackout_table.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        blackout_scroll = ttk.Scrollbar(blackout_table_wrap, orient=tk.VERTICAL, command=blackout_table.yview)
+        blackout_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        blackout_table.configure(yscrollcommand=blackout_scroll.set)
 
         buttons = ttk.Frame(parent, style="Card.TFrame")
         buttons.pack(fill=tk.X, pady=(8, 8))
@@ -635,29 +751,57 @@ class ScheduleMainWindow:
                 return None
             return date.fromisoformat(raw)
 
+        def parse_prefixed_id(raw: str, *, field_name: str) -> int:
+            value = raw.strip()
+            if not value or "|" not in value:
+                raise ValueError(f"Оберіть '{field_name}'.")
+            return int(value.split("|", maxsplit=1)[0].strip())
+
+        def parse_optional_positive_int(raw: str, *, field_name: str) -> int | None:
+            value = raw.strip()
+            if not value:
+                return None
+            try:
+                parsed = int(value)
+            except ValueError as exc:
+                raise ValueError(f"Поле '{field_name}' має бути цілим числом.") from exc
+            if parsed <= 0:
+                raise ValueError(f"Поле '{field_name}' має бути більше нуля.")
+            return parsed
+
+        def parse_datetime_input(raw: str, *, field_name: str) -> datetime:
+            value = raw.strip()
+            if not value:
+                raise ValueError(f"Заповніть поле '{field_name}'.")
+            normalized = value.replace("T", " ")
+            try:
+                return datetime.fromisoformat(normalized)
+            except ValueError as exc:
+                raise ValueError(f"Поле '{field_name}' має формат YYYY-MM-DD HH:MM.") from exc
+
         def selected_group_resource_id() -> int | None:
             raw = group_filter_var.get().strip()
             if not raw or raw == "Усі групи":
                 return None
-            return int(raw.split("|", maxsplit=1)[0].strip())
+            return parse_prefixed_id(raw, field_name="група")
 
         def selected_teacher_resource_id() -> int:
             raw = subject_teacher_var.get().strip()
             if not raw:
                 raise ValueError("Оберіть викладача.")
-            return int(raw.split("|", maxsplit=1)[0].strip())
+            return parse_prefixed_id(raw, field_name="викладач")
 
         def selected_subject_group_id() -> int:
             raw = subject_group_var.get().strip()
             if not raw:
                 raise ValueError("Оберіть групу для предмета.")
-            return int(raw.split("|", maxsplit=1)[0].strip())
+            return parse_prefixed_id(raw, field_name="група")
 
         def selected_subject_stream_id() -> int:
             raw = subject_stream_var.get().strip()
             if not raw:
                 raise ValueError("Оберіть потік для предмета.")
-            return int(raw.split("|", maxsplit=1)[0].strip())
+            return parse_prefixed_id(raw, field_name="потік")
 
         def selected_subject_target() -> str:
             normalized = subject_target_var.get().strip().lower()
@@ -666,10 +810,67 @@ class ScheduleMainWindow:
                 raise ValueError("Оберіть ціль предмета: група або потік.")
             return value
 
+        def selected_room_type() -> RoomType | None:
+            label = subject_room_type_var.get().strip() or "Не важливо"
+            if label not in room_type_by_label:
+                raise ValueError("Оберіть тип аудиторії.")
+            return room_type_by_label[label]
+
+        def selected_fixed_room_id() -> int | None:
+            raw = subject_fixed_room_var.get().strip()
+            if not raw or raw == "Авто":
+                return None
+            return parse_prefixed_id(raw, field_name="фіксована аудиторія")
+
+        def selected_blackout_scope() -> str:
+            scope = blackout_scope_var.get().strip()
+            if scope not in blackout_scope_type_by_label:
+                raise ValueError("Оберіть тип ресурсу для blackout.")
+            return scope
+
+        def selected_blackout_resource_id() -> int:
+            raw = blackout_resource_var.get().strip()
+            if not raw:
+                raise ValueError("Оберіть ресурс для blackout.")
+            return parse_prefixed_id(raw, field_name="ресурс blackout")
+
         def refresh_subject_target_controls() -> None:
             is_stream = selected_subject_target() == "STREAM"
             subject_group_box.configure(state="disabled" if is_stream else "readonly")
             subject_stream_box.configure(state="readonly" if is_stream else "disabled")
+
+        def refresh_blackout_resource_choices() -> None:
+            scope = selected_blackout_scope()
+            values = blackout_resource_values_by_scope.get(scope, [])
+            blackout_resource_box["values"] = values
+            if values and blackout_resource_var.get() not in values:
+                blackout_resource_var.set(values[0])
+            if not values:
+                blackout_resource_var.set("")
+
+        def load_blackouts() -> None:
+            with session_scope() as session:
+                controller = ResourceController(session=session)
+                blackouts = controller.list_blackouts(company_id=company_id)
+
+            for item_id in blackout_table.get_children():
+                blackout_table.delete(item_id)
+            for blackout in blackouts:
+                resource_id = int(blackout.resource_id)
+                scope_label = blackout_resource_scope_by_id.get(resource_id, "Ресурс")
+                resource_name = blackout_resource_name_by_id.get(resource_id, f"#{resource_id}")
+                resource_label = f"{scope_label}: {resource_name}"
+                blackout_table.insert(
+                    "",
+                    tk.END,
+                    iid=str(blackout.id),
+                    values=(
+                        resource_label,
+                        blackout.starts_at.strftime("%Y-%m-%d %H:%M"),
+                        blackout.ends_at.strftime("%Y-%m-%d %H:%M"),
+                        blackout.title or "—",
+                    ),
+                )
 
         def load_reference_data() -> None:
             with session_scope() as session:
@@ -678,6 +879,7 @@ class ScheduleMainWindow:
                 resources = ResourceController(session=session)
                 groups = resources.list_resources(resource_type=ResourceType.GROUP, company_id=company_id)
                 teachers = resources.list_resources(resource_type=ResourceType.TEACHER, company_id=company_id)
+                rooms = resources.list_resources(resource_type=ResourceType.ROOM, company_id=company_id)
                 streams = AcademicController(session=session).list_streams(company_id=company_id, include_archived=False)
 
             period_values = [f"{item.id} | {item.start_date}..{item.end_date}" for item in periods]
@@ -712,11 +914,37 @@ class ScheduleMainWindow:
             if not stream_values:
                 subject_stream_var.set("")
 
+            room_values = [f"{item.id} | {item.name}" for item in rooms]
+            subject_fixed_room_box["values"] = ["Авто"] + room_values
+            if subject_fixed_room_var.get() not in subject_fixed_room_box["values"]:
+                subject_fixed_room_var.set("Авто")
+
+            blackout_resource_values_by_scope["Викладач"] = teacher_values
+            blackout_resource_values_by_scope["Група"] = group_values
+            blackout_resource_values_by_scope["Аудиторія"] = room_values
+
+            blackout_resource_name_by_id.clear()
+            blackout_resource_scope_by_id.clear()
+            for resource in teachers:
+                blackout_resource_name_by_id[int(resource.id)] = str(resource.name)
+                blackout_resource_scope_by_id[int(resource.id)] = "Викладач"
+            for resource in groups:
+                blackout_resource_name_by_id[int(resource.id)] = str(resource.name)
+                blackout_resource_scope_by_id[int(resource.id)] = "Група"
+            for resource in rooms:
+                blackout_resource_name_by_id[int(resource.id)] = str(resource.name)
+                blackout_resource_scope_by_id[int(resource.id)] = "Аудиторія"
+
             try:
                 refresh_subject_target_controls()
             except ValueError:
                 subject_target_var.set("Група")
                 refresh_subject_target_controls()
+            try:
+                refresh_blackout_resource_choices()
+            except ValueError:
+                blackout_scope_var.set("Викладач")
+                refresh_blackout_resource_choices()
 
         def render_grid(grid) -> None:
             for item in tree.get_children():
@@ -785,6 +1013,10 @@ class ScheduleMainWindow:
                 max_per_week = int(subject_max_week_var.get().strip())
                 teacher_id = selected_teacher_resource_id()
                 target_mode = selected_subject_target()
+                room_type = selected_room_type()
+                min_capacity = parse_optional_positive_int(subject_min_capacity_var.get(), field_name="Мін. місткість")
+                needs_projector = bool(subject_needs_projector_var.get())
+                fixed_room_id = selected_fixed_room_id()
 
                 with session_scope() as session:
                     req_controller = RequirementController(session=session)
@@ -795,6 +1027,10 @@ class ScheduleMainWindow:
                         sessions_total=sessions_total,
                         max_per_week=max_per_week,
                         company_id=company_id,
+                        room_type=room_type,
+                        min_capacity=min_capacity,
+                        needs_projector=needs_projector,
+                        fixed_room_id=fixed_room_id,
                     )
                     req_controller.assign_resource(requirement.id, teacher_id, "TEACHER")
 
@@ -817,6 +1053,45 @@ class ScheduleMainWindow:
                 return
             target_label = "потоку" if selected_subject_target() == "STREAM" else "групи"
             status_var.set(f"Предмет '{name}' додано для {target_label}.")
+
+        def on_add_blackout() -> None:
+            try:
+                selected_blackout_scope()
+                resource_id = selected_blackout_resource_id()
+                starts_at = parse_datetime_input(blackout_start_var.get(), field_name="Початок")
+                ends_at = parse_datetime_input(blackout_end_var.get(), field_name="Кінець")
+                if ends_at <= starts_at:
+                    raise ValueError("Кінець blackout має бути пізніше за початок.")
+                title = blackout_title_var.get().strip() or None
+                with session_scope() as session:
+                    ResourceController(session=session).create_blackout(
+                        resource_id=resource_id,
+                        starts_at=starts_at,
+                        ends_at=ends_at,
+                        title=title,
+                    )
+            except Exception as exc:
+                messagebox.showerror("Не вдалося додати blackout", str(exc))
+                return
+            load_blackouts()
+            status_var.set("Blackout додано.")
+
+        def on_delete_blackout() -> None:
+            selected = blackout_table.selection()
+            if not selected:
+                messagebox.showwarning("Видалення blackout", "Оберіть blackout у списку.")
+                return
+            blackout_id = int(selected[0])
+            try:
+                with session_scope() as session:
+                    deleted = ResourceController(session=session).delete_blackout(blackout_id=blackout_id)
+                    if not deleted:
+                        raise ValueError("Blackout не знайдено або вже видалено.")
+            except Exception as exc:
+                messagebox.showerror("Не вдалося видалити blackout", str(exc))
+                return
+            load_blackouts()
+            status_var.set("Blackout видалено.")
 
         def on_create_default_period() -> None:
             try:
@@ -877,8 +1152,14 @@ class ScheduleMainWindow:
             width=220,
         ).pack(side=tk.LEFT)
 
+        blackout_add_button.configure(command=on_add_blackout)
+        blackout_delete_button.configure(command=on_delete_blackout)
+        blackout_reload_button.configure(command=load_blackouts)
+
         load_reference_data()
+        load_blackouts()
         subject_target_box.bind("<<ComboboxSelected>>", lambda _e: refresh_subject_target_controls(), add="+")
+        blackout_scope_box.bind("<<ComboboxSelected>>", lambda _e: refresh_blackout_resource_choices(), add="+")
         if period_var.get():
             on_load_week()
 
