@@ -674,24 +674,91 @@ class CompanyCurriculumTab:
             height=34,
         ).grid(row=2, column=0, sticky="w")
 
-        right = ttk.Frame(content, style="Card.TFrame")
-        right.grid(row=0, column=1, sticky="nsew")
+        right_shell = ttk.Frame(content, style="Card.TFrame")
+        right_canvas = tk.Canvas(
+            right_shell,
+            bg=self.theme.SURFACE,
+            bd=0,
+            highlightthickness=0,
+            relief=tk.FLAT,
+        )
+        right_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        right_scroll = ttk.Scrollbar(
+            right_shell,
+            orient=tk.VERTICAL,
+            command=right_canvas.yview,
+            style="App.Vertical.TScrollbar",
+        )
+        right_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        right_canvas.configure(yscrollcommand=right_scroll.set)
+
+        right = ttk.Frame(right_canvas, style="Card.TFrame")
+        right_window = right_canvas.create_window((0, 0), anchor="nw", window=right)
         right.grid_columnconfigure(0, weight=1)
-        right.grid_rowconfigure(1, weight=1)
-        right.grid_rowconfigure(2, weight=1)
 
         self._build_plan_editor(right)
         self._build_components_editor(right)
         self._build_assignments_editor(right)
 
+        def _sync_plans_scroll(_event=None) -> None:
+            viewport_width = max(1, right_canvas.winfo_width())
+            right_canvas.itemconfigure(right_window, width=viewport_width)
+            bbox = right_canvas.bbox("all")
+            if bbox is not None:
+                right_canvas.configure(scrollregion=bbox)
+
+        def _scroll_plans(step_units: int) -> str:
+            first, last = right_canvas.yview()
+            visible = float(last) - float(first)
+            if visible >= 0.999:
+                return "break"
+            if step_units < 0 and float(first) <= 0.0001:
+                return "break"
+            if step_units > 0 and float(last) >= 0.9999:
+                return "break"
+            right_canvas.yview_scroll(step_units, "units")
+            return "break"
+
+        def _on_plans_wheel(event: tk.Event) -> str:
+            delta = getattr(event, "delta", 0)
+            if not delta:
+                return "break"
+            direction = -1 if delta > 0 else 1
+            steps = max(1, int(abs(delta) / 120))
+            for _ in range(steps):
+                _scroll_plans(direction)
+            return "break"
+
+        def _on_plans_up(_event: tk.Event) -> str:
+            return _scroll_plans(-1)
+
+        def _on_plans_down(_event: tk.Event) -> str:
+            return _scroll_plans(1)
+
+        def _bind_plans_wheel_recursive(widget: tk.Widget) -> None:
+            if not isinstance(widget, (ttk.Treeview, tk.Listbox, tk.Canvas)):
+                widget.bind("<MouseWheel>", _on_plans_wheel, add="+")
+                widget.bind("<Button-4>", _on_plans_up, add="+")
+                widget.bind("<Button-5>", _on_plans_down, add="+")
+            for child in widget.winfo_children():
+                _bind_plans_wheel_recursive(child)
+
+        right.bind("<Configure>", _sync_plans_scroll, add="+")
+        right_canvas.bind("<Configure>", _sync_plans_scroll, add="+")
+        right_canvas.bind("<MouseWheel>", _on_plans_wheel, add="+")
+        right_canvas.bind("<Button-4>", _on_plans_up, add="+")
+        right_canvas.bind("<Button-5>", _on_plans_down, add="+")
+        _bind_plans_wheel_recursive(right)
+        right.after_idle(_sync_plans_scroll)
+
         self._bind_responsive_split(
             container=content,
             left=left,
-            right=right,
+            right=right_shell,
             breakpoint=1220,
             wide_left_weight=2,
             wide_right_weight=5,
-            stacked_top_weight=0,
+            stacked_top_weight=1,
             stacked_bottom_weight=1,
         )
 
