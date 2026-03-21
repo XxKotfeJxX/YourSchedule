@@ -94,19 +94,63 @@ class CompanyCurriculumTab:
         self._subgroup_name_by_id: dict[int, str] = {}
 
     def build(self) -> None:
-        notebook = ttk.Notebook(self.parent, style="FlatTabs.TNotebook")
-        notebook.pack(fill=tk.BOTH, expand=True, padx=2, pady=(0, 2))
+        tabs_bar = ttk.Frame(self.parent, style="Card.TFrame")
+        tabs_bar.pack(fill=tk.X, pady=(0, 8))
 
-        teachers_tab = ttk.Frame(notebook, style="Card.TFrame", padding=6)
-        subjects_tab = ttk.Frame(notebook, style="Card.TFrame", padding=6)
-        plans_tab = ttk.Frame(notebook, style="Card.TFrame", padding=6)
-        notebook.add(teachers_tab, text="Викладачі")
-        notebook.add(subjects_tab, text="Предмети")
-        notebook.add(plans_tab, text="Плани")
+        content = ttk.Frame(self.parent, style="Card.TFrame")
+        content.pack(fill=tk.BOTH, expand=True, padx=2, pady=(0, 2))
 
-        self._build_teachers_tab(teachers_tab)
-        self._build_subjects_tab(subjects_tab)
-        self._build_plans_tab(plans_tab)
+        views: dict[str, ttk.Frame] = {
+            "teachers": ttk.Frame(content, style="Card.TFrame", padding=6),
+            "subjects": ttk.Frame(content, style="Card.TFrame", padding=6),
+            "plans": ttk.Frame(content, style="Card.TFrame", padding=6),
+        }
+        nav_buttons: dict[str, object] = {}
+
+        def _set_nav_button_state(button: object, *, active: bool) -> None:
+            if active:
+                button.fill = self.theme.ACCENT
+                button.hover_fill = self.theme.ACCENT_HOVER
+                button.pressed_fill = self.theme.ACCENT_PRESSED
+                button.text_color = self.theme.TEXT_LIGHT
+                button.shadow_color = self.theme.SHADOW_SOFT
+            else:
+                button.fill = self.theme.SURFACE_ALT
+                button.hover_fill = self.theme.SECONDARY_HOVER
+                button.pressed_fill = self.theme.SECONDARY_PRESSED
+                button.text_color = self.theme.TEXT_PRIMARY
+                button.shadow_color = self.theme.SHADOW_SOFT
+            button._draw()
+
+        def open_tab(name: str) -> None:
+            for frame in views.values():
+                frame.pack_forget()
+            views[name].pack(fill=tk.BOTH, expand=True)
+            for key, button in nav_buttons.items():
+                _set_nav_button_state(button, active=key == name)
+
+        tab_specs = (
+            ("teachers", "Викладачі"),
+            ("subjects", "Предмети"),
+            ("plans", "Плани"),
+        )
+        for key, label in tab_specs:
+            button = self._motion_button(
+                tabs_bar,
+                text=label,
+                command=lambda selected=key: open_tab(selected),
+                primary=False,
+                width=150,
+                height=40,
+            )
+            button.pack(side=tk.LEFT, padx=(0, 8))
+            nav_buttons[key] = button
+
+        self._build_teachers_tab(views["teachers"])
+        self._build_subjects_tab(views["subjects"])
+        self._build_plans_tab(views["plans"])
+
+        open_tab("teachers")
 
         ttk.Label(self.parent, textvariable=self.status_var, style="CardSubtle.TLabel").pack(fill=tk.X, pady=(4, 0))
 
