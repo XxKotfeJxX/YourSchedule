@@ -321,7 +321,7 @@ class CompanyCurriculumTab:
             command=self.teacher_listbox.yview,
             style="App.Vertical.TScrollbar",
         )
-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y, padx=(4, 0), pady=2)
         self.teacher_listbox.configure(yscrollcommand=scroll.set)
         self.teacher_listbox.bind("<<ListboxSelect>>", lambda _e: self._on_teacher_select(), add="+")
 
@@ -472,7 +472,7 @@ class CompanyCurriculumTab:
             command=self.subject_listbox.yview,
             style="App.Vertical.TScrollbar",
         )
-        scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        scroll.pack(side=tk.RIGHT, fill=tk.Y, padx=(4, 0), pady=2)
         self.subject_listbox.configure(yscrollcommand=scroll.set)
         self.subject_listbox.bind("<<ListboxSelect>>", lambda _e: self._on_subject_select(), add="+")
 
@@ -666,7 +666,7 @@ class CompanyCurriculumTab:
             command=self.plan_listbox.yview,
             style="App.Vertical.TScrollbar",
         )
-        plan_scroll.grid(row=1, column=1, sticky="ns", pady=(4, 6))
+        plan_scroll.grid(row=1, column=1, sticky="ns", padx=(4, 0), pady=(4, 6))
         self.plan_listbox.configure(yscrollcommand=plan_scroll.set)
         self.plan_listbox.bind("<<ListboxSelect>>", lambda _e: self._on_plan_select(), add="+")
         self._motion_button(
@@ -693,7 +693,7 @@ class CompanyCurriculumTab:
             command=right_canvas.yview,
             style="App.Vertical.TScrollbar",
         )
-        right_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        right_scroll.pack(side=tk.RIGHT, fill=tk.Y, padx=(4, 0), pady=2)
         right_canvas.configure(yscrollcommand=right_scroll.set)
 
         right = ttk.Frame(right_canvas, style="Card.TFrame")
@@ -711,33 +711,48 @@ class CompanyCurriculumTab:
             if bbox is not None:
                 right_canvas.configure(scrollregion=bbox)
 
-        def _scroll_plans(step_units: int) -> str:
-            first, last = right_canvas.yview()
-            visible = float(last) - float(first)
-            if visible >= 0.999:
-                return "break"
-            if step_units < 0 and float(first) <= 0.0001:
-                return "break"
-            if step_units > 0 and float(last) >= 0.9999:
-                return "break"
-            right_canvas.yview_scroll(step_units, "units")
-            return "break"
+        def _create_smooth_wheel_handlers(get_view, set_view, *, gain: float = 0.15):
+            state: dict[str, float] = {"velocity": 0.0}
 
-        def _on_plans_wheel(event: tk.Event) -> str:
-            delta = getattr(event, "delta", 0)
-            if not delta:
+            def _wheel_step(step_units: float) -> str:
+                first, last = get_view()
+                first_f = float(first)
+                last_f = float(last)
+                visible = max(0.0001, last_f - first_f)
+                if visible >= 0.999:
+                    return "break"
+
+                smoothed_units = state["velocity"] * 0.35 + max(-4.0, min(4.0, step_units)) * 0.65
+                if abs(smoothed_units) < 0.01:
+                    smoothed_units = step_units
+                state["velocity"] = smoothed_units
+
+                max_first = max(0.0, 1.0 - visible)
+                next_first = max(0.0, min(first_f + smoothed_units * visible * gain, max_first))
+                if abs(next_first - first_f) < 0.00001:
+                    return "break"
+                set_view(next_first)
                 return "break"
-            direction = -1 if delta > 0 else 1
-            steps = max(1, int(abs(delta) / 120))
-            for _ in range(steps):
-                _scroll_plans(direction)
-            return "break"
 
-        def _on_plans_up(_event: tk.Event) -> str:
-            return _scroll_plans(-1)
+            def _on_wheel(event: tk.Event) -> str:
+                delta = float(getattr(event, "delta", 0.0))
+                if delta == 0:
+                    return "break"
+                return _wheel_step(-delta / 120.0)
 
-        def _on_plans_down(_event: tk.Event) -> str:
-            return _scroll_plans(1)
+            def _on_button4(_event: tk.Event) -> str:
+                return _wheel_step(-1.0)
+
+            def _on_button5(_event: tk.Event) -> str:
+                return _wheel_step(1.0)
+
+            return _on_wheel, _on_button4, _on_button5
+
+        _on_plans_wheel, _on_plans_up, _on_plans_down = _create_smooth_wheel_handlers(
+            right_canvas.yview,
+            right_canvas.yview_moveto,
+            gain=0.15,
+        )
 
         def _bind_plans_wheel_recursive(widget: tk.Widget) -> None:
             if not isinstance(widget, (ttk.Treeview, tk.Listbox, tk.Canvas)):
