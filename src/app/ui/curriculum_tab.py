@@ -303,14 +303,16 @@ class CompanyCurriculumTab:
         self.teacher_listbox = tk.Listbox(
             list_wrap,
             activestyle="none",
-            bg=self.theme.SURFACE_ALT,
+            bg=self.theme.SURFACE,
             fg=self.theme.TEXT_PRIMARY,
-            selectbackground=self.theme.ACCENT,
-            selectforeground=self.theme.TEXT_LIGHT,
+            selectbackground=self.theme.LISTBOX_SELECTED_BG,
+            selectforeground=self.theme.TEXT_PRIMARY,
             borderwidth=0,
             highlightthickness=1,
             highlightbackground=self.theme.BORDER,
             relief=tk.FLAT,
+            font=("Segoe UI", 11),
+            exportselection=False,
         )
         self.teacher_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         scroll = ttk.Scrollbar(
@@ -361,11 +363,12 @@ class CompanyCurriculumTab:
                 resource_type=ResourceType.TEACHER,
                 company_id=self.company_id,
             )
+        teachers = sorted(teachers, key=lambda item: item.name.casefold())
         self._teacher_ids = [item.id for item in teachers]
         self._teacher_name_by_id = {item.id: item.name for item in teachers}
         self.teacher_listbox.delete(0, tk.END)
         for item in teachers:
-            self.teacher_listbox.insert(tk.END, f"{item.id} | {item.name}")
+            self.teacher_listbox.insert(tk.END, item.name)
         if selected_id is not None and selected_id in self._teacher_ids:
             idx = self._teacher_ids.index(selected_id)
             self.teacher_listbox.selection_set(idx)
