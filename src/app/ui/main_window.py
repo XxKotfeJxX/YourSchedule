@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from uuid import uuid4
@@ -564,6 +564,12 @@ class ScheduleMainWindow:
         blackout_start_var = tk.StringVar()
         blackout_end_var = tk.StringVar()
         blackout_title_var = tk.StringVar()
+        blackout_batch_start_date_var = tk.StringVar()
+        blackout_batch_end_date_var = tk.StringVar()
+        blackout_batch_start_time_var = tk.StringVar(value="08:30")
+        blackout_batch_end_time_var = tk.StringVar(value="18:00")
+        blackout_batch_weekdays_var = tk.StringVar(value="1,2,3,4,5")
+        coverage_summary_var = tk.StringVar(value="Coverage: —")
 
         room_type_options: list[tuple[str, RoomType | None]] = [
             ("Не важливо", None),
@@ -748,8 +754,36 @@ class ScheduleMainWindow:
         blackout_reload_button = ttk.Button(blackout_box, text="Оновити")
         blackout_reload_button.grid(row=1, column=7, sticky="w", pady=(8, 0))
 
+        ttk.Label(blackout_box, text="Пакет: з дати").grid(row=2, column=0, sticky="w", pady=(8, 0))
+        ttk.Entry(blackout_box, textvariable=blackout_batch_start_date_var, width=12).grid(
+            row=2, column=1, sticky="w", padx=(6, 12), pady=(8, 0)
+        )
+        ttk.Label(blackout_box, text="по дату").grid(row=2, column=2, sticky="w", pady=(8, 0))
+        ttk.Entry(blackout_box, textvariable=blackout_batch_end_date_var, width=12).grid(
+            row=2, column=3, sticky="w", padx=(6, 12), pady=(8, 0)
+        )
+        ttk.Label(blackout_box, text="час").grid(row=2, column=4, sticky="w", pady=(8, 0))
+        ttk.Entry(blackout_box, textvariable=blackout_batch_start_time_var, width=8).grid(
+            row=2, column=5, sticky="w", padx=(6, 6), pady=(8, 0)
+        )
+        ttk.Entry(blackout_box, textvariable=blackout_batch_end_time_var, width=8).grid(
+            row=2, column=6, sticky="w", padx=(0, 12), pady=(8, 0)
+        )
+        blackout_batch_button = ttk.Button(blackout_box, text="Додати пакет")
+        blackout_batch_button.grid(row=2, column=7, sticky="w", pady=(8, 0))
+
+        ttk.Label(blackout_box, text="Дні тижня (1-7, через кому)").grid(row=3, column=0, sticky="w", pady=(8, 0))
+        ttk.Entry(blackout_box, textvariable=blackout_batch_weekdays_var, width=28).grid(
+            row=3,
+            column=1,
+            columnspan=3,
+            sticky="w",
+            padx=(6, 12),
+            pady=(8, 0),
+        )
+
         blackout_table_wrap = ttk.Frame(blackout_box, style="Card.TFrame")
-        blackout_table_wrap.grid(row=2, column=0, columnspan=8, sticky="ew", pady=(10, 0))
+        blackout_table_wrap.grid(row=4, column=0, columnspan=8, sticky="ew", pady=(10, 0))
         blackout_table = ttk.Treeview(
             blackout_table_wrap,
             columns=("resource", "start", "end", "title"),
@@ -854,6 +888,34 @@ class ScheduleMainWindow:
         manual_add_button = ttk.Button(manual_box, text="Додати ручний слот")
         manual_add_button.grid(row=1, column=1, sticky="w", pady=(8, 0))
 
+        coverage_box = ttk.LabelFrame(parent, text="Coverage dashboard", padding=10)
+        coverage_box.pack(fill=tk.X, pady=(8, 0))
+        coverage_actions = ttk.Frame(coverage_box, style="Card.TFrame")
+        coverage_actions.pack(fill=tk.X, pady=(0, 6))
+        ttk.Label(coverage_actions, textvariable=coverage_summary_var, style="CardSubtle.TLabel").pack(side=tk.LEFT)
+        coverage_refresh_button = ttk.Button(coverage_actions, text="Оновити coverage")
+        coverage_refresh_button.pack(side=tk.RIGHT)
+        coverage_table_wrap = ttk.Frame(coverage_box, style="Card.TFrame")
+        coverage_table_wrap.pack(fill=tk.X)
+        coverage_table = ttk.Treeview(
+            coverage_table_wrap,
+            columns=("reason", "requirements", "missing", "message"),
+            show="headings",
+            height=4,
+        )
+        coverage_table.heading("reason", text="Причина")
+        coverage_table.heading("requirements", text="Вимог")
+        coverage_table.heading("missing", text="Не закрито занять")
+        coverage_table.heading("message", text="Приклад")
+        coverage_table.column("reason", width=170, anchor="center")
+        coverage_table.column("requirements", width=90, anchor="center")
+        coverage_table.column("missing", width=150, anchor="center")
+        coverage_table.column("message", width=520, anchor="w")
+        coverage_table.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        coverage_scroll = ttk.Scrollbar(coverage_table_wrap, orient=tk.VERTICAL, command=coverage_table.yview)
+        coverage_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        coverage_table.configure(yscrollcommand=coverage_scroll.set)
+
         buttons = ttk.Frame(parent, style="Card.TFrame")
         buttons.pack(fill=tk.X, pady=(8, 8))
 
@@ -920,6 +982,44 @@ class ScheduleMainWindow:
                 return datetime.fromisoformat(normalized)
             except ValueError as exc:
                 raise ValueError(f"Поле '{field_name}' має формат YYYY-MM-DD HH:MM.") from exc
+
+        def parse_date_input(raw: str, *, field_name: str) -> date:
+            value = raw.strip()
+            if not value:
+                raise ValueError(f"Заповніть поле '{field_name}'.")
+            try:
+                return date.fromisoformat(value)
+            except ValueError as exc:
+                raise ValueError(f"Поле '{field_name}' має формат YYYY-MM-DD.") from exc
+
+        def parse_time_input(raw: str, *, field_name: str) -> time:
+            value = raw.strip()
+            if not value:
+                raise ValueError(f"Заповніть поле '{field_name}'.")
+            try:
+                return time.fromisoformat(value)
+            except ValueError as exc:
+                raise ValueError(f"Поле '{field_name}' має формат HH:MM.") from exc
+
+        def parse_weekdays(raw: str) -> set[int]:
+            value = raw.strip()
+            if not value:
+                raise ValueError("Вкажіть дні тижня для пакетного blackout.")
+            result: set[int] = set()
+            for token in value.split(","):
+                stripped = token.strip()
+                if not stripped:
+                    continue
+                try:
+                    weekday = int(stripped)
+                except ValueError as exc:
+                    raise ValueError("Дні тижня мають бути числами 1..7.") from exc
+                if weekday < 1 or weekday > 7:
+                    raise ValueError("Дні тижня мають бути в межах 1..7.")
+                result.add(weekday)
+            if not result:
+                raise ValueError("Вкажіть хоча б один день тижня.")
+            return result
 
         def selected_group_resource_id() -> int | None:
             raw = group_filter_var.get().strip()
@@ -1023,6 +1123,47 @@ class ScheduleMainWindow:
                         blackout.starts_at.strftime("%Y-%m-%d %H:%M"),
                         blackout.ends_at.strftime("%Y-%m-%d %H:%M"),
                         blackout.title or "—",
+                    ),
+                )
+
+        def load_coverage_dashboard() -> None:
+            try:
+                period_id = parse_period_id()
+                scenario_id = selected_scenario_id()
+            except Exception:
+                coverage_summary_var.set("Coverage: —")
+                for item_id in coverage_table.get_children():
+                    coverage_table.delete(item_id)
+                return
+
+            try:
+                with session_scope() as session:
+                    dashboard = SchedulerController(session=session).get_coverage_dashboard(
+                        calendar_period_id=period_id,
+                        scenario_id=scenario_id,
+                    )
+            except Exception as exc:
+                coverage_summary_var.set(f"Coverage: помилка ({exc})")
+                return
+
+            coverage_summary_var.set(
+                "Coverage: "
+                f"вимог {dashboard.covered_requirements}/{dashboard.total_requirements}, "
+                f"сесій {dashboard.total_sessions_scheduled}/{dashboard.total_sessions_required}, "
+                f"не закрито вимог {dashboard.uncovered_requirements}"
+            )
+            for item_id in coverage_table.get_children():
+                coverage_table.delete(item_id)
+            for index, reason in enumerate(dashboard.reasons[:12], start=1):
+                coverage_table.insert(
+                    "",
+                    tk.END,
+                    iid=f"coverage_{index}",
+                    values=(
+                        reason.code,
+                        str(reason.requirements_count),
+                        str(reason.sessions_missing),
+                        reason.sample_message,
                     ),
                 )
 
@@ -1521,6 +1662,16 @@ class ScheduleMainWindow:
                 f"right={comparison.only_right_count}, changed={comparison.changed_count}."
             )
 
+        def on_period_changed() -> None:
+            try:
+                period_id = parse_period_id()
+            except Exception:
+                load_scenarios(period_id=None)
+                load_coverage_dashboard()
+                return
+            load_scenarios(period_id=period_id)
+            on_load_week()
+
         def load_reference_data() -> None:
             with session_scope() as session:
                 calendar = CalendarController(session=session)
@@ -1582,6 +1733,17 @@ class ScheduleMainWindow:
                     manual_date_var.set(period_start)
                 except Exception:
                     pass
+            if period_values and (not blackout_batch_start_date_var.get() or not blackout_batch_end_date_var.get()):
+                try:
+                    period_range = str(period_values[0].split("|", maxsplit=1)[1]).strip()
+                    period_start = period_range.split("..", maxsplit=1)[0].strip()
+                    period_end = period_range.split("..", maxsplit=1)[1].strip()
+                    if not blackout_batch_start_date_var.get():
+                        blackout_batch_start_date_var.set(period_start)
+                    if not blackout_batch_end_date_var.get():
+                        blackout_batch_end_date_var.set(period_end)
+                except Exception:
+                    pass
 
             blackout_resource_values_by_scope["Викладач"] = teacher_values
             blackout_resource_values_by_scope["Група"] = group_values
@@ -1639,6 +1801,7 @@ class ScheduleMainWindow:
             render_grid(grid)
             scope_label = "опублікований" if selected_scenario_id() is None else "чернетка"
             status_var.set(f"Завантажено тиждень {grid.week_start}. Рядків: {len(grid.rows)}. Режим: {scope_label}.")
+            load_coverage_dashboard()
 
         def on_build_schedule() -> None:
             try:
@@ -1818,7 +1981,46 @@ class ScheduleMainWindow:
                 messagebox.showerror("Не вдалося додати blackout", str(exc))
                 return
             load_blackouts()
+            load_coverage_dashboard()
             status_var.set("Blackout додано.")
+
+        def on_add_blackout_batch() -> None:
+            try:
+                selected_blackout_scope()
+                resource_id = selected_blackout_resource_id()
+                start_day = parse_date_input(blackout_batch_start_date_var.get(), field_name="Початок пакета")
+                end_day = parse_date_input(blackout_batch_end_date_var.get(), field_name="Кінець пакета")
+                if end_day < start_day:
+                    raise ValueError("Кінець пакета має бути не раніше початку.")
+                start_clock = parse_time_input(blackout_batch_start_time_var.get(), field_name="Час початку")
+                end_clock = parse_time_input(blackout_batch_end_time_var.get(), field_name="Час кінця")
+                weekdays = parse_weekdays(blackout_batch_weekdays_var.get())
+                title = blackout_title_var.get().strip() or None
+
+                intervals: list[tuple[datetime, datetime, str | None]] = []
+                current_day = start_day
+                while current_day <= end_day:
+                    if current_day.isoweekday() in weekdays:
+                        starts_at = datetime.combine(current_day, start_clock)
+                        ends_at = datetime.combine(current_day, end_clock)
+                        if ends_at <= starts_at:
+                            raise ValueError("Час кінця blackout має бути пізніше за початок.")
+                        intervals.append((starts_at, ends_at, title))
+                    current_day += timedelta(days=1)
+                if not intervals:
+                    raise ValueError("За обраним діапазоном і днями тижня не згенеровано жодного blackout.")
+
+                with session_scope() as session:
+                    created = ResourceController(session=session).create_blackouts_batch(
+                        resource_id=resource_id,
+                        intervals=intervals,
+                    )
+            except Exception as exc:
+                messagebox.showerror("Batch blackout", str(exc))
+                return
+            load_blackouts()
+            load_coverage_dashboard()
+            status_var.set(f"Додано blackout пакет: {len(created)} записів.")
 
         def on_delete_blackout() -> None:
             selected = blackout_table.selection()
@@ -1835,6 +2037,7 @@ class ScheduleMainWindow:
                 messagebox.showerror("Не вдалося видалити blackout", str(exc))
                 return
             load_blackouts()
+            load_coverage_dashboard()
             status_var.set("Blackout видалено.")
 
         def on_add_manual_entry() -> None:
@@ -1937,8 +2140,10 @@ class ScheduleMainWindow:
         ).pack(side=tk.LEFT)
 
         blackout_add_button.configure(command=on_add_blackout)
+        blackout_batch_button.configure(command=on_add_blackout_batch)
         blackout_delete_button.configure(command=on_delete_blackout)
         blackout_reload_button.configure(command=load_blackouts)
+        coverage_refresh_button.configure(command=load_coverage_dashboard)
         scenario_compare_button.configure(command=on_compare_scenarios)
         scenario_publish_button.configure(command=on_publish_scenario)
         policy_save_button.configure(command=on_save_policy)
@@ -1951,9 +2156,10 @@ class ScheduleMainWindow:
         load_policy()
         load_blackouts()
         load_requirements()
+        load_coverage_dashboard()
         subject_target_box.bind("<<ComboboxSelected>>", lambda _e: refresh_subject_target_controls(), add="+")
         blackout_scope_box.bind("<<ComboboxSelected>>", lambda _e: refresh_blackout_resource_choices(), add="+")
-        period_box.bind("<<ComboboxSelected>>", lambda _e: load_scenarios(period_id=parse_period_id()), add="+")
+        period_box.bind("<<ComboboxSelected>>", lambda _e: on_period_changed(), add="+")
         scenario_box.bind("<<ComboboxSelected>>", lambda _e: on_load_week(), add="+")
         requirements_table.bind("<Double-1>", lambda _e: open_requirement_edit_modal(), add="+")
         if period_var.get():
