@@ -584,6 +584,8 @@ class ScheduleMainWindow:
         blackout_resource_values_by_scope: dict[str, list[str]] = {label: [] for label in blackout_scope_labels}
         blackout_resource_name_by_id: dict[int, str] = {}
         blackout_resource_scope_by_id: dict[int, str] = {}
+        room_type_label_by_enum = {room_type: label for label, room_type in room_type_options if room_type is not None}
+        requirements_state: dict[str, list[dict[str, object]]] = {"items": []}
 
         header = ttk.Frame(parent, style="Card.TFrame")
         header.pack(fill=tk.X, pady=(0, 8))
@@ -733,6 +735,40 @@ class ScheduleMainWindow:
         blackout_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         blackout_table.configure(yscrollcommand=blackout_scroll.set)
 
+        requirements_box = ttk.LabelFrame(parent, text="Вимоги", padding=10)
+        requirements_box.pack(fill=tk.X, pady=(8, 0))
+        requirements_actions = ttk.Frame(requirements_box, style="Card.TFrame")
+        requirements_actions.pack(fill=tk.X, pady=(0, 6))
+        requirements_refresh_button = ttk.Button(requirements_actions, text="Оновити")
+        requirements_refresh_button.pack(side=tk.LEFT, padx=(0, 8))
+        requirements_edit_button = ttk.Button(requirements_actions, text="Редагувати")
+        requirements_edit_button.pack(side=tk.LEFT, padx=(0, 8))
+        requirements_delete_button = ttk.Button(requirements_actions, text="Видалити")
+        requirements_delete_button.pack(side=tk.LEFT)
+
+        requirements_table_wrap = ttk.Frame(requirements_box, style="Card.TFrame")
+        requirements_table_wrap.pack(fill=tk.X)
+        requirements_table = ttk.Treeview(
+            requirements_table_wrap,
+            columns=("name", "params", "teacher", "target", "room"),
+            show="headings",
+            height=6,
+        )
+        requirements_table.heading("name", text="Назва")
+        requirements_table.heading("params", text="Параметри")
+        requirements_table.heading("teacher", text="Викладачі")
+        requirements_table.heading("target", text="Цілі")
+        requirements_table.heading("room", text="Аудиторія")
+        requirements_table.column("name", width=220, anchor="w")
+        requirements_table.column("params", width=180, anchor="center")
+        requirements_table.column("teacher", width=190, anchor="w")
+        requirements_table.column("target", width=190, anchor="w")
+        requirements_table.column("room", width=290, anchor="w")
+        requirements_table.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        requirements_scroll = ttk.Scrollbar(requirements_table_wrap, orient=tk.VERTICAL, command=requirements_table.yview)
+        requirements_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        requirements_table.configure(yscrollcommand=requirements_scroll.set)
+
         buttons = ttk.Frame(parent, style="Card.TFrame")
         buttons.pack(fill=tk.X, pady=(8, 8))
 
@@ -872,6 +908,235 @@ class ScheduleMainWindow:
                     ),
                 )
 
+        def selected_requirement_id() -> int | None:
+            selected = requirements_table.selection()
+            if not selected:
+                return None
+            return int(selected[0])
+
+        def _compact_names(values: list[str], *, limit: int = 2) -> str:
+            if not values:
+                return "—"
+            if len(values) <= limit:
+                return ", ".join(values)
+            return f"{', '.join(values[:limit])} +{len(values) - limit}"
+
+        def _format_room_constraints(requirement, room_name_by_profile_id: dict[int, str]) -> str:
+            parts: list[str] = []
+            if requirement.room_type is not None:
+                parts.append(room_type_label_by_enum.get(requirement.room_type, requirement.room_type.value))
+            if requirement.min_capacity is not None:
+                parts.append(f"≥ {requirement.min_capacity} місць")
+            if requirement.needs_projector:
+                parts.append("проєктор")
+            if requirement.fixed_room_id is not None:
+                room_label = room_name_by_profile_id.get(int(requirement.fixed_room_id), f"#{requirement.fixed_room_id}")
+                parts.append(f"фікс: {room_label}")
+            if not parts:
+                return "без обмежень"
+            return ", ".join(parts)
+
+        def render_requirements() -> None:
+            for item_id in requirements_table.get_children():
+                requirements_table.delete(item_id)
+            for item in requirements_state["items"]:
+                requirements_table.insert(
+                    "",
+                    tk.END,
+                    iid=str(item["id"]),
+                    values=(
+                        str(item["name"]),
+                        str(item["params"]),
+                        str(item["teachers"]),
+                        str(item["targets"]),
+                        str(item["room_constraints"]),
+                    ),
+                )
+
+        def load_requirements() -> None:
+            with session_scope() as session:
+                req_controller = RequirementController(session=session)
+                resource_controller = ResourceController(session=session)
+                room_controller = RoomController(session=session)
+
+                requirements = req_controller.list_requirements(company_id=company_id)
+                resources = resource_controller.list_resources(company_id=company_id)
+                room_profiles = room_controller.list_rooms(company_id=company_id, include_archived=True)
+
+                resource_by_id = {int(resource.id): resource for resource in resources}
+                room_name_by_profile_id = {int(room.id): str(room.name) for room in room_profiles}
+                rows: list[dict[str, object]] = []
+
+                for requirement in requirements:
+                    links = req_controller.list_requirement_resources(requirement_id=int(requirement.id))
+                    teachers: list[str] = []
+                    targets: list[str] = []
+
+                    for link in links:
+                        resource = resource_by_id.get(int(link.resource_id))
+                        if resource is None:
+                            continue
+                        if resource.type == ResourceType.TEACHER:
+                            teachers.append(str(resource.name))
+                        elif resource.type in {ResourceType.GROUP, ResourceType.SUBGROUP}:
+                            targets.append(str(resource.name))
+
+                    rows.append(
+                        {
+                            "id": int(requirement.id),
+                            "name": str(requirement.name),
+                            "params": (
+                                f"{int(requirement.duration_blocks)} бл. | "
+                                f"{int(requirement.sessions_total)} зан. | "
+                                f"{int(requirement.max_per_week)} / тиж."
+                            ),
+                            "teachers": _compact_names(teachers),
+                            "targets": _compact_names(targets),
+                            "room_constraints": _format_room_constraints(requirement, room_name_by_profile_id),
+                        }
+                    )
+
+            requirements_state["items"] = rows
+            render_requirements()
+
+        def open_requirement_edit_modal() -> None:
+            requirement_id = selected_requirement_id()
+            if requirement_id is None:
+                messagebox.showwarning("Редагування вимоги", "Оберіть вимогу у списку.")
+                return
+
+            with session_scope() as session:
+                req_controller = RequirementController(session=session)
+                room_controller = RoomController(session=session)
+                requirement = req_controller.get_requirement(requirement_id=requirement_id)
+                room_profiles = room_controller.list_rooms(company_id=company_id, include_archived=True)
+            if requirement is None:
+                messagebox.showerror("Редагування вимоги", "Вимогу не знайдено.")
+                load_requirements()
+                return
+
+            modal = tk.Toplevel(self.root)
+            modal.title(f"Вимога #{requirement.id}")
+            modal.transient(self.root)
+            modal.grab_set()
+            modal.resizable(False, False)
+            body = ttk.Frame(modal, padding=12)
+            body.pack(fill=tk.BOTH, expand=True)
+
+            name_var = tk.StringVar(value=str(requirement.name))
+            duration_var = tk.StringVar(value=str(requirement.duration_blocks))
+            sessions_var = tk.StringVar(value=str(requirement.sessions_total))
+            max_week_var = tk.StringVar(value=str(requirement.max_per_week))
+            room_type_var = tk.StringVar(
+                value=room_type_label_by_enum.get(requirement.room_type, "Не важливо")
+                if requirement.room_type is not None
+                else "Не важливо"
+            )
+            min_capacity_var = tk.StringVar(value="" if requirement.min_capacity is None else str(requirement.min_capacity))
+            needs_projector_var = tk.BooleanVar(value=bool(requirement.needs_projector))
+
+            fixed_room_values = ["Авто"] + [f"{room.id} | {room.name}" for room in room_profiles]
+            fixed_room_var = tk.StringVar(value="Авто")
+            if requirement.fixed_room_id is not None:
+                for value in fixed_room_values:
+                    if value.startswith(f"{int(requirement.fixed_room_id)} |"):
+                        fixed_room_var.set(value)
+                        break
+
+            ttk.Label(body, text="Назва").grid(row=0, column=0, sticky="w")
+            ttk.Entry(body, textvariable=name_var, width=44).grid(row=0, column=1, columnspan=3, sticky="w", padx=(8, 0))
+            ttk.Label(body, text="Тривалість (блоків)").grid(row=1, column=0, sticky="w", pady=(8, 0))
+            ttk.Entry(body, textvariable=duration_var, width=8).grid(row=1, column=1, sticky="w", padx=(8, 12), pady=(8, 0))
+            ttk.Label(body, text="Кількість занять").grid(row=1, column=2, sticky="w", pady=(8, 0))
+            ttk.Entry(body, textvariable=sessions_var, width=8).grid(row=1, column=3, sticky="w", padx=(8, 0), pady=(8, 0))
+            ttk.Label(body, text="Макс/тиждень").grid(row=2, column=0, sticky="w", pady=(8, 0))
+            ttk.Entry(body, textvariable=max_week_var, width=8).grid(row=2, column=1, sticky="w", padx=(8, 12), pady=(8, 0))
+            ttk.Label(body, text="Тип аудиторії").grid(row=2, column=2, sticky="w", pady=(8, 0))
+            ttk.Combobox(
+                body,
+                textvariable=room_type_var,
+                values=room_type_labels,
+                state="readonly",
+                width=18,
+            ).grid(row=2, column=3, sticky="w", padx=(8, 0), pady=(8, 0))
+            ttk.Label(body, text="Мін. місткість").grid(row=3, column=0, sticky="w", pady=(8, 0))
+            ttk.Entry(body, textvariable=min_capacity_var, width=8).grid(row=3, column=1, sticky="w", padx=(8, 12), pady=(8, 0))
+            ttk.Checkbutton(body, text="Потрібен проєктор", variable=needs_projector_var).grid(
+                row=3, column=2, columnspan=2, sticky="w", pady=(8, 0)
+            )
+            ttk.Label(body, text="Фікс. аудиторія").grid(row=4, column=0, sticky="w", pady=(8, 0))
+            ttk.Combobox(
+                body,
+                textvariable=fixed_room_var,
+                values=fixed_room_values,
+                state="readonly",
+                width=30,
+            ).grid(row=4, column=1, columnspan=3, sticky="w", padx=(8, 0), pady=(8, 0))
+
+            actions = ttk.Frame(body, style="Card.TFrame")
+            actions.grid(row=5, column=0, columnspan=4, sticky="e", pady=(12, 0))
+
+            def save_requirement() -> None:
+                try:
+                    name = name_var.get().strip()
+                    if not name:
+                        raise ValueError("Назва вимоги не може бути порожньою.")
+                    duration = int(duration_var.get().strip())
+                    sessions_total = int(sessions_var.get().strip())
+                    max_per_week = int(max_week_var.get().strip())
+                    room_type_label = room_type_var.get().strip() or "Не важливо"
+                    if room_type_label not in room_type_by_label:
+                        raise ValueError("Оберіть тип аудиторії.")
+                    room_type = room_type_by_label[room_type_label]
+                    min_capacity = parse_optional_positive_int(min_capacity_var.get(), field_name="Мін. місткість")
+                    fixed_room_id = None if fixed_room_var.get().strip() == "Авто" else parse_prefixed_id(
+                        fixed_room_var.get(), field_name="фіксована аудиторія"
+                    )
+                    with session_scope() as session:
+                        RequirementController(session=session).update_requirement(
+                            requirement_id=requirement_id,
+                            name=name,
+                            duration_blocks=duration,
+                            sessions_total=sessions_total,
+                            max_per_week=max_per_week,
+                            room_type=room_type,
+                            min_capacity=min_capacity,
+                            needs_projector=bool(needs_projector_var.get()),
+                            fixed_room_id=fixed_room_id,
+                        )
+                except Exception as exc:
+                    messagebox.showerror("Редагування вимоги", str(exc), parent=modal)
+                    return
+                modal.destroy()
+                load_requirements()
+                status_var.set(f"Вимогу #{requirement_id} оновлено.")
+
+            self._motion_button(actions, text="Зберегти", command=save_requirement, primary=True, width=120).pack(
+                side=tk.LEFT, padx=(0, 8)
+            )
+            self._motion_button(actions, text="Скасувати", command=modal.destroy, primary=False, width=120).pack(
+                side=tk.LEFT
+            )
+
+        def on_delete_requirement() -> None:
+            requirement_id = selected_requirement_id()
+            if requirement_id is None:
+                messagebox.showwarning("Видалення вимоги", "Оберіть вимогу у списку.")
+                return
+            if not messagebox.askyesno("Видалення вимоги", f"Видалити вимогу #{requirement_id}?", parent=self.root):
+                return
+            try:
+                with session_scope() as session:
+                    deleted = RequirementController(session=session).delete_requirement(requirement_id=requirement_id)
+                    if not deleted:
+                        raise ValueError("Вимогу не знайдено або вже видалено.")
+            except Exception as exc:
+                messagebox.showerror("Видалення вимоги", str(exc))
+                return
+            load_requirements()
+            on_load_week()
+            status_var.set(f"Вимогу #{requirement_id} видалено.")
+
         def load_reference_data() -> None:
             with session_scope() as session:
                 calendar = CalendarController(session=session)
@@ -880,6 +1145,7 @@ class ScheduleMainWindow:
                 groups = resources.list_resources(resource_type=ResourceType.GROUP, company_id=company_id)
                 teachers = resources.list_resources(resource_type=ResourceType.TEACHER, company_id=company_id)
                 rooms = resources.list_resources(resource_type=ResourceType.ROOM, company_id=company_id)
+                room_profiles = RoomController(session=session).list_rooms(company_id=company_id, include_archived=False)
                 streams = AcademicController(session=session).list_streams(company_id=company_id, include_archived=False)
 
             period_values = [f"{item.id} | {item.start_date}..{item.end_date}" for item in periods]
@@ -915,7 +1181,8 @@ class ScheduleMainWindow:
                 subject_stream_var.set("")
 
             room_values = [f"{item.id} | {item.name}" for item in rooms]
-            subject_fixed_room_box["values"] = ["Авто"] + room_values
+            room_profile_values = [f"{item.id} | {item.name}" for item in room_profiles]
+            subject_fixed_room_box["values"] = ["Авто"] + room_profile_values
             if subject_fixed_room_var.get() not in subject_fixed_room_box["values"]:
                 subject_fixed_room_var.set("Авто")
 
@@ -1051,6 +1318,7 @@ class ScheduleMainWindow:
             except Exception as exc:
                 messagebox.showerror("Не вдалося додати предмет", str(exc))
                 return
+            load_requirements()
             target_label = "потоку" if selected_subject_target() == "STREAM" else "групи"
             status_var.set(f"Предмет '{name}' додано для {target_label}.")
 
@@ -1155,11 +1423,16 @@ class ScheduleMainWindow:
         blackout_add_button.configure(command=on_add_blackout)
         blackout_delete_button.configure(command=on_delete_blackout)
         blackout_reload_button.configure(command=load_blackouts)
+        requirements_refresh_button.configure(command=load_requirements)
+        requirements_edit_button.configure(command=open_requirement_edit_modal)
+        requirements_delete_button.configure(command=on_delete_requirement)
 
         load_reference_data()
         load_blackouts()
+        load_requirements()
         subject_target_box.bind("<<ComboboxSelected>>", lambda _e: refresh_subject_target_controls(), add="+")
         blackout_scope_box.bind("<<ComboboxSelected>>", lambda _e: refresh_blackout_resource_choices(), add="+")
+        requirements_table.bind("<Double-1>", lambda _e: open_requirement_edit_modal(), add="+")
         if period_var.get():
             on_load_week()
 
