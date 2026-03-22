@@ -824,12 +824,40 @@ class ScheduleMainWindow:
 
         period_selector_shell = ttk.Frame(header, style="Card.TFrame")
         period_selector_shell.grid(row=1, column=1, sticky="w", padx=(6, 10), pady=(8, 0))
-        period_selector_main = ttk.Frame(period_selector_shell, style="Card.TFrame")
+        period_selector_main = tk.Frame(
+            period_selector_shell,
+            bg=self.theme.SURFACE,
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=self.theme.BORDER,
+            highlightcolor=self.theme.ACCENT,
+        )
         period_selector_main.pack(fill=tk.X)
-        period_entry = ttk.Entry(period_selector_main, textvariable=period_var, width=26, state="readonly")
-        period_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        period_toggle_button = ttk.Button(period_selector_main, text="▾", width=3)
-        period_toggle_button.pack(side=tk.LEFT, padx=(4, 0))
+        period_display = tk.Label(
+            period_selector_main,
+            textvariable=period_var,
+            bg=self.theme.SURFACE,
+            fg=self.theme.TEXT_PRIMARY,
+            anchor="w",
+            padx=10,
+            pady=8,
+            font=("Segoe UI", 10),
+            cursor="hand2",
+        )
+        period_display.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        period_toggle_button = tk.Button(
+            period_selector_main,
+            text="v",
+            width=3,
+            relief=tk.FLAT,
+            bd=0,
+            bg=self.theme.SURFACE_ALT,
+            fg=self.theme.TEXT_PRIMARY,
+            activebackground=self.theme.SECONDARY_HOVER,
+            activeforeground=self.theme.TEXT_PRIMARY,
+            cursor="hand2",
+        )
+        period_toggle_button.pack(side=tk.LEFT, fill=tk.Y)
         period_empty_create_button = self._motion_button(
             period_selector_shell,
             text="+ Створити період",
@@ -838,6 +866,8 @@ class ScheduleMainWindow:
             width=210,
             height=34,
         )
+        period_selector_main.pack_forget()
+        period_empty_create_button.pack(fill=tk.X)
 
         ttk.Label(header, text="Початок тижня", style="Card.TLabel").grid(row=1, column=2, sticky="w", pady=(8, 0))
         ttk.Entry(header, textvariable=week_start_var, width=14).grid(row=1, column=3, sticky="w", padx=(6, 10), pady=(8, 0))
@@ -1380,9 +1410,8 @@ class ScheduleMainWindow:
                     period_empty_create_button.pack_forget()
                 if not period_selector_main.winfo_ismapped():
                     period_selector_main.pack(fill=tk.X)
-                period_entry.configure(state="readonly")
                 period_toggle_button.configure(state="normal")
-                period_entry.bind("<Button-1>", lambda _e: open_period_menu())
+                period_display.bind("<Button-1>", lambda _e: open_period_menu())
             else:
                 period_var.set("")
                 if period_selector_main.winfo_ismapped():
@@ -1697,7 +1726,6 @@ class ScheduleMainWindow:
         def open_period_menu() -> None:
             items = period_state.get("items", [])
             if not isinstance(items, list) or not items:
-                open_period_modal(period_id=None)
                 return
             popup = period_state.get("menu")
             if isinstance(popup, tk.Toplevel) and popup.winfo_exists():
@@ -2560,29 +2588,28 @@ class ScheduleMainWindow:
                 rooms = resources.list_resources(resource_type=ResourceType.ROOM, company_id=company_id)
                 room_profiles = RoomController(session=session).list_rooms(company_id=company_id, include_archived=False)
                 streams = AcademicController(session=session).list_streams(company_id=company_id, include_archived=False)
-
-            period_items: list[dict[str, object]] = []
-            for item in periods:
-                weeks_count = period_weeks_count(item.start_date, item.end_date)
-                week_pattern_by_week_index: dict[int, int] = {
-                    week_index: int(item.week_pattern_id)
-                    for week_index in range(1, weeks_count + 1)
-                }
-                for override in item.week_template_overrides:
-                    week_idx = int(override.week_index)
-                    if 1 <= week_idx <= weeks_count:
-                        week_pattern_by_week_index[week_idx] = int(override.week_pattern_id)
-                period_items.append(
-                    {
-                        "id": int(item.id),
-                        "name": str(item.name or "").strip(),
-                        "start_date": item.start_date,
-                        "end_date": item.end_date,
-                        "weeks_count": weeks_count,
-                        "week_pattern_id": int(item.week_pattern_id),
-                        "week_pattern_by_week_index": week_pattern_by_week_index,
+                period_items: list[dict[str, object]] = []
+                for item in periods:
+                    weeks_count = period_weeks_count(item.start_date, item.end_date)
+                    week_pattern_by_week_index: dict[int, int] = {
+                        week_index: int(item.week_pattern_id)
+                        for week_index in range(1, weeks_count + 1)
                     }
-                )
+                    for override in list(item.week_template_overrides):
+                        week_idx = int(override.week_index)
+                        if 1 <= week_idx <= weeks_count:
+                            week_pattern_by_week_index[week_idx] = int(override.week_pattern_id)
+                    period_items.append(
+                        {
+                            "id": int(item.id),
+                            "name": str(item.name or "").strip(),
+                            "start_date": item.start_date,
+                            "end_date": item.end_date,
+                            "weeks_count": weeks_count,
+                            "week_pattern_id": int(item.week_pattern_id),
+                            "week_pattern_by_week_index": week_pattern_by_week_index,
+                        }
+                    )
 
             period_state["items"] = period_items
             period_state["by_id"] = {int(item["id"]): item for item in period_items}
