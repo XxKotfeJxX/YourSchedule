@@ -940,13 +940,15 @@ class ScheduleMainWindow:
         )
         week_selector_main.grid(row=1, column=3, sticky="w", padx=(6, 4), pady=(8, 0))
 
-        ttk.Label(header, text="Група", style="Card.TLabel").grid(row=1, column=4, sticky="w", padx=(0, 1), pady=(8, 0))
+        group_selector_shell = ttk.Frame(header, style="Card.TFrame")
+        group_selector_shell.grid(row=1, column=4, columnspan=2, sticky="w", pady=(8, 0))
+        ttk.Label(group_selector_shell, text="Група", style="Card.TLabel").pack(side=tk.LEFT, padx=(0, 6))
         group_selector_main, group_selector_label, group_selector_button = build_header_selector(
-            header,
+            group_selector_shell,
             text_var=group_filter_var,
             width_px=168,
         )
-        group_selector_main.grid(row=1, column=5, sticky="w", padx=(1, 10), pady=(8, 0))
+        group_selector_main.pack(side=tk.LEFT)
 
         ttk.Label(header, text="Сценарій", style="Card.TLabel").grid(row=2, column=0, sticky="w", pady=(8, 0))
         scenario_selector_main, scenario_selector_label, scenario_selector_button = build_header_selector(
