@@ -613,6 +613,21 @@ class ScheduleMainWindow:
         blackout_resource_values_by_scope: dict[str, list[str]] = {label: [] for label in blackout_scope_labels}
         blackout_resource_name_by_id: dict[int, str] = {}
         blackout_resource_scope_by_id: dict[int, str] = {}
+        blackout_table_columns = ("resource", "start", "end", "title")
+        blackout_heading_titles = {
+            "resource": "Ресурс",
+            "start": "Початок",
+            "end": "Кінець",
+            "title": "Причина",
+        }
+        blackout_filter_state: dict[str, object] = {
+            "rows": [],
+            "search_by_column": {},
+            "value_filter_by_column": {},
+            "sort_column": None,
+            "sort_desc": False,
+            "menu": None,
+        }
         room_type_label_by_enum = {room_type: label for label, room_type in room_type_options if room_type is not None}
         requirements_state: dict[str, list[dict[str, object]]] = {"items": []}
         plan_sync_state: dict[str, object] = {"items": [], "selected_ids": [], "selection_touched": False}
@@ -794,6 +809,7 @@ class ScheduleMainWindow:
 
         def dismiss_schedule_popdowns() -> None:
             self._dismiss_combobox_popdowns(schedule_body)
+            close_blackout_filter_menu()
 
         def schedule_wheel(event: tk.Event) -> str:
             dismiss_schedule_popdowns()
@@ -1268,14 +1284,12 @@ class ScheduleMainWindow:
         blackout_table_wrap.grid(row=5, column=0, columnspan=8, sticky="ew", pady=(10, 0))
         blackout_table = ttk.Treeview(
             blackout_table_wrap,
-            columns=("resource", "start", "end", "title"),
+            columns=blackout_table_columns,
             show="headings",
             height=5,
         )
-        blackout_table.heading("resource", text="Ресурс")
-        blackout_table.heading("start", text="Початок")
-        blackout_table.heading("end", text="Кінець")
-        blackout_table.heading("title", text="Причина")
+        for column_id in blackout_table_columns:
+            blackout_table.heading(column_id, text=blackout_heading_titles[column_id])
         blackout_table.column("resource", width=280, anchor="w")
         blackout_table.column("start", width=160, anchor="center")
         blackout_table.column("end", width=160, anchor="center")
@@ -1706,6 +1720,7 @@ class ScheduleMainWindow:
 
         def close_all_header_menus(*, keep: dict[str, object] | None = None) -> None:
             close_period_menu()
+            close_blackout_filter_menu()
             for state in (
                 week_selector_state,
                 group_selector_state,
@@ -2921,29 +2936,411 @@ class ScheduleMainWindow:
                 raise ValueError("Оберіть хоча б один день тижня для пакетного blackout.")
             return selected_days
 
+        def close_blackout_filter_menu() -> None:
+            popup = blackout_filter_state.get("menu")
+            if popup is None:
+                return
+            try:
+                if isinstance(popup, tk.Toplevel) and popup.winfo_exists():
+                    try:
+                        popup.grab_release()
+                    except tk.TclError:
+                        pass
+                    popup.destroy()
+            except tk.TclError:
+                pass
+            blackout_filter_state["menu"] = None
+
+        def blackout_is_column_filtered(column_id: str) -> bool:
+            search_by = blackout_filter_state.get("search_by_column", {})
+            value_filter_by = blackout_filter_state.get("value_filter_by_column", {})
+            if isinstance(search_by, dict) and str(search_by.get(column_id, "")).strip():
+                return True
+            if isinstance(value_filter_by, dict):
+                selected_values = value_filter_by.get(column_id)
+                if isinstance(selected_values, set) and selected_values:
+                    return True
+            return False
+
+        def refresh_blackout_table_headings() -> None:
+            sort_column = blackout_filter_state.get("sort_column")
+            sort_desc = bool(blackout_filter_state.get("sort_desc", False))
+            for column_id in blackout_table_columns:
+                title = blackout_heading_titles[column_id]
+                if blackout_is_column_filtered(column_id):
+                    title += " [ф]"
+                if sort_column == column_id:
+                    title += " ↓" if sort_desc else " ↑"
+                blackout_table.heading(column_id, text=title)
+
+        def render_blackouts_table() -> None:
+            raw_rows = blackout_filter_state.get("rows", [])
+            rows = list(raw_rows) if isinstance(raw_rows, list) else []
+            search_by = blackout_filter_state.get("search_by_column", {})
+            value_filter_by = blackout_filter_state.get("value_filter_by_column", {})
+            if not isinstance(search_by, dict):
+                search_by = {}
+            if not isinstance(value_filter_by, dict):
+                value_filter_by = {}
+
+            filtered_rows: list[dict[str, str]] = []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                passes = True
+                for column_id, query in search_by.items():
+                    query_text = str(query).strip().casefold()
+                    if not query_text:
+                        continue
+                    value_text = str(row.get(column_id, "")).casefold()
+                    if query_text not in value_text:
+                        passes = False
+                        break
+                if not passes:
+                    continue
+                for column_id, selected_values in value_filter_by.items():
+                    if not isinstance(selected_values, set) or not selected_values:
+                        continue
+                    value_text = str(row.get(column_id, ""))
+                    if value_text not in selected_values:
+                        passes = False
+                        break
+                if passes:
+                    filtered_rows.append(row)
+
+            sort_column = blackout_filter_state.get("sort_column")
+            sort_desc = bool(blackout_filter_state.get("sort_desc", False))
+            if isinstance(sort_column, str) and sort_column in blackout_table_columns:
+                filtered_rows.sort(
+                    key=lambda item: str(item.get(sort_column, "")).casefold(),
+                    reverse=sort_desc,
+                )
+
+            for item_id in blackout_table.get_children():
+                blackout_table.delete(item_id)
+            for row in filtered_rows:
+                blackout_table.insert(
+                    "",
+                    tk.END,
+                    iid=str(row["id"]),
+                    values=(row["resource"], row["start"], row["end"], row["title"]),
+                )
+            refresh_blackout_table_headings()
+
+        def clear_blackout_filters_and_sort() -> None:
+            blackout_filter_state["search_by_column"] = {}
+            blackout_filter_state["value_filter_by_column"] = {}
+            blackout_filter_state["sort_column"] = None
+            blackout_filter_state["sort_desc"] = False
+            render_blackouts_table()
+
+        def open_blackout_column_menu(column_id: str, x_root: int, y_root: int) -> None:
+            if column_id not in blackout_table_columns:
+                return
+            close_blackout_filter_menu()
+            popup = tk.Toplevel(self.root)
+            popup.withdraw()
+            popup.overrideredirect(True)
+            popup.configure(bg=self.theme.BORDER)
+            blackout_filter_state["menu"] = popup
+            popup.bind("<Escape>", lambda _e: close_blackout_filter_menu(), add="+")
+
+            shell = tk.Frame(popup, bg=self.theme.SURFACE, bd=0, highlightthickness=0)
+            shell.pack(fill=tk.BOTH, expand=True, padx=1, pady=1)
+
+            header = tk.Frame(shell, bg=self.theme.SURFACE_ALT, bd=0, highlightthickness=0)
+            header.pack(fill=tk.X, padx=8, pady=(8, 6))
+            tk.Label(
+                header,
+                text=f"{blackout_heading_titles[column_id]}: фільтр / сортування",
+                bg=self.theme.SURFACE_ALT,
+                fg=self.theme.TEXT_PRIMARY,
+                font=("Segoe UI", 10, "bold"),
+                anchor="w",
+            ).pack(fill=tk.X)
+
+            search_by = blackout_filter_state.get("search_by_column", {})
+            if not isinstance(search_by, dict):
+                search_by = {}
+            value_filter_by = blackout_filter_state.get("value_filter_by_column", {})
+            if not isinstance(value_filter_by, dict):
+                value_filter_by = {}
+
+            search_var = tk.StringVar(value=str(search_by.get(column_id, "")))
+            tk.Label(
+                shell,
+                text="Пошук у колонці",
+                bg=self.theme.SURFACE,
+                fg=self.theme.TEXT_MUTED,
+                font=("Segoe UI", 9),
+                anchor="w",
+            ).pack(fill=tk.X, padx=8)
+            search_entry = tk.Entry(
+                shell,
+                textvariable=search_var,
+                relief=tk.FLAT,
+                bd=0,
+                highlightthickness=1,
+                highlightbackground=self.theme.BORDER,
+                highlightcolor=self.theme.ACCENT,
+                bg=self.theme.SURFACE,
+                fg=self.theme.TEXT_PRIMARY,
+                insertbackground=self.theme.TEXT_PRIMARY,
+                font=("Segoe UI", 10),
+            )
+            search_entry.pack(fill=tk.X, padx=8, pady=(2, 8), ipady=5)
+
+            rows = blackout_filter_state.get("rows", [])
+            if not isinstance(rows, list):
+                rows = []
+            unique_values = sorted({str(row.get(column_id, "")) for row in rows if isinstance(row, dict)})
+            selected_values_existing = value_filter_by.get(column_id)
+            if not isinstance(selected_values_existing, set):
+                selected_values_existing = set(unique_values)
+
+            values_wrap = tk.Frame(shell, bg=self.theme.SURFACE, bd=0, highlightthickness=0)
+            values_wrap.pack(fill=tk.BOTH, expand=True, padx=8, pady=(0, 8))
+            value_listbox = tk.Listbox(
+                values_wrap,
+                selectmode=tk.MULTIPLE,
+                exportselection=False,
+                activestyle="none",
+                relief=tk.FLAT,
+                bd=0,
+                highlightthickness=1,
+                highlightbackground=self.theme.BORDER,
+                highlightcolor=self.theme.ACCENT,
+                bg=self.theme.SURFACE,
+                fg=self.theme.TEXT_PRIMARY,
+                selectbackground=self.theme.LISTBOX_SELECTED_BG,
+                selectforeground=self.theme.TEXT_PRIMARY,
+                font=("Segoe UI", 9),
+                height=8,
+            )
+            value_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            value_scroll = ttk.Scrollbar(
+                values_wrap,
+                orient=tk.VERTICAL,
+                command=value_listbox.yview,
+                style="App.Vertical.TScrollbar",
+            )
+            value_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+            value_listbox.configure(yscrollcommand=value_scroll.set)
+
+            for index, value in enumerate(unique_values):
+                value_listbox.insert(tk.END, value)
+                if value in selected_values_existing:
+                    value_listbox.selection_set(index)
+
+            controls = tk.Frame(shell, bg=self.theme.SURFACE, bd=0, highlightthickness=0)
+            controls.pack(fill=tk.X, padx=8, pady=(0, 8))
+            tk.Button(
+                controls,
+                text="Усі",
+                relief=tk.FLAT,
+                bd=0,
+                padx=8,
+                pady=4,
+                bg=self.theme.SURFACE_ALT,
+                fg=self.theme.TEXT_PRIMARY,
+                activebackground=self.theme.SECONDARY_HOVER,
+                activeforeground=self.theme.TEXT_PRIMARY,
+                cursor="hand2",
+                command=lambda: value_listbox.select_set(0, tk.END),
+            ).pack(side=tk.LEFT)
+            tk.Button(
+                controls,
+                text="Жоден",
+                relief=tk.FLAT,
+                bd=0,
+                padx=8,
+                pady=4,
+                bg=self.theme.SURFACE_ALT,
+                fg=self.theme.TEXT_PRIMARY,
+                activebackground=self.theme.SECONDARY_HOVER,
+                activeforeground=self.theme.TEXT_PRIMARY,
+                cursor="hand2",
+                command=lambda: value_listbox.selection_clear(0, tk.END),
+            ).pack(side=tk.LEFT, padx=(8, 0))
+
+            actions = tk.Frame(shell, bg=self.theme.SURFACE, bd=0, highlightthickness=0)
+            actions.pack(fill=tk.X, padx=8, pady=(0, 8))
+
+            def apply_filter() -> None:
+                next_search = dict(search_by)
+                query = search_var.get().strip()
+                if query:
+                    next_search[column_id] = query
+                else:
+                    next_search.pop(column_id, None)
+
+                next_value_filter = dict(value_filter_by)
+                selected_indices = value_listbox.curselection()
+                selected_values = {str(value_listbox.get(idx)) for idx in selected_indices}
+                if not selected_values or len(selected_values) == len(unique_values):
+                    next_value_filter.pop(column_id, None)
+                else:
+                    next_value_filter[column_id] = selected_values
+
+                blackout_filter_state["search_by_column"] = next_search
+                blackout_filter_state["value_filter_by_column"] = next_value_filter
+                render_blackouts_table()
+                close_blackout_filter_menu()
+
+            def set_sort(desc: bool) -> None:
+                blackout_filter_state["sort_column"] = column_id
+                blackout_filter_state["sort_desc"] = desc
+                render_blackouts_table()
+                close_blackout_filter_menu()
+
+            tk.Button(
+                actions,
+                text="Сортувати ↑",
+                relief=tk.FLAT,
+                bd=0,
+                padx=10,
+                pady=5,
+                bg=self.theme.SURFACE_ALT,
+                fg=self.theme.TEXT_PRIMARY,
+                activebackground=self.theme.SECONDARY_HOVER,
+                activeforeground=self.theme.TEXT_PRIMARY,
+                cursor="hand2",
+                command=lambda: set_sort(False),
+            ).pack(side=tk.LEFT)
+            tk.Button(
+                actions,
+                text="Сортувати ↓",
+                relief=tk.FLAT,
+                bd=0,
+                padx=10,
+                pady=5,
+                bg=self.theme.SURFACE_ALT,
+                fg=self.theme.TEXT_PRIMARY,
+                activebackground=self.theme.SECONDARY_HOVER,
+                activeforeground=self.theme.TEXT_PRIMARY,
+                cursor="hand2",
+                command=lambda: set_sort(True),
+            ).pack(side=tk.LEFT, padx=(8, 0))
+            tk.Button(
+                actions,
+                text="Застосувати",
+                relief=tk.FLAT,
+                bd=0,
+                padx=12,
+                pady=5,
+                bg=self.theme.ACCENT,
+                fg=self.theme.TEXT_LIGHT,
+                activebackground=self.theme.ACCENT_HOVER,
+                activeforeground=self.theme.TEXT_LIGHT,
+                cursor="hand2",
+                command=apply_filter,
+            ).pack(side=tk.RIGHT)
+
+            footer = tk.Frame(shell, bg=self.theme.SURFACE, bd=0, highlightthickness=0)
+            footer.pack(fill=tk.X, padx=8, pady=(0, 8))
+            tk.Button(
+                footer,
+                text="Очистити все",
+                relief=tk.FLAT,
+                bd=0,
+                padx=10,
+                pady=4,
+                bg=self.theme.SURFACE_ALT,
+                fg=self.theme.TEXT_PRIMARY,
+                activebackground=self.theme.SECONDARY_HOVER,
+                activeforeground=self.theme.TEXT_PRIMARY,
+                cursor="hand2",
+                command=lambda: (
+                    clear_blackout_filters_and_sort(),
+                    close_blackout_filter_menu(),
+                ),
+            ).pack(side=tk.LEFT)
+            tk.Button(
+                footer,
+                text="Закрити",
+                relief=tk.FLAT,
+                bd=0,
+                padx=10,
+                pady=4,
+                bg=self.theme.SURFACE_ALT,
+                fg=self.theme.TEXT_PRIMARY,
+                activebackground=self.theme.SECONDARY_HOVER,
+                activeforeground=self.theme.TEXT_PRIMARY,
+                cursor="hand2",
+                command=close_blackout_filter_menu,
+            ).pack(side=tk.RIGHT)
+
+            def close_on_outside_click(event: tk.Event) -> str | None:
+                if not popup.winfo_exists():
+                    return None
+                px = popup.winfo_rootx()
+                py = popup.winfo_rooty()
+                pr = px + popup.winfo_width()
+                pb = py + popup.winfo_height()
+                ex = int(getattr(event, "x_root", 0))
+                ey = int(getattr(event, "y_root", 0))
+                if px <= ex < pr and py <= ey < pb:
+                    return None
+                close_blackout_filter_menu()
+                return "break"
+
+            popup.bind("<ButtonPress-1>", close_on_outside_click, add="+")
+            popup.update_idletasks()
+            width = 360
+            height = 350
+            x_pos = max(0, min(int(x_root), self.root.winfo_screenwidth() - width - 4))
+            y_pos = max(0, min(int(y_root) + 4, self.root.winfo_screenheight() - height - 4))
+            popup.geometry(f"{width}x{height}+{x_pos}+{y_pos}")
+            popup.deiconify()
+            popup.lift()
+            popup.grab_set()
+            search_entry.focus_set()
+
+        def on_blackout_heading_click(event: tk.Event) -> str | None:
+            region = blackout_table.identify_region(event.x, event.y)
+            if region != "heading":
+                close_blackout_filter_menu()
+                return None
+            raw_column = blackout_table.identify_column(event.x)
+            if not raw_column.startswith("#"):
+                return "break"
+            try:
+                column_index = int(raw_column[1:]) - 1
+            except ValueError:
+                return "break"
+            if column_index < 0 or column_index >= len(blackout_table_columns):
+                return "break"
+            column_id = blackout_table_columns[column_index]
+            open_blackout_column_menu(
+                column_id=column_id,
+                x_root=blackout_table.winfo_rootx() + int(event.x),
+                y_root=blackout_table.winfo_rooty() + int(event.y),
+            )
+            return "break"
+
         def load_blackouts() -> None:
+            close_blackout_filter_menu()
             with session_scope() as session:
                 controller = ResourceController(session=session)
                 blackouts = controller.list_blackouts(company_id=company_id)
 
-            for item_id in blackout_table.get_children():
-                blackout_table.delete(item_id)
+            rows: list[dict[str, str]] = []
             for blackout in blackouts:
                 resource_id = int(blackout.resource_id)
                 scope_label = blackout_resource_scope_by_id.get(resource_id, "Ресурс")
                 resource_name = blackout_resource_name_by_id.get(resource_id, f"#{resource_id}")
                 resource_label = f"{scope_label}: {resource_name}"
-                blackout_table.insert(
-                    "",
-                    tk.END,
-                    iid=str(blackout.id),
-                    values=(
-                        resource_label,
-                        blackout.starts_at.strftime("%Y-%m-%d %H:%M"),
-                        blackout.ends_at.strftime("%Y-%m-%d %H:%M"),
-                        blackout.title or "—",
-                    ),
+                rows.append(
+                    {
+                        "id": str(blackout.id),
+                        "resource": resource_label,
+                        "start": blackout.starts_at.strftime("%Y-%m-%d %H:%M"),
+                        "end": blackout.ends_at.strftime("%Y-%m-%d %H:%M"),
+                        "title": blackout.title or "—",
+                    }
                 )
+            blackout_filter_state["rows"] = rows
+            render_blackouts_table()
 
         def load_coverage_dashboard() -> None:
             try:
@@ -4285,6 +4682,7 @@ class ScheduleMainWindow:
         plan_selector_box.bind("<<ComboboxSelected>>", lambda _e: refresh_plan_selection_controls(), add="+")
         plan_selected_listbox.bind("<<ListboxSelect>>", lambda _e: refresh_plan_selection_controls(), add="+")
         blackout_scope_box.bind("<<ComboboxSelected>>", lambda _e: refresh_blackout_resource_choices(), add="+")
+        blackout_table.bind("<Button-1>", on_blackout_heading_click, add="+")
         entries_table.bind("<Double-1>", lambda _e: load_selected_entry_into_manual(), add="+")
         requirements_table.bind("<Double-1>", lambda _e: open_requirement_edit_modal(), add="+")
         open_schedule_tab("view")
