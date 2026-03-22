@@ -586,7 +586,7 @@ class ScheduleMainWindow:
         blackout_resource_scope_by_id: dict[int, str] = {}
         room_type_label_by_enum = {room_type: label for label, room_type in room_type_options if room_type is not None}
         requirements_state: dict[str, list[dict[str, object]]] = {"items": []}
-        plan_sync_state: dict[str, list[dict[str, object]]] = {"items": []}
+        plan_sync_state: dict[str, object] = {"items": [], "selected_ids": []}
         schedule_entries_state: dict[int, dict[str, object]] = {}
         scenario_values_state: dict[str, list[str]] = {"values": ["Опублікований"]}
         period_state: dict[str, object] = {
@@ -991,26 +991,58 @@ class ScheduleMainWindow:
         plan_sync_box.pack(fill=tk.X)
         plan_sync_box.columnconfigure(1, weight=1)
 
-        ttk.Label(plan_sync_box, text="План", style="CardSubtle.TLabel").grid(row=0, column=0, sticky="w")
+        ttk.Label(plan_sync_box, text="Додати план", style="CardSubtle.TLabel").grid(row=0, column=0, sticky="w")
         plan_selector_box = ttk.Combobox(
             plan_sync_box,
             textvariable=plan_sync_var,
             state="readonly",
         )
-        plan_selector_box.grid(row=0, column=1, sticky="ew", padx=(8, 12))
+        plan_selector_box.grid(row=0, column=1, sticky="ew", padx=(8, 8))
+        plan_add_button = ttk.Button(plan_sync_box, text="Додати", style="Secondary.TButton")
+        plan_add_button.grid(row=0, column=2, sticky="w", padx=(0, 8))
+        plan_remove_button = ttk.Button(plan_sync_box, text="Прибрати", style="Secondary.TButton")
+        plan_remove_button.grid(row=0, column=3, sticky="w", padx=(0, 8))
+        plan_clear_button = ttk.Button(plan_sync_box, text="Очистити", style="Secondary.TButton")
+        plan_clear_button.grid(row=0, column=4, sticky="w")
 
-        plan_sync_selected_button = ttk.Button(plan_sync_box, text="Синхр. вибраний план")
-        plan_sync_selected_button.grid(row=0, column=2, sticky="w", padx=(0, 8))
-        plan_sync_all_button = ttk.Button(plan_sync_box, text="Синхр. усі плани")
-        plan_sync_all_button.grid(row=0, column=3, sticky="w", padx=(0, 8))
-        plan_sync_refresh_button = ttk.Button(plan_sync_box, text="Оновити список")
-        plan_sync_refresh_button.grid(row=0, column=4, sticky="w")
+        ttk.Label(plan_sync_box, text="Обрані", style="CardSubtle.TLabel").grid(row=1, column=0, sticky="nw", pady=(8, 0))
+        plan_selected_wrap = ttk.Frame(plan_sync_box, style="Card.TFrame")
+        plan_selected_wrap.grid(row=1, column=1, columnspan=4, sticky="ew", pady=(8, 0))
+        plan_selected_wrap.columnconfigure(0, weight=1)
+        plan_selected_listbox = tk.Listbox(
+            plan_selected_wrap,
+            height=4,
+            activestyle="none",
+            exportselection=False,
+            selectmode=tk.BROWSE,
+            relief=tk.FLAT,
+            borderwidth=0,
+        )
+        self.theme.style_listbox(plan_selected_listbox)
+        plan_selected_listbox.grid(row=0, column=0, sticky="ew")
+        plan_selected_scroll = ttk.Scrollbar(
+            plan_selected_wrap,
+            orient=tk.VERTICAL,
+            command=plan_selected_listbox.yview,
+            style="App.Vertical.TScrollbar",
+        )
+        plan_selected_scroll.grid(row=0, column=1, sticky="ns")
+        plan_selected_listbox.configure(yscrollcommand=plan_selected_scroll.set)
+
+        plan_sync_actions = ttk.Frame(plan_sync_box, style="Card.TFrame")
+        plan_sync_actions.grid(row=2, column=1, columnspan=4, sticky="w", pady=(8, 0))
+        plan_sync_selected_button = ttk.Button(plan_sync_actions, text="Синхр. обрані", style="Primary.TButton")
+        plan_sync_selected_button.pack(side=tk.LEFT)
+        plan_sync_all_button = ttk.Button(plan_sync_actions, text="Синхр. усі плани", style="Secondary.TButton")
+        plan_sync_all_button.pack(side=tk.LEFT, padx=(8, 0))
+        plan_sync_refresh_button = ttk.Button(plan_sync_actions, text="Оновити список", style="Secondary.TButton")
+        plan_sync_refresh_button.pack(side=tk.LEFT, padx=(8, 0))
 
         ttk.Label(
             plan_sync_box,
             textvariable=plan_sync_hint_var,
             style="CardSubtle.TLabel",
-        ).grid(row=1, column=0, columnspan=5, sticky="w", pady=(8, 0))
+        ).grid(row=3, column=0, columnspan=5, sticky="w", pady=(8, 0))
 
         blackout_box = ttk.LabelFrame(parent, text="Недоступності ресурсів", padding=10)
         blackout_box.pack(fill=tk.X, pady=(8, 0))
@@ -1353,6 +1385,68 @@ class ScheduleMainWindow:
             if not value or "|" not in value:
                 raise ValueError(f"Оберіть '{field_name}'.")
             return int(value.split("|", maxsplit=1)[0].strip())
+
+        def selected_plan_ids() -> list[int]:
+            raw_ids = plan_sync_state.get("selected_ids", [])
+            if not isinstance(raw_ids, list):
+                return []
+            resolved: list[int] = []
+            for value in raw_ids:
+                try:
+                    resolved.append(int(value))
+                except (TypeError, ValueError):
+                    continue
+            return resolved
+
+        def refresh_plan_selection_controls(*, plans_count: int | None = None) -> None:
+            total_plans = plans_count
+            if total_plans is None:
+                raw_items = plan_sync_state.get("items", [])
+                if isinstance(raw_items, list):
+                    total_plans = len(raw_items)
+                else:
+                    total_plans = 0
+            selected_ids = selected_plan_ids()
+            has_plans = total_plans > 0
+            has_selected = bool(selected_ids)
+            has_list_selection = bool(plan_selected_listbox.curselection())
+            can_add = has_plans and bool(plan_sync_var.get().strip())
+
+            plan_add_button.configure(state=("normal" if can_add else "disabled"))
+            plan_remove_button.configure(state=("normal" if has_list_selection else "disabled"))
+            plan_clear_button.configure(state=("normal" if has_selected else "disabled"))
+            plan_sync_selected_button.configure(state=("normal" if has_selected else "disabled"))
+            plan_sync_all_button.configure(state=("normal" if has_plans else "disabled"))
+
+            plan_sync_hint_var.set(
+                f"Активних планів: {total_plans}. "
+                f"У виборі для синхронізації: {len(selected_ids)}."
+            )
+
+        def render_plan_selection() -> None:
+            raw_items = plan_sync_state.get("items", [])
+            items = raw_items if isinstance(raw_items, list) else []
+            plan_by_id: dict[int, dict[str, object]] = {}
+            for item in items:
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    plan_by_id[int(item["id"])] = item
+                except (KeyError, TypeError, ValueError):
+                    continue
+
+            normalized_selected = [plan_id for plan_id in selected_plan_ids() if plan_id in plan_by_id]
+            plan_sync_state["selected_ids"] = normalized_selected
+
+            selected_index = plan_selected_listbox.curselection()
+            selected_offset = int(selected_index[0]) if selected_index else None
+            plan_selected_listbox.delete(0, tk.END)
+            for plan_id in normalized_selected:
+                plan_name = str(plan_by_id[plan_id].get("name", "")).strip()
+                plan_selected_listbox.insert(tk.END, f"{plan_id} | {plan_name}")
+            if selected_offset is not None and 0 <= selected_offset < len(normalized_selected):
+                plan_selected_listbox.selection_set(selected_offset)
+            refresh_plan_selection_controls(plans_count=len(plan_by_id))
 
         def parse_optional_positive_int(raw: str, *, field_name: str) -> int | None:
             value = raw.strip()
@@ -3325,17 +3419,18 @@ class ScheduleMainWindow:
 
             plan_sync_state["items"] = [{"id": int(item.id), "name": str(item.name)} for item in plans]
             plan_values = [f"{item['id']} | {item['name']}" for item in plan_sync_state["items"]]
+            existing_selected_ids = selected_plan_ids()
+            available_ids = [int(item["id"]) for item in plan_sync_state["items"]]
+            if existing_selected_ids:
+                plan_sync_state["selected_ids"] = [plan_id for plan_id in existing_selected_ids if plan_id in available_ids]
+            else:
+                plan_sync_state["selected_ids"] = list(available_ids)
             plan_selector_box["values"] = plan_values
             if plan_values and plan_sync_var.get() not in plan_values:
                 plan_sync_var.set(plan_values[0])
             if not plan_values:
                 plan_sync_var.set("")
-            plan_sync_selected_button.configure(state=("normal" if plan_values else "disabled"))
-            plan_sync_all_button.configure(state=("normal" if plan_values else "disabled"))
-            plan_sync_hint_var.set(
-                f"Активних планів: {len(plan_values)}. "
-                "Синхронізуйте плани, потім адмініструйте вимоги нижче."
-            )
+            render_plan_selection()
 
             group_values = [f"{item.id} | {item.name}" for item in groups]
             group_selector_values = ["Не обрано"] + group_values
@@ -3586,11 +3681,52 @@ class ScheduleMainWindow:
             messagebox.showwarning("Перевірка здійсненності", details)
             status_var.set(f"Знайдено ризиків: {len(report.issues)}")
 
-        def on_sync_selected_plan() -> None:
+        def on_add_plan_to_selection() -> None:
             try:
                 plan_id = selected_plan_id()
+            except Exception as exc:
+                messagebox.showerror("Вибір планів", str(exc))
+                return
+            selected_ids = selected_plan_ids()
+            if plan_id in selected_ids:
+                status_var.set(f"План #{plan_id} вже додано у вибір.")
+                return
+            selected_ids.append(plan_id)
+            plan_sync_state["selected_ids"] = selected_ids
+            render_plan_selection()
+            status_var.set(f"План #{plan_id} додано у вибір синхронізації.")
+
+        def on_remove_plan_from_selection() -> None:
+            selected = plan_selected_listbox.curselection()
+            if not selected:
+                messagebox.showwarning("Вибір планів", "Оберіть план у списку 'Обрані'.")
+                return
+            selected_ids = selected_plan_ids()
+            index = int(selected[0])
+            if index < 0 or index >= len(selected_ids):
+                return
+            removed_id = int(selected_ids[index])
+            del selected_ids[index]
+            plan_sync_state["selected_ids"] = selected_ids
+            render_plan_selection()
+            status_var.set(f"План #{removed_id} прибрано з вибору синхронізації.")
+
+        def on_clear_plan_selection() -> None:
+            plan_sync_state["selected_ids"] = []
+            render_plan_selection()
+            status_var.set("Список обраних планів очищено.")
+
+        def on_sync_selected_plan() -> None:
+            try:
+                plan_ids = selected_plan_ids()
+                if not plan_ids:
+                    raise ValueError("Додайте хоча б один план у список 'Обрані'.")
+                total_synced = 0
                 with session_scope() as session:
-                    synced = CurriculumController(session=session).sync_plan_requirements(plan_id=plan_id)
+                    controller = CurriculumController(session=session)
+                    for plan_id in plan_ids:
+                        synced = controller.sync_plan_requirements(plan_id=plan_id)
+                        total_synced += len(synced)
             except Exception as exc:
                 messagebox.showerror("Синхронізація плану", str(exc))
                 return
@@ -3600,7 +3736,10 @@ class ScheduleMainWindow:
                 on_load_week()
             else:
                 load_schedule_entries()
-            status_var.set(f"План #{plan_id} синхронізовано. Вимог: {len(synced)}.")
+            status_var.set(
+                f"Синхронізовано обрані плани: {len(plan_ids)}. "
+                f"Оновлено вимог: {total_synced}."
+            )
 
         def on_sync_all_plans() -> None:
             try:
@@ -3886,6 +4025,9 @@ class ScheduleMainWindow:
         requirements_refresh_button.configure(command=load_requirements)
         requirements_edit_button.configure(command=open_requirement_edit_modal)
         requirements_delete_button.configure(command=on_delete_requirement)
+        plan_add_button.configure(command=on_add_plan_to_selection)
+        plan_remove_button.configure(command=on_remove_plan_from_selection)
+        plan_clear_button.configure(command=on_clear_plan_selection)
         plan_sync_selected_button.configure(command=on_sync_selected_plan)
         plan_sync_all_button.configure(command=on_sync_all_plans)
         plan_sync_refresh_button.configure(command=lambda: load_reference_data())
@@ -3895,6 +4037,8 @@ class ScheduleMainWindow:
         load_blackouts()
         load_requirements()
         load_coverage_dashboard()
+        plan_selector_box.bind("<<ComboboxSelected>>", lambda _e: refresh_plan_selection_controls(), add="+")
+        plan_selected_listbox.bind("<<ListboxSelect>>", lambda _e: refresh_plan_selection_controls(), add="+")
         blackout_scope_box.bind("<<ComboboxSelected>>", lambda _e: refresh_blackout_resource_choices(), add="+")
         entries_table.bind("<Double-1>", lambda _e: load_selected_entry_into_manual(), add="+")
         requirements_table.bind("<Double-1>", lambda _e: open_requirement_edit_modal(), add="+")
