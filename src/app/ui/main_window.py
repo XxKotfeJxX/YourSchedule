@@ -553,14 +553,29 @@ class ScheduleMainWindow:
 
         blackout_scope_var = tk.StringVar(value="Викладач")
         blackout_resource_var = tk.StringVar()
-        blackout_start_var = tk.StringVar()
-        blackout_end_var = tk.StringVar()
+        blackout_start_date_var = tk.StringVar()
+        blackout_start_time_var = tk.StringVar(value="08:30")
+        blackout_end_date_var = tk.StringVar()
+        blackout_end_time_var = tk.StringVar(value="18:00")
         blackout_title_var = tk.StringVar()
         blackout_batch_start_date_var = tk.StringVar()
         blackout_batch_end_date_var = tk.StringVar()
         blackout_batch_start_time_var = tk.StringVar(value="08:30")
         blackout_batch_end_time_var = tk.StringVar(value="18:00")
-        blackout_batch_weekdays_var = tk.StringVar(value="1,2,3,4,5")
+        blackout_weekday_labels: list[tuple[int, str]] = [
+            (1, "Пн"),
+            (2, "Вт"),
+            (3, "Ср"),
+            (4, "Чт"),
+            (5, "Пт"),
+            (6, "Сб"),
+            (7, "Нд"),
+        ]
+        blackout_batch_weekday_vars: dict[int, tk.BooleanVar] = {
+            day: tk.BooleanVar(value=(day <= 5))
+            for day, _ in blackout_weekday_labels
+        }
+        blackout_time_values = [f"{hour:02d}:{minute:02d}" for hour in range(7, 23) for minute in (0, 15, 30, 45)]
         coverage_summary_var = tk.StringVar(value="Coverage: —")
 
         room_type_options: list[tuple[str, RoomType | None]] = [
@@ -1059,7 +1074,7 @@ class ScheduleMainWindow:
 
         ttk.Label(
             blackout_box,
-            text="Точково або пакетно задайте інтервали недоступності ресурсів.",
+            text="Blackout = один інтервал. Пакет = серія інтервалів у діапазоні дат за вибраними днями тижня.",
             style="CardSubtle.TLabel",
         ).grid(row=0, column=0, columnspan=8, sticky="w", pady=(0, 8))
 
@@ -1080,13 +1095,43 @@ class ScheduleMainWindow:
         )
         blackout_resource_box.grid(row=1, column=2, columnspan=2, sticky="ew", padx=(0, 12))
         ttk.Label(blackout_box, text="Початок", style="CardSubtle.TLabel").grid(row=1, column=4, sticky="w")
-        ttk.Entry(blackout_box, textvariable=blackout_start_var, width=17).grid(
-            row=1, column=5, sticky="ew", padx=(6, 12)
+        blackout_start_wrap = ttk.Frame(blackout_box, style="Card.TFrame")
+        blackout_start_wrap.grid(row=1, column=5, sticky="ew", padx=(6, 12))
+        blackout_start_wrap.columnconfigure(0, weight=1)
+        blackout_start_date_box = ttk.Combobox(
+            blackout_start_wrap,
+            textvariable=blackout_start_date_var,
+            state="readonly",
+            width=12,
         )
+        blackout_start_date_box.grid(row=0, column=0, sticky="ew")
+        blackout_start_time_box = ttk.Combobox(
+            blackout_start_wrap,
+            textvariable=blackout_start_time_var,
+            values=blackout_time_values,
+            state="readonly",
+            width=7,
+        )
+        blackout_start_time_box.grid(row=0, column=1, sticky="w", padx=(6, 0))
         ttk.Label(blackout_box, text="Кінець", style="CardSubtle.TLabel").grid(row=1, column=6, sticky="w")
-        ttk.Entry(blackout_box, textvariable=blackout_end_var, width=17).grid(
-            row=1, column=7, sticky="ew", padx=(6, 0)
+        blackout_end_wrap = ttk.Frame(blackout_box, style="Card.TFrame")
+        blackout_end_wrap.grid(row=1, column=7, sticky="ew", padx=(6, 0))
+        blackout_end_wrap.columnconfigure(0, weight=1)
+        blackout_end_date_box = ttk.Combobox(
+            blackout_end_wrap,
+            textvariable=blackout_end_date_var,
+            state="readonly",
+            width=12,
         )
+        blackout_end_date_box.grid(row=0, column=0, sticky="ew")
+        blackout_end_time_box = ttk.Combobox(
+            blackout_end_wrap,
+            textvariable=blackout_end_time_var,
+            values=blackout_time_values,
+            state="readonly",
+            width=7,
+        )
+        blackout_end_time_box.grid(row=0, column=1, sticky="w", padx=(6, 0))
 
         ttk.Label(blackout_box, text="Причина", style="CardSubtle.TLabel").grid(row=2, column=0, sticky="w", pady=(8, 0))
         ttk.Entry(blackout_box, textvariable=blackout_title_var).grid(
@@ -1105,34 +1150,52 @@ class ScheduleMainWindow:
         blackout_reload_button.grid(row=2, column=7, sticky="w", pady=(8, 0))
 
         ttk.Label(blackout_box, text="Пакет: з дати", style="CardSubtle.TLabel").grid(row=3, column=0, sticky="w", pady=(8, 0))
-        ttk.Entry(blackout_box, textvariable=blackout_batch_start_date_var, width=12).grid(
-            row=3, column=1, sticky="w", padx=(6, 12), pady=(8, 0)
+        blackout_batch_start_date_box = ttk.Combobox(
+            blackout_box,
+            textvariable=blackout_batch_start_date_var,
+            state="readonly",
+            width=12,
         )
+        blackout_batch_start_date_box.grid(row=3, column=1, sticky="w", padx=(6, 12), pady=(8, 0))
         ttk.Label(blackout_box, text="по дату", style="CardSubtle.TLabel").grid(row=3, column=2, sticky="w", pady=(8, 0))
-        ttk.Entry(blackout_box, textvariable=blackout_batch_end_date_var, width=12).grid(
-            row=3, column=3, sticky="w", padx=(6, 12), pady=(8, 0)
+        blackout_batch_end_date_box = ttk.Combobox(
+            blackout_box,
+            textvariable=blackout_batch_end_date_var,
+            state="readonly",
+            width=12,
         )
+        blackout_batch_end_date_box.grid(row=3, column=3, sticky="w", padx=(6, 12), pady=(8, 0))
         ttk.Label(blackout_box, text="час", style="CardSubtle.TLabel").grid(row=3, column=4, sticky="w", pady=(8, 0))
-        ttk.Entry(blackout_box, textvariable=blackout_batch_start_time_var, width=8).grid(
-            row=3, column=5, sticky="w", padx=(6, 6), pady=(8, 0)
+        blackout_batch_start_time_box = ttk.Combobox(
+            blackout_box,
+            textvariable=blackout_batch_start_time_var,
+            values=blackout_time_values,
+            state="readonly",
+            width=8,
         )
-        ttk.Entry(blackout_box, textvariable=blackout_batch_end_time_var, width=8).grid(
-            row=3, column=6, sticky="w", padx=(0, 12), pady=(8, 0)
+        blackout_batch_start_time_box.grid(row=3, column=5, sticky="w", padx=(6, 6), pady=(8, 0))
+        blackout_batch_end_time_box = ttk.Combobox(
+            blackout_box,
+            textvariable=blackout_batch_end_time_var,
+            values=blackout_time_values,
+            state="readonly",
+            width=8,
         )
+        blackout_batch_end_time_box.grid(row=3, column=6, sticky="w", padx=(0, 12), pady=(8, 0))
         blackout_batch_button = ttk.Button(blackout_box, text="Додати пакет", style="Primary.TButton")
         blackout_batch_button.grid(row=3, column=7, sticky="w", pady=(8, 0))
 
-        ttk.Label(blackout_box, text="Дні тижня (1-7, через кому)", style="CardSubtle.TLabel").grid(
+        ttk.Label(blackout_box, text="Дні тижня", style="CardSubtle.TLabel").grid(
             row=4, column=0, sticky="w", pady=(8, 0)
         )
-        ttk.Entry(blackout_box, textvariable=blackout_batch_weekdays_var, width=28).grid(
-            row=4,
-            column=1,
-            columnspan=3,
-            sticky="w",
-            padx=(6, 12),
-            pady=(8, 0),
-        )
+        blackout_weekdays_wrap = ttk.Frame(blackout_box, style="Card.TFrame")
+        blackout_weekdays_wrap.grid(row=4, column=1, columnspan=3, sticky="w", padx=(6, 12), pady=(8, 0))
+        for idx, (weekday, label) in enumerate(blackout_weekday_labels):
+            ttk.Checkbutton(
+                blackout_weekdays_wrap,
+                text=label,
+                variable=blackout_batch_weekday_vars[weekday],
+            ).pack(side=tk.LEFT, padx=(0 if idx == 0 else 8, 0))
 
         blackout_table_wrap = ttk.Frame(blackout_box, style="Card.TFrame")
         blackout_table_wrap.grid(row=5, column=0, columnspan=8, sticky="ew", pady=(10, 0))
@@ -1519,26 +1582,6 @@ class ScheduleMainWindow:
                 return time.fromisoformat(value)
             except ValueError as exc:
                 raise ValueError(f"Поле '{field_name}' має формат HH:MM.") from exc
-
-        def parse_weekdays(raw: str) -> set[int]:
-            value = raw.strip()
-            if not value:
-                raise ValueError("Вкажіть дні тижня для пакетного blackout.")
-            result: set[int] = set()
-            for token in value.split(","):
-                stripped = token.strip()
-                if not stripped:
-                    continue
-                try:
-                    weekday = int(stripped)
-                except ValueError as exc:
-                    raise ValueError("Дні тижня мають бути числами 1..7.") from exc
-                if weekday < 1 or weekday > 7:
-                    raise ValueError("Дні тижня мають бути в межах 1..7.")
-                result.add(weekday)
-            if not result:
-                raise ValueError("Вкажіть хоча б один день тижня.")
-            return result
 
         def period_weeks_count(start_date: date, end_date: date) -> int:
             days_count = (end_date - start_date).days + 1
@@ -2704,6 +2747,61 @@ class ScheduleMainWindow:
             if not values:
                 blackout_resource_var.set("")
 
+        def refresh_blackout_date_choices() -> None:
+            selected_period = selected_period_item()
+            if selected_period is not None:
+                start_day = selected_period["start_date"]
+                end_day = selected_period["end_date"]
+            else:
+                start_day = date.today()
+                end_day = start_day + timedelta(days=120)
+
+            if end_day < start_day:
+                start_day, end_day = end_day, start_day
+
+            dates_values = [
+                (start_day + timedelta(days=offset)).isoformat()
+                for offset in range((end_day - start_day).days + 1)
+            ]
+            if not dates_values:
+                dates_values = [date.today().isoformat()]
+
+            for box in (
+                blackout_start_date_box,
+                blackout_end_date_box,
+                blackout_batch_start_date_box,
+                blackout_batch_end_date_box,
+            ):
+                box["values"] = dates_values
+
+            if blackout_start_date_var.get() not in dates_values:
+                blackout_start_date_var.set(dates_values[0])
+            if blackout_end_date_var.get() not in dates_values:
+                blackout_end_date_var.set(dates_values[min(1, len(dates_values) - 1)])
+            if blackout_batch_start_date_var.get() not in dates_values:
+                blackout_batch_start_date_var.set(dates_values[0])
+            if blackout_batch_end_date_var.get() not in dates_values:
+                blackout_batch_end_date_var.set(dates_values[-1])
+
+            if blackout_start_time_var.get() not in blackout_time_values:
+                blackout_start_time_var.set("08:30")
+            if blackout_end_time_var.get() not in blackout_time_values:
+                blackout_end_time_var.set("18:00")
+            if blackout_batch_start_time_var.get() not in blackout_time_values:
+                blackout_batch_start_time_var.set("08:30")
+            if blackout_batch_end_time_var.get() not in blackout_time_values:
+                blackout_batch_end_time_var.set("18:00")
+
+        def selected_blackout_batch_weekdays() -> set[int]:
+            selected_days = {
+                weekday
+                for weekday, var in blackout_batch_weekday_vars.items()
+                if bool(var.get())
+            }
+            if not selected_days:
+                raise ValueError("Оберіть хоча б один день тижня для пакетного blackout.")
+            return selected_days
+
         def load_blackouts() -> None:
             with session_scope() as session:
                 controller = ResourceController(session=session)
@@ -3373,10 +3471,12 @@ class ScheduleMainWindow:
             try:
                 period_id = parse_period_id()
             except Exception:
+                refresh_blackout_date_choices()
                 load_scenarios(period_id=None)
                 load_coverage_dashboard()
                 clear_schedule_entries()
                 return
+            refresh_blackout_date_choices()
             load_scenarios(period_id=period_id)
             on_load_week()
 
@@ -3532,11 +3632,7 @@ class ScheduleMainWindow:
             selected_period = selected_period_item()
             if selected_period is not None and not manual_date_var.get():
                 manual_date_var.set(selected_period["start_date"].isoformat())
-            if selected_period is not None and (not blackout_batch_start_date_var.get() or not blackout_batch_end_date_var.get()):
-                if not blackout_batch_start_date_var.get():
-                    blackout_batch_start_date_var.set(selected_period["start_date"].isoformat())
-                if not blackout_batch_end_date_var.get():
-                    blackout_batch_end_date_var.set(selected_period["end_date"].isoformat())
+            refresh_blackout_date_choices()
 
             blackout_resource_values_by_scope["Викладач"] = teacher_values
             blackout_resource_values_by_scope["Група"] = group_values
@@ -3795,8 +3891,12 @@ class ScheduleMainWindow:
             try:
                 selected_blackout_scope()
                 resource_id = selected_blackout_resource_id()
-                starts_at = parse_datetime_input(blackout_start_var.get(), field_name="Початок")
-                ends_at = parse_datetime_input(blackout_end_var.get(), field_name="Кінець")
+                start_day = parse_date_input(blackout_start_date_var.get(), field_name="Дата початку")
+                end_day = parse_date_input(blackout_end_date_var.get(), field_name="Дата кінця")
+                start_clock = parse_time_input(blackout_start_time_var.get(), field_name="Час початку")
+                end_clock = parse_time_input(blackout_end_time_var.get(), field_name="Час кінця")
+                starts_at = datetime.combine(start_day, start_clock)
+                ends_at = datetime.combine(end_day, end_clock)
                 if ends_at <= starts_at:
                     raise ValueError("Кінець blackout має бути пізніше за початок.")
                 title = blackout_title_var.get().strip() or None
@@ -3824,7 +3924,7 @@ class ScheduleMainWindow:
                     raise ValueError("Кінець пакета має бути не раніше початку.")
                 start_clock = parse_time_input(blackout_batch_start_time_var.get(), field_name="Час початку")
                 end_clock = parse_time_input(blackout_batch_end_time_var.get(), field_name="Час кінця")
-                weekdays = parse_weekdays(blackout_batch_weekdays_var.get())
+                weekdays = selected_blackout_batch_weekdays()
                 title = blackout_title_var.get().strip() or None
 
                 intervals: list[tuple[datetime, datetime, str | None]] = []
