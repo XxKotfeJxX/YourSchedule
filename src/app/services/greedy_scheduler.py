@@ -22,6 +22,8 @@ from app.domain.models import (
 )
 from app.repositories.schedule_repository import ScheduleRepository
 
+_UNSET = object()
+
 
 @dataclass(frozen=True)
 class ScheduleCandidate:
@@ -119,6 +121,20 @@ class CoverageDashboard:
     total_sessions_scheduled: int
     reasons: list[CoverageReason]
     uncovered_items: list[RequirementCoverageItem]
+
+
+@dataclass(frozen=True)
+class ScheduleEntryCrudItem:
+    entry_id: int
+    requirement_id: int
+    requirement_name: str
+    day: date
+    order_in_day: int
+    blocks_count: int
+    room_resource_id: int | None
+    room_name: str | None
+    is_locked: bool
+    is_manual: bool
 
 
 @dataclass
@@ -879,6 +895,176 @@ class GreedySchedulerService:
 
         return FeasibilityReport(issues=issues, candidate_capacity=candidate_capacity)
 
+    def list_schedule_entries(
+        self,
+        session: Session,
+        *,
+        calendar_period_id: int,
+        scenario_id: int | None = None,
+    ) -> list[ScheduleEntryCrudItem]:
+        calendar_period = session.get(CalendarPeriod, calendar_period_id)
+        if calendar_period is None:
+            raise ValueError(f"CalendarPeriod with id={calendar_period_id} was not found")
+        self._validate_scenario_context(
+            session=session,
+            calendar_period_id=calendar_period_id,
+            scenario_id=scenario_id,
+        )
+
+        schedule_repository = self.schedule_repository_cls(session=session)
+        entries = schedule_repository.list_entries_for_period(
+            calendar_period_id=calendar_period_id,
+            scenario_id=scenario_id,
+        )
+        if not entries:
+            return []
+
+        requirement_ids = sorted({int(item.requirement_id) for item in entries})
+        requirement_name_by_id: dict[int, str] = {}
+        if requirement_ids:
+            requirement_rows = session.execute(
+                select(Requirement.id, Requirement.name).where(Requirement.id.in_(requirement_ids))
+            ).all()
+            requirement_name_by_id = {int(item_id): str(name) for item_id, name in requirement_rows}
+
+        room_resource_ids = sorted({int(item.room_resource_id) for item in entries if item.room_resource_id is not None})
+        room_name_by_id: dict[int, str] = {}
+        if room_resource_ids:
+            room_rows = session.execute(
+                select(Resource.id, Resource.name).where(
+                    Resource.id.in_(room_resource_ids),
+                    Resource.type == ResourceType.ROOM,
+                )
+            ).all()
+            room_name_by_id = {int(item_id): str(name) for item_id, name in room_rows}
+
+        block_ids = sorted({int(item.start_block_id) for item in entries})
+        block_by_id: dict[int, TimeBlock] = {}
+        if block_ids:
+            block_models = session.scalars(
+                select(TimeBlock).where(
+                    TimeBlock.id.in_(block_ids),
+                    TimeBlock.calendar_period_id == calendar_period_id,
+                )
+            ).all()
+            block_by_id = {int(block.id): block for block in block_models}
+
+        rows: list[ScheduleEntryCrudItem] = []
+        for item in entries:
+            start_block = block_by_id.get(int(item.start_block_id))
+            if start_block is None:
+                continue
+            room_resource_id = None if item.room_resource_id is None else int(item.room_resource_id)
+            rows.append(
+                ScheduleEntryCrudItem(
+                    entry_id=int(item.id),
+                    requirement_id=int(item.requirement_id),
+                    requirement_name=requirement_name_by_id.get(int(item.requirement_id), f"#{item.requirement_id}"),
+                    day=start_block.date,
+                    order_in_day=int(start_block.order_in_day),
+                    blocks_count=int(item.blocks_count),
+                    room_resource_id=room_resource_id,
+                    room_name=room_name_by_id.get(room_resource_id) if room_resource_id is not None else None,
+                    is_locked=bool(item.is_locked),
+                    is_manual=bool(item.is_manual),
+                )
+            )
+
+        rows.sort(key=lambda item: (item.day, item.order_in_day, item.requirement_name.lower(), item.entry_id))
+        return rows
+
+    def delete_schedule_entry(
+        self,
+        session: Session,
+        *,
+        calendar_period_id: int,
+        entry_id: int,
+        scenario_id: int | None = None,
+        allow_locked: bool = False,
+    ) -> bool:
+        schedule_repository = self.schedule_repository_cls(session=session)
+        entry, _ = self._ensure_entry_in_period(
+            session=session,
+            schedule_repository=schedule_repository,
+            calendar_period_id=calendar_period_id,
+            entry_id=entry_id,
+            scenario_id=scenario_id,
+        )
+        if entry.is_locked and not allow_locked:
+            raise ValueError("Locked schedule entry cannot be deleted without override")
+        return schedule_repository.delete_entry(entry_id=entry_id, scenario_id=scenario_id)
+
+    def set_schedule_entry_lock(
+        self,
+        session: Session,
+        *,
+        calendar_period_id: int,
+        entry_id: int,
+        is_locked: bool,
+        scenario_id: int | None = None,
+    ) -> ScheduleEntry | ScheduleScenarioEntry:
+        schedule_repository = self.schedule_repository_cls(session=session)
+        self._ensure_entry_in_period(
+            session=session,
+            schedule_repository=schedule_repository,
+            calendar_period_id=calendar_period_id,
+            entry_id=entry_id,
+            scenario_id=scenario_id,
+        )
+        return schedule_repository.update_entry_lock(
+            entry_id=entry_id,
+            scenario_id=scenario_id,
+            is_locked=is_locked,
+        )
+
+    def update_manual_entry(
+        self,
+        session: Session,
+        *,
+        calendar_period_id: int,
+        entry_id: int,
+        day: date,
+        order_in_day: int,
+        scenario_id: int | None = None,
+        room_resource_id: int | None | object = _UNSET,
+        is_locked: bool | None = None,
+    ) -> ScheduleEntry | ScheduleScenarioEntry:
+        schedule_repository = self.schedule_repository_cls(session=session)
+        current_entry, _ = self._ensure_entry_in_period(
+            session=session,
+            schedule_repository=schedule_repository,
+            calendar_period_id=calendar_period_id,
+            entry_id=entry_id,
+            scenario_id=scenario_id,
+        )
+        resolved_room_resource_id: int | None
+        if room_resource_id is _UNSET:
+            resolved_room_resource_id = (
+                None if current_entry.room_resource_id is None else int(current_entry.room_resource_id)
+            )
+        else:
+            resolved_room_resource_id = None if room_resource_id is None else int(room_resource_id)
+        _, requirement, start_block, resolved_room_resource_id = self._prepare_manual_slot(
+            session=session,
+            calendar_period_id=calendar_period_id,
+            scenario_id=scenario_id,
+            requirement_id=int(current_entry.requirement_id),
+            day=day,
+            order_in_day=order_in_day,
+            room_resource_id=resolved_room_resource_id,
+            exclude_entry_id=entry_id,
+        )
+        lock_value = bool(current_entry.is_locked) if is_locked is None else bool(is_locked)
+        return schedule_repository.update_entry(
+            entry_id=entry_id,
+            scenario_id=scenario_id,
+            start_block_id=int(start_block.id),
+            blocks_count=int(requirement.duration_blocks),
+            room_resource_id=resolved_room_resource_id,
+            is_locked=lock_value,
+            is_manual=True,
+        )
+
     def create_manual_entry(
         self,
         session: Session,
@@ -1292,6 +1478,208 @@ class GreedySchedulerService:
             unscheduled_sessions=unscheduled_sessions,
             diagnostics=diagnostics,
         )
+
+    def _ensure_entry_in_period(
+        self,
+        *,
+        session: Session,
+        schedule_repository: ScheduleRepository,
+        calendar_period_id: int,
+        entry_id: int,
+        scenario_id: int | None,
+    ) -> tuple[ScheduleEntry | ScheduleScenarioEntry, TimeBlock]:
+        calendar_period = session.get(CalendarPeriod, calendar_period_id)
+        if calendar_period is None:
+            raise ValueError(f"CalendarPeriod with id={calendar_period_id} was not found")
+        self._validate_scenario_context(
+            session=session,
+            calendar_period_id=calendar_period_id,
+            scenario_id=scenario_id,
+        )
+        entry = schedule_repository.get_entry(entry_id=entry_id, scenario_id=scenario_id)
+        if entry is None:
+            raise ValueError(f"Schedule entry with id={entry_id} was not found")
+        start_block = session.get(TimeBlock, int(entry.start_block_id))
+        if start_block is None or int(start_block.calendar_period_id) != int(calendar_period_id):
+            raise ValueError("Schedule entry does not belong to selected calendar period")
+        return entry, start_block
+
+    def _prepare_manual_slot(
+        self,
+        *,
+        session: Session,
+        calendar_period_id: int,
+        scenario_id: int | None,
+        requirement_id: int,
+        day: date,
+        order_in_day: int,
+        room_resource_id: int | None,
+        exclude_entry_id: int | None,
+    ) -> tuple[CalendarPeriod, Requirement, TimeBlock, int | None]:
+        calendar_period = session.get(CalendarPeriod, calendar_period_id)
+        if calendar_period is None:
+            raise ValueError(f"CalendarPeriod with id={calendar_period_id} was not found")
+        self._validate_scenario_context(
+            session=session,
+            calendar_period_id=calendar_period_id,
+            scenario_id=scenario_id,
+        )
+
+        requirement = session.get(Requirement, requirement_id)
+        if requirement is None:
+            raise ValueError(f"Requirement with id={requirement_id} was not found")
+        if (
+            calendar_period.company_id is not None
+            and requirement.company_id is not None
+            and calendar_period.company_id != requirement.company_id
+        ):
+            raise ValueError("Requirement and calendar period belong to different companies")
+
+        policy = self.get_policy(session=session, company_id=calendar_period.company_id)
+        teaching_blocks = self._load_teaching_blocks(session=session, calendar_period_id=calendar_period_id)
+        if not teaching_blocks:
+            raise ValueError("No teaching blocks were found in selected period")
+
+        block_by_key = {(block.date, block.order_in_day): block for block in teaching_blocks}
+        block_by_id = {block.id: block for block in teaching_blocks}
+        start_block = block_by_key.get((day, order_in_day))
+        if start_block is None:
+            raise ValueError("Start block was not found in selected period")
+        block_ids = self._resolve_block_ids(
+            start_block=start_block,
+            blocks_count=requirement.duration_blocks,
+            block_by_key=block_by_key,
+        )
+        if not block_ids:
+            raise ValueError("Selected slot does not have the required contiguous block sequence")
+
+        requirements = self._load_requirements(session=session, company_id=calendar_period.company_id)
+        requirement_non_room_resource_ids: dict[int, set[int]] = {}
+        requirement_manual_room_resource_ids: dict[int, set[int]] = {}
+        requirement_actor_resource_ids: dict[int, set[int]] = {}
+        for item in requirements:
+            non_room_resources: set[int] = set()
+            manual_room_resources: set[int] = set()
+            actor_resources: set[int] = set()
+            for requirement_resource in item.requirement_resources:
+                if requirement_resource.resource.type == ResourceType.ROOM:
+                    manual_room_resources.add(requirement_resource.resource_id)
+                else:
+                    non_room_resources.add(requirement_resource.resource_id)
+                    if requirement_resource.resource.type in {ResourceType.TEACHER, ResourceType.GROUP, ResourceType.SUBGROUP}:
+                        actor_resources.add(requirement_resource.resource_id)
+            requirement_non_room_resource_ids[item.id] = non_room_resources
+            requirement_manual_room_resource_ids[item.id] = manual_room_resources
+            requirement_actor_resource_ids[item.id] = actor_resources
+
+        room_options_by_requirement, room_building_by_resource_id = self._build_room_options_by_requirement(
+            session=session,
+            requirements=requirements,
+            requirement_manual_room_resource_ids=requirement_manual_room_resource_ids,
+            company_id=calendar_period.company_id,
+        )
+        room_default_resource_by_requirement = self._build_room_default_resource_map(
+            room_options_by_requirement=room_options_by_requirement,
+        )
+        requirement_room_options = room_options_by_requirement.get(requirement_id)
+        selected_room_resource_id = room_resource_id
+        if requirement_room_options is not None:
+            if selected_room_resource_id is None:
+                if len(requirement_room_options) == 1:
+                    selected_room_resource_id = int(requirement_room_options[0])
+                else:
+                    raise ValueError("This requirement needs explicit room selection")
+            elif selected_room_resource_id not in requirement_room_options:
+                raise ValueError("Selected room does not satisfy requirement room constraints")
+        if selected_room_resource_id is not None:
+            selected_room = session.get(Resource, int(selected_room_resource_id))
+            if selected_room is None or selected_room.type != ResourceType.ROOM:
+                raise ValueError("Selected room resource was not found")
+            if (
+                calendar_period.company_id is not None
+                and selected_room.company_id is not None
+                and calendar_period.company_id != selected_room.company_id
+            ):
+                raise ValueError("Selected room belongs to a different company")
+
+        schedule_repository = self.schedule_repository_cls(session=session)
+        existing_entries = schedule_repository.list_entries_for_period(
+            calendar_period_id=calendar_period_id,
+            scenario_id=scenario_id,
+        )
+        if exclude_entry_id is not None:
+            existing_entries = [item for item in existing_entries if int(item.id) != int(exclude_entry_id)]
+        resource_reservations = self._build_resource_reservations(
+            existing_entries=existing_entries,
+            block_by_key=block_by_key,
+            block_by_id=block_by_id,
+            requirement_non_room_resource_ids=requirement_non_room_resource_ids,
+            room_default_resource_by_requirement=room_default_resource_by_requirement,
+        )
+        requirement_block_reservations = self._build_requirement_block_reservations(
+            existing_entries=existing_entries,
+            block_by_key=block_by_key,
+            block_by_id=block_by_id,
+        )
+        weekly_usage = self._build_weekly_usage(existing_entries=existing_entries, block_by_id=block_by_id)
+        resource_day_orders, resource_day_sessions, _ = self._build_resource_day_states(
+            existing_entries=existing_entries,
+            block_by_id=block_by_id,
+            block_by_key=block_by_key,
+            requirement_actor_resource_ids=requirement_actor_resource_ids,
+            room_default_resource_by_requirement=room_default_resource_by_requirement,
+            room_building_by_resource_id=room_building_by_resource_id,
+        )
+
+        blackout_resource_ids = self._collect_blackout_resource_ids(
+            requirement_non_room_resource_ids=requirement_non_room_resource_ids,
+            room_options_by_requirement=room_options_by_requirement,
+            existing_entries=existing_entries,
+        )
+        if selected_room_resource_id is not None:
+            blackout_resource_ids.add(int(selected_room_resource_id))
+        if blackout_resource_ids:
+            blackouts = self._load_blackouts(
+                session=session,
+                resource_ids=blackout_resource_ids,
+                window_start=teaching_blocks[0].start_timestamp,
+                window_end=teaching_blocks[-1].end_timestamp,
+            )
+            blackout_reservations = self._build_blackout_reservations(
+                teaching_blocks=teaching_blocks,
+                blackouts=blackouts,
+            )
+            for block_id, blocked_resources in blackout_reservations.items():
+                resource_reservations[block_id].update(blocked_resources)
+
+        requirement_resources = set(requirement_non_room_resource_ids.get(requirement_id, set()))
+        if selected_room_resource_id is not None:
+            requirement_resources.add(int(selected_room_resource_id))
+        if self._has_resource_conflict(
+            block_ids=block_ids,
+            required_resources=requirement_resources,
+            resource_reservations=resource_reservations,
+        ):
+            raise ValueError("Slot conflicts with existing entries or blackout intervals")
+        if any(block_id in requirement_block_reservations.get(requirement_id, set()) for block_id in block_ids):
+            raise ValueError("Requirement already has a session in selected slot")
+
+        week_key = self._week_key(start_block.date)
+        if weekly_usage[(requirement_id, week_key[0], week_key[1])] >= requirement.max_per_week:
+            raise ValueError("max_per_week limit is exceeded for selected requirement")
+
+        candidate_orders = tuple(start_block.order_in_day + offset for offset in range(requirement.duration_blocks))
+        if self._violates_hard_constraints(
+            policy=policy,
+            actor_resource_ids=requirement_actor_resource_ids.get(requirement_id, set()),
+            day=start_block.date,
+            candidate_orders=candidate_orders,
+            resource_day_orders=resource_day_orders,
+            resource_day_sessions=resource_day_sessions,
+        ):
+            raise ValueError("Slot violates hard load constraints")
+
+        return calendar_period, requirement, start_block, selected_room_resource_id
 
     def _load_teaching_blocks(
         self,

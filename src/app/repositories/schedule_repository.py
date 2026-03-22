@@ -5,6 +5,7 @@ from app.domain.models import ScheduleEntry, ScheduleScenario, ScheduleScenarioE
 
 
 ScheduleEntryLike = ScheduleEntry | ScheduleScenarioEntry
+_UNSET = object()
 
 
 class ScheduleRepository:
@@ -119,6 +120,41 @@ class ScheduleRepository:
         entry.is_locked = bool(is_locked)
         self.session.flush()
         return entry
+
+    def update_entry(
+        self,
+        entry_id: int,
+        *,
+        scenario_id: int | None = None,
+        start_block_id: int | None = None,
+        blocks_count: int | None = None,
+        room_resource_id: int | None | object = _UNSET,
+        is_locked: bool | None = None,
+        is_manual: bool | None = None,
+    ) -> ScheduleEntryLike:
+        entry = self.get_entry(entry_id, scenario_id=scenario_id)
+        if entry is None:
+            raise ValueError(f"ScheduleEntry with id={entry_id} was not found")
+        if start_block_id is not None:
+            entry.start_block_id = int(start_block_id)
+        if blocks_count is not None:
+            entry.blocks_count = int(blocks_count)
+        if room_resource_id is not _UNSET:
+            entry.room_resource_id = None if room_resource_id is None else int(room_resource_id)
+        if is_locked is not None:
+            entry.is_locked = bool(is_locked)
+        if is_manual is not None:
+            entry.is_manual = bool(is_manual)
+        self.session.flush()
+        return entry
+
+    def delete_entry(self, entry_id: int, *, scenario_id: int | None = None) -> bool:
+        entry = self.get_entry(entry_id, scenario_id=scenario_id)
+        if entry is None:
+            return False
+        self.session.delete(entry)
+        self.session.flush()
+        return True
 
     def list_scenarios(self, calendar_period_id: int) -> list[ScheduleScenario]:
         statement = (

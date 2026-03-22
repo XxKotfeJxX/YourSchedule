@@ -884,3 +884,150 @@ def test_scheduler_coverage_dashboard_reports_uncovered_requirements(session: Se
     assert dashboard.total_sessions_scheduled == 2
     assert dashboard.reasons
     assert any(item.requirement_id == req_bad.id for item in dashboard.uncovered_items)
+
+
+def test_scheduler_schedule_entry_crud_flow(session: Session) -> None:
+    period = _create_calendar_period_with_blocks(
+        session=session,
+        start_date=date(2026, 3, 2),
+        end_date=date(2026, 3, 2),
+        marks=[(MarkKind.TEACHING, 45), (MarkKind.TEACHING, 45)],
+    )
+
+    resource_controller = ResourceController(session=session)
+    requirement_controller = RequirementController(session=session)
+    scheduler_controller = SchedulerController(session=session)
+
+    teacher = resource_controller.create_resource(
+        name="Teacher CRUD",
+        resource_type=ResourceType.TEACHER,
+    )
+    requirement = requirement_controller.create_requirement(
+        name="CRUD Requirement",
+        duration_blocks=1,
+        sessions_total=1,
+        max_per_week=1,
+    )
+    requirement_controller.assign_resource(requirement.id, teacher.id, "TEACHER")
+    session.commit()
+
+    entry = scheduler_controller.create_manual_entry(
+        calendar_period_id=period.id,
+        requirement_id=requirement.id,
+        day=date(2026, 3, 2),
+        order_in_day=1,
+        is_locked=False,
+    )
+    session.commit()
+
+    listed = scheduler_controller.list_schedule_entries(calendar_period_id=period.id)
+    assert len(listed) == 1
+    assert listed[0].entry_id == entry.id
+    assert listed[0].order_in_day == 1
+    assert listed[0].requirement_id == requirement.id
+
+    updated = scheduler_controller.update_manual_entry(
+        calendar_period_id=period.id,
+        entry_id=entry.id,
+        day=date(2026, 3, 2),
+        order_in_day=2,
+        is_locked=False,
+    )
+    session.commit()
+    assert updated.id == entry.id
+    moved_block = session.get(TimeBlock, updated.start_block_id)
+    assert moved_block is not None
+    assert moved_block.order_in_day == 2
+
+    locked = scheduler_controller.set_schedule_entry_lock(
+        calendar_period_id=period.id,
+        entry_id=entry.id,
+        is_locked=True,
+    )
+    session.commit()
+    assert locked.is_locked is True
+
+    with pytest.raises(ValueError):
+        scheduler_controller.delete_schedule_entry(
+            calendar_period_id=period.id,
+            entry_id=entry.id,
+            allow_locked=False,
+        )
+
+    deleted = scheduler_controller.delete_schedule_entry(
+        calendar_period_id=period.id,
+        entry_id=entry.id,
+        allow_locked=True,
+    )
+    session.commit()
+    assert deleted is True
+    assert session.query(ScheduleEntry).count() == 0
+
+
+def test_scheduler_schedule_entry_crud_keeps_scenario_scope(session: Session) -> None:
+    period = _create_calendar_period_with_blocks(
+        session=session,
+        start_date=date(2026, 3, 2),
+        end_date=date(2026, 3, 2),
+        marks=[(MarkKind.TEACHING, 45), (MarkKind.TEACHING, 45)],
+    )
+
+    resource_controller = ResourceController(session=session)
+    requirement_controller = RequirementController(session=session)
+    scheduler_controller = SchedulerController(session=session)
+
+    teacher = resource_controller.create_resource(
+        name="Teacher Scenario CRUD",
+        resource_type=ResourceType.TEACHER,
+    )
+    requirement = requirement_controller.create_requirement(
+        name="Scenario CRUD Requirement",
+        duration_blocks=1,
+        sessions_total=2,
+        max_per_week=2,
+    )
+    requirement_controller.assign_resource(requirement.id, teacher.id, "TEACHER")
+    session.commit()
+
+    published_entry = scheduler_controller.create_manual_entry(
+        calendar_period_id=period.id,
+        requirement_id=requirement.id,
+        day=date(2026, 3, 2),
+        order_in_day=1,
+        is_locked=False,
+    )
+    scenario = scheduler_controller.create_scenario(
+        calendar_period_id=period.id,
+        name="Чернетка CRUD",
+        copy_from_published=False,
+    )
+    scenario_entry = scheduler_controller.create_manual_entry(
+        calendar_period_id=period.id,
+        scenario_id=scenario.id,
+        requirement_id=requirement.id,
+        day=date(2026, 3, 2),
+        order_in_day=2,
+        is_locked=False,
+    )
+    session.commit()
+
+    scenario_rows = scheduler_controller.list_schedule_entries(
+        calendar_period_id=period.id,
+        scenario_id=scenario.id,
+    )
+    published_rows = scheduler_controller.list_schedule_entries(calendar_period_id=period.id)
+    assert len(scenario_rows) == 1
+    assert len(published_rows) == 1
+    assert scenario_rows[0].entry_id == scenario_entry.id
+    assert published_rows[0].entry_id == published_entry.id
+
+    scheduler_controller.delete_schedule_entry(
+        calendar_period_id=period.id,
+        scenario_id=scenario.id,
+        entry_id=scenario_entry.id,
+        allow_locked=True,
+    )
+    session.commit()
+
+    assert len(scheduler_controller.list_schedule_entries(calendar_period_id=period.id, scenario_id=scenario.id)) == 0
+    assert len(scheduler_controller.list_schedule_entries(calendar_period_id=period.id)) == 1

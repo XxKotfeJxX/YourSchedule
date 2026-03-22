@@ -7,6 +7,7 @@ from app.services.greedy_scheduler import (
     CoverageDashboard,
     FeasibilityReport,
     GreedySchedulerService,
+    ScheduleEntryCrudItem,
     ScheduleRunResult,
     ScheduleScenarioSummary,
     ScenarioComparison,
@@ -159,4 +160,70 @@ class SchedulerController:
             order_in_day=order_in_day,
             room_resource_id=room_resource_id,
             is_locked=is_locked,
+        )
+
+    def list_schedule_entries(
+        self,
+        *,
+        calendar_period_id: int,
+        scenario_id: int | None = None,
+    ) -> list[ScheduleEntryCrudItem]:
+        return self.scheduler_service.list_schedule_entries(
+            session=self.session,
+            calendar_period_id=calendar_period_id,
+            scenario_id=scenario_id,
+        )
+
+    def update_manual_entry(
+        self,
+        *,
+        calendar_period_id: int,
+        entry_id: int,
+        day: date,
+        order_in_day: int,
+        scenario_id: int | None = None,
+        room_resource_id: int | None = None,
+        is_locked: bool | None = None,
+    ) -> ScheduleEntry | ScheduleScenarioEntry:
+        return self.scheduler_service.update_manual_entry(
+            session=self.session,
+            calendar_period_id=calendar_period_id,
+            entry_id=entry_id,
+            day=day,
+            order_in_day=order_in_day,
+            scenario_id=scenario_id,
+            room_resource_id=room_resource_id,
+            is_locked=is_locked,
+        )
+
+    def set_schedule_entry_lock(
+        self,
+        *,
+        calendar_period_id: int,
+        entry_id: int,
+        is_locked: bool,
+        scenario_id: int | None = None,
+    ) -> ScheduleEntry | ScheduleScenarioEntry:
+        return self.scheduler_service.set_schedule_entry_lock(
+            session=self.session,
+            calendar_period_id=calendar_period_id,
+            entry_id=entry_id,
+            is_locked=is_locked,
+            scenario_id=scenario_id,
+        )
+
+    def delete_schedule_entry(
+        self,
+        *,
+        calendar_period_id: int,
+        entry_id: int,
+        scenario_id: int | None = None,
+        allow_locked: bool = False,
+    ) -> bool:
+        return self.scheduler_service.delete_schedule_entry(
+            session=self.session,
+            calendar_period_id=calendar_period_id,
+            entry_id=entry_id,
+            scenario_id=scenario_id,
+            allow_locked=allow_locked,
         )
