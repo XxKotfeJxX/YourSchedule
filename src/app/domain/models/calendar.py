@@ -152,6 +152,7 @@ class CalendarPeriod(Base):
         ForeignKey("companies.id", ondelete="CASCADE"),
         nullable=True,
     )
+    name: Mapped[str | None] = mapped_column(String(120), nullable=True)
     start_date: Mapped[date] = mapped_column(Date, nullable=False)
     end_date: Mapped[date] = mapped_column(Date, nullable=False)
     week_pattern_id: Mapped[int] = mapped_column(
@@ -165,9 +166,45 @@ class CalendarPeriod(Base):
         back_populates="calendar_period",
         cascade="all, delete-orphan",
     )
+    week_template_overrides: Mapped[list["CalendarPeriodWeekTemplate"]] = relationship(
+        "CalendarPeriodWeekTemplate",
+        back_populates="calendar_period",
+        cascade="all, delete-orphan",
+        order_by="CalendarPeriodWeekTemplate.week_index",
+    )
 
     __table_args__ = (
         CheckConstraint("end_date >= start_date", name="ck_calendar_period_date_range"),
+    )
+
+
+class CalendarPeriodWeekTemplate(Base):
+    __tablename__ = "calendar_period_week_templates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    calendar_period_id: Mapped[int] = mapped_column(
+        ForeignKey("calendar_periods.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    week_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    week_pattern_id: Mapped[int] = mapped_column(
+        ForeignKey("week_patterns.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+
+    calendar_period: Mapped[CalendarPeriod] = relationship(
+        "CalendarPeriod",
+        back_populates="week_template_overrides",
+    )
+    week_pattern: Mapped[WeekPattern] = relationship("WeekPattern")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "calendar_period_id",
+            "week_index",
+            name="uq_calendar_period_week_template",
+        ),
+        CheckConstraint("week_index >= 1", name="ck_calendar_period_week_template_week_index_positive"),
     )
 
 

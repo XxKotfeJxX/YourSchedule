@@ -2,11 +2,18 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.domain.enums import MarkKind
-from app.domain.models import CalendarPeriod, DayPattern, DayPatternItem, MarkType, WeekPattern
+from app.domain.models import (
+    CalendarPeriod,
+    CalendarPeriodWeekTemplate,
+    DayPattern,
+    DayPatternItem,
+    MarkType,
+    WeekPattern,
+)
 
 
 class CalendarRepository:
@@ -66,19 +73,98 @@ class CalendarRepository:
         end_date: date,
         week_pattern: WeekPattern,
         company_id: int | None = None,
+        name: str | None = None,
+        week_pattern_by_week_index: dict[int, int] | None = None,
     ) -> CalendarPeriod:
         period = CalendarPeriod(
             company_id=company_id,
+            name=name,
             start_date=start_date,
             end_date=end_date,
             week_pattern=week_pattern,
         )
         self.session.add(period)
         self.session.flush()
+        self.replace_period_week_templates(
+            calendar_period_id=period.id,
+            default_week_pattern_id=period.week_pattern_id,
+            week_pattern_by_week_index=week_pattern_by_week_index or {},
+        )
+        self.session.flush()
         return period
+
+    def get_week_pattern(self, week_pattern_id: int) -> WeekPattern | None:
+        return self.session.get(WeekPattern, week_pattern_id)
 
     def get_calendar_period(self, period_id: int) -> CalendarPeriod | None:
         return self.session.get(CalendarPeriod, period_id)
+
+    def update_calendar_period(
+        self,
+        *,
+        period_id: int,
+        start_date: date,
+        end_date: date,
+        week_pattern_id: int,
+        name: str | None = None,
+        week_pattern_by_week_index: dict[int, int] | None = None,
+    ) -> CalendarPeriod:
+        period = self.get_calendar_period(period_id)
+        if period is None:
+            raise ValueError(f"CalendarPeriod with id={period_id} was not found")
+        period.start_date = start_date
+        period.end_date = end_date
+        period.week_pattern_id = int(week_pattern_id)
+        period.name = name
+        self.replace_period_week_templates(
+            calendar_period_id=period.id,
+            default_week_pattern_id=period.week_pattern_id,
+            week_pattern_by_week_index=week_pattern_by_week_index or {},
+        )
+        self.session.flush()
+        return period
+
+    def delete_calendar_period(self, *, period_id: int) -> bool:
+        period = self.get_calendar_period(period_id)
+        if period is None:
+            return False
+        self.session.delete(period)
+        self.session.flush()
+        return True
+
+    def replace_period_week_templates(
+        self,
+        *,
+        calendar_period_id: int,
+        default_week_pattern_id: int,
+        week_pattern_by_week_index: dict[int, int],
+    ) -> None:
+        self.session.execute(
+            delete(CalendarPeriodWeekTemplate).where(
+                CalendarPeriodWeekTemplate.calendar_period_id == calendar_period_id
+            )
+        )
+        normalized: dict[int, int] = {}
+        for week_index, week_pattern_id in week_pattern_by_week_index.items():
+            idx = int(week_index)
+            pattern_id = int(week_pattern_id)
+            if idx < 1:
+                continue
+            if pattern_id == int(default_week_pattern_id):
+                continue
+            normalized[idx] = pattern_id
+        if not normalized:
+            self.session.flush()
+            return
+        for week_index, week_pattern_id in sorted(normalized.items(), key=lambda item: item[0]):
+            self.session.add(
+                CalendarPeriodWeekTemplate(
+                    calendar_period_id=calendar_period_id,
+                    week_index=week_index,
+                    week_pattern_id=week_pattern_id,
+                )
+            )
+        self.session.flush()
 
     def list_calendar_periods(self, company_id: int | None = None) -> list[CalendarPeriod]:
         statement = select(CalendarPeriod).order_by(CalendarPeriod.start_date.asc(), CalendarPeriod.id.asc())

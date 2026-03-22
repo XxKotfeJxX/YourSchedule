@@ -28,9 +28,15 @@ class TimeBlockGeneratorService:
             )
 
         blocks: list[TimeBlock] = []
+        week_pattern_by_index = {
+            int(item.week_index): item.week_pattern
+            for item in period.week_template_overrides
+        }
         current_date = period.start_date
         while current_date <= period.end_date:
-            day_pattern = period.week_pattern.get_pattern_for_weekday(current_date.weekday())
+            week_index = ((current_date - period.start_date).days // 7) + 1
+            week_pattern = week_pattern_by_index.get(week_index, period.week_pattern)
+            day_pattern = week_pattern.get_pattern_for_weekday(current_date.weekday())
             blocks.extend(
                 self._build_day_blocks(
                     calendar_period_id=period.id,

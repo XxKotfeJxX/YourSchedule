@@ -59,6 +59,9 @@ def _apply_lightweight_schema_upgrades() -> None:
         if not _column_exists(connection, "week_patterns", "name"):
             connection.execute(text("ALTER TABLE week_patterns ADD COLUMN name VARCHAR(120)"))
 
+        if not _column_exists(connection, "calendar_periods", "name"):
+            connection.execute(text("ALTER TABLE calendar_periods ADD COLUMN name VARCHAR(120)"))
+
         if not _column_exists(connection, "room_profiles", "home_department_id"):
             connection.execute(text("ALTER TABLE room_profiles ADD COLUMN home_department_id INTEGER"))
 
