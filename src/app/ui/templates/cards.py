@@ -121,6 +121,12 @@ class _BaseTemplateCard(ttk.Frame):
         return "break"
 
     def _show_context_menu(self, *, x: int, y: int) -> None:
+        def queue_action(action: ActionCallback) -> None:
+            try:
+                self.after_idle(action)
+            except Exception:
+                action()
+
         menu = tk.Menu(
             self,
             tearoff=0,
@@ -133,12 +139,12 @@ class _BaseTemplateCard(ttk.Frame):
             relief=tk.FLAT,
             font=("Segoe UI", 10),
         )
-        menu.add_command(label="Редагувати", command=self._on_edit)
-        menu.add_command(label="Дублювати", command=self._on_duplicate)
+        menu.add_command(label="Редагувати", command=lambda: queue_action(self._on_edit))
+        menu.add_command(label="Дублювати", command=lambda: queue_action(self._on_duplicate))
         menu.add_separator()
         menu.add_command(
             label=self._archive_delete_label,
-            command=self._on_archive_delete,
+            command=lambda: queue_action(self._on_archive_delete),
             foreground=self.theme.DANGER,
             activebackground=self.theme.DANGER_HOVER,
             activeforeground=self.theme.TEXT_LIGHT,
@@ -146,7 +152,14 @@ class _BaseTemplateCard(ttk.Frame):
         try:
             menu.tk_popup(x, y)
         finally:
-            menu.grab_release()
+            try:
+                menu.grab_release()
+            except Exception:
+                pass
+            try:
+                menu.destroy()
+            except Exception:
+                pass
 
 
 class MarkTypeCard(_BaseTemplateCard):

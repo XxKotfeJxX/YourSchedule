@@ -68,6 +68,7 @@ class RoundedMotionCard(tk.Frame):
         self.current_lift = 0
         self.target_lift = 0
         self._animating = False
+        self._animate_job: str | None = None
 
         if width is not None or height is not None:
             # Respect explicit widget size for shells (e.g., auth card), do not shrink to children.
@@ -89,6 +90,7 @@ class RoundedMotionCard(tk.Frame):
         self._content_window = self.canvas.create_window(0, 0, anchor="nw", window=self.content)
 
         self.canvas.bind("<Configure>", self._on_configure)
+        self.bind("<Destroy>", self._on_destroy, add="+")
         if self.motion_enabled:
             for widget in (self, self.canvas, self.content):
                 widget.bind("<Enter>", self._on_enter, add="+")
@@ -111,9 +113,13 @@ class RoundedMotionCard(tk.Frame):
         if self._animating:
             return
         self._animating = True
-        self.after(0, self._animate_step)
+        self._animate_job = self.after(0, self._animate_step)
 
     def _animate_step(self) -> None:
+        self._animate_job = None
+        if not self.winfo_exists() or not self.canvas.winfo_exists():
+            self._animating = False
+            return
         diff = self.target_lift - self.current_lift
         if abs(diff) < 0.2:
             self.current_lift = self.target_lift
@@ -122,7 +128,16 @@ class RoundedMotionCard(tk.Frame):
             return
         self.current_lift += diff * 0.35
         self._draw()
-        self.after(16, self._animate_step)
+        self._animate_job = self.after(16, self._animate_step)
+
+    def _on_destroy(self, _event=None) -> None:
+        if self._animate_job is not None:
+            try:
+                self.after_cancel(self._animate_job)
+            except Exception:
+                pass
+            self._animate_job = None
+        self._animating = False
 
     def _draw(self) -> None:
         width = max(2, self.canvas.winfo_width())
