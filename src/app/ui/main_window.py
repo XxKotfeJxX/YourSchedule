@@ -1934,17 +1934,26 @@ class ScheduleMainWindow:
 
             popup.update_idletasks()
             self.root.update_idletasks()
-            anchor = period_selector_main if period_selector_main.winfo_ismapped() else period_selector_shell
-            anchor.update_idletasks()
-            menu_width = max(anchor.winfo_width(), shell.winfo_reqwidth())
-            menu_height = shell.winfo_reqheight() + 2
-            x_pos = anchor.winfo_rootx()
-            y_pos = anchor.winfo_rooty() + anchor.winfo_height() + 2
+            anchor_widget = period_selector_main if period_selector_main.winfo_ismapped() else period_selector_shell
+            anchor_widget.update_idletasks()
+            menu_width = max(220, period_selector_main.winfo_width(), shell.winfo_reqwidth())
+            menu_height = max(40, shell.winfo_reqheight() + 2)
+            x_pos = anchor_widget.winfo_rootx()
+            y_pos = anchor_widget.winfo_rooty() + anchor_widget.winfo_height() + 2
+
+            pointer_x = self.root.winfo_pointerx()
+            pointer_y = self.root.winfo_pointery()
+            # Fallback for cases when Tk reports stale root coords inside scrolled canvas containers.
+            if abs(x_pos - pointer_x) > 420 or abs(y_pos - pointer_y) > 260:
+                x_pos = pointer_x - menu_width + max(20, period_toggle_button.winfo_width() + 12)
+                y_pos = pointer_y + 6
+
             screen_width = self.root.winfo_screenwidth()
             screen_height = self.root.winfo_screenheight()
             x_pos = max(0, min(x_pos, screen_width - menu_width - 4))
             if y_pos + menu_height > screen_height:
-                y_pos = max(0, anchor.winfo_rooty() - menu_height - 2)
+                alt_y = anchor_widget.winfo_rooty() - menu_height - 2
+                y_pos = alt_y if alt_y >= 0 else max(0, screen_height - menu_height - 4)
             popup.geometry(f"{menu_width}x{menu_height}+{x_pos}+{y_pos}")
             popup.lift()
 
