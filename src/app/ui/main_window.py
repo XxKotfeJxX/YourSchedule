@@ -932,21 +932,21 @@ class ScheduleMainWindow:
             selector_button.pack(side=tk.LEFT, fill=tk.Y)
             return selector_main, selector_label, selector_button
 
-        ttk.Label(header, text="Початок тижня", style="Card.TLabel").grid(row=1, column=2, sticky="w", pady=(8, 0))
+        ttk.Label(header, text="Тиждень", style="Card.TLabel").grid(row=1, column=2, sticky="w", pady=(8, 0))
         week_selector_main, week_selector_label, week_selector_button = build_header_selector(
             header,
             text_var=week_start_var,
             width_px=250,
         )
-        week_selector_main.grid(row=1, column=3, sticky="w", padx=(6, 10), pady=(8, 0))
+        week_selector_main.grid(row=1, column=3, sticky="w", padx=(6, 4), pady=(8, 0))
 
-        ttk.Label(header, text="Група", style="Card.TLabel").grid(row=1, column=4, sticky="e", padx=(0, 4), pady=(8, 0))
+        ttk.Label(header, text="Група", style="Card.TLabel").grid(row=1, column=4, sticky="w", padx=(0, 1), pady=(8, 0))
         group_selector_main, group_selector_label, group_selector_button = build_header_selector(
             header,
             text_var=group_filter_var,
-            width_px=200,
+            width_px=168,
         )
-        group_selector_main.grid(row=1, column=5, sticky="w", padx=(2, 10), pady=(8, 0))
+        group_selector_main.grid(row=1, column=5, sticky="w", padx=(1, 10), pady=(8, 0))
 
         ttk.Label(header, text="Сценарій", style="Card.TLabel").grid(row=2, column=0, sticky="w", pady=(8, 0))
         scenario_selector_main, scenario_selector_label, scenario_selector_button = build_header_selector(
@@ -2520,7 +2520,7 @@ class ScheduleMainWindow:
             popup.update_idletasks()
             self.root.update_idletasks()
             group_selector_main.update_idletasks()
-            menu_width = max(group_selector_main.winfo_width(), 520)
+            menu_width = max(320, group_selector_main.winfo_width() + 120)
             rows_count = max(1, min(10, len(filtered_values)))
             menu_height = 110 + rows_count * 24
             x_pos = group_selector_main.winfo_rootx()
