@@ -1636,6 +1636,39 @@ class ScheduleMainWindow:
                     continue
                 close_selector_menu(state)
 
+        def track_popup_geometry(
+            *,
+            popup: tk.Toplevel,
+            anchor_widget: tk.Widget,
+            width: int,
+            height: int,
+            close_callback,
+            poll_ms: int = 90,
+        ) -> None:
+            def _apply() -> None:
+                if not popup.winfo_exists():
+                    return
+                try:
+                    if not anchor_widget.winfo_exists() or not anchor_widget.winfo_ismapped():
+                        close_callback()
+                        return
+                    self.root.update_idletasks()
+                    anchor_widget.update_idletasks()
+                    x_pos = anchor_widget.winfo_rootx()
+                    y_pos = anchor_widget.winfo_rooty() + anchor_widget.winfo_height()
+                    screen_width = self.root.winfo_screenwidth()
+                    screen_height = self.root.winfo_screenheight()
+                    x_pos = max(0, min(x_pos, screen_width - width - 4))
+                    if y_pos + height > screen_height:
+                        y_pos = max(0, anchor_widget.winfo_rooty() - height - 2)
+                    popup.geometry(f"{width}x{height}+{x_pos}+{y_pos}")
+                    popup.lift()
+                    popup.after(poll_ms, _apply)
+                except tk.TclError:
+                    close_callback()
+
+            _apply()
+
         def open_selector_popup(
             *,
             selector_state: dict[str, object],
@@ -1769,24 +1802,15 @@ class ScheduleMainWindow:
             base_width = max(anchor_widget.winfo_width(), 320 if searchable else 260)
             rows_count = max(1, min(9, len(filtered_values)))
             base_height = rows_count * 24 + (52 if searchable else 10)
-            x_pos = anchor_widget.winfo_rootx()
-            y_pos = anchor_widget.winfo_rooty() + anchor_widget.winfo_height()
-            screen_width = self.root.winfo_screenwidth()
-            screen_height = self.root.winfo_screenheight()
-            x_pos = max(0, min(x_pos, screen_width - base_width - 4))
-            if y_pos + base_height > screen_height:
-                y_pos = max(0, anchor_widget.winfo_rooty() - base_height - 2)
-            geometry_value = f"{base_width}x{base_height}+{x_pos}+{y_pos}"
-
-            def apply_geometry() -> None:
-                if not popup.winfo_exists():
-                    return
-                popup.geometry(geometry_value)
-                popup.lift()
 
             popup.deiconify()
-            apply_geometry()
-            popup.after_idle(apply_geometry)
+            track_popup_geometry(
+                popup=popup,
+                anchor_widget=anchor_widget,
+                width=base_width,
+                height=base_height,
+                close_callback=lambda: close_selector_menu(selector_state),
+            )
             popup.grab_set()
             if searchable and search_entry is not None:
                 search_entry.focus_set()
@@ -2406,15 +2430,6 @@ class ScheduleMainWindow:
             self.root.update_idletasks()
             menu_width = max(220, period_selector_main.winfo_width(), shell.winfo_reqwidth())
             menu_height = max(40, shell.winfo_reqheight() + 2)
-            x_pos = period_selector_main.winfo_rootx()
-            y_pos = period_selector_main.winfo_rooty() + period_selector_main.winfo_height()
-            geometry_value = f"{menu_width}x{menu_height}+{x_pos}+{y_pos}"
-
-            def apply_menu_geometry() -> None:
-                if not popup.winfo_exists():
-                    return
-                popup.geometry(geometry_value)
-                popup.lift()
 
             def close_on_outside_click(event: tk.Event) -> str | None:
                 if not popup.winfo_exists():
@@ -2433,8 +2448,13 @@ class ScheduleMainWindow:
 
             popup.bind("<ButtonPress-1>", close_on_outside_click, add="+")
             popup.deiconify()
-            apply_menu_geometry()
-            popup.after_idle(apply_menu_geometry)
+            track_popup_geometry(
+                popup=popup,
+                anchor_widget=period_selector_main,
+                width=menu_width,
+                height=menu_height,
+                close_callback=close_period_menu,
+            )
             popup.grab_set()
 
         period_toggle_button.configure(command=open_period_menu)
@@ -2648,24 +2668,15 @@ class ScheduleMainWindow:
             menu_width = max(320, group_selector_main.winfo_width() + 120)
             rows_count = max(1, min(10, len(filtered_values)))
             menu_height = 110 + rows_count * 24
-            x_pos = group_selector_main.winfo_rootx()
-            y_pos = group_selector_main.winfo_rooty() + group_selector_main.winfo_height()
-            screen_width = self.root.winfo_screenwidth()
-            screen_height = self.root.winfo_screenheight()
-            x_pos = max(0, min(x_pos, screen_width - menu_width - 4))
-            if y_pos + menu_height > screen_height:
-                y_pos = max(0, group_selector_main.winfo_rooty() - menu_height - 2)
-            geometry_value = f"{menu_width}x{menu_height}+{x_pos}+{y_pos}"
-
-            def apply_geometry() -> None:
-                if not popup.winfo_exists():
-                    return
-                popup.geometry(geometry_value)
-                popup.lift()
 
             popup.deiconify()
-            apply_geometry()
-            popup.after_idle(apply_geometry)
+            track_popup_geometry(
+                popup=popup,
+                anchor_widget=group_selector_main,
+                width=menu_width,
+                height=menu_height,
+                close_callback=lambda: close_selector_menu(group_selector_state),
+            )
             popup.grab_set()
             search_entry.focus_set()
 
