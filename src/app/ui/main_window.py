@@ -1044,12 +1044,26 @@ class ScheduleMainWindow:
             style="CardSubtle.TLabel",
         ).grid(row=3, column=0, columnspan=5, sticky="w", pady=(8, 0))
 
-        blackout_box = ttk.LabelFrame(parent, text="Недоступності ресурсів", padding=10)
+        blackout_box = ttk.LabelFrame(
+            parent,
+            text="Недоступності ресурсів",
+            padding=(12, 10),
+            style="CardSection.TLabelframe",
+        )
         blackout_box.pack(fill=tk.X, pady=(8, 0))
         blackout_box.columnconfigure(1, weight=1)
+        blackout_box.columnconfigure(2, weight=1)
         blackout_box.columnconfigure(3, weight=1)
+        blackout_box.columnconfigure(5, weight=1)
+        blackout_box.columnconfigure(7, weight=1)
 
-        ttk.Label(blackout_box, text="Ресурс").grid(row=0, column=0, sticky="w")
+        ttk.Label(
+            blackout_box,
+            text="Точково або пакетно задайте інтервали недоступності ресурсів.",
+            style="CardSubtle.TLabel",
+        ).grid(row=0, column=0, columnspan=8, sticky="w", pady=(0, 8))
+
+        ttk.Label(blackout_box, text="Ресурс", style="CardSubtle.TLabel").grid(row=1, column=0, sticky="w")
         blackout_scope_box = ttk.Combobox(
             blackout_box,
             textvariable=blackout_scope_var,
@@ -1057,56 +1071,62 @@ class ScheduleMainWindow:
             width=11,
             state="readonly",
         )
-        blackout_scope_box.grid(row=0, column=1, sticky="w", padx=(6, 12))
+        blackout_scope_box.grid(row=1, column=1, sticky="w", padx=(6, 12))
         blackout_resource_box = ttk.Combobox(
             blackout_box,
             textvariable=blackout_resource_var,
             width=34,
             state="readonly",
         )
-        blackout_resource_box.grid(row=0, column=2, columnspan=2, sticky="ew", padx=(0, 12))
-        ttk.Label(blackout_box, text="Початок").grid(row=0, column=4, sticky="w")
-        ttk.Entry(blackout_box, textvariable=blackout_start_var, width=17).grid(row=0, column=5, sticky="w", padx=(6, 12))
-        ttk.Label(blackout_box, text="Кінець").grid(row=0, column=6, sticky="w")
-        ttk.Entry(blackout_box, textvariable=blackout_end_var, width=17).grid(row=0, column=7, sticky="w", padx=(6, 0))
+        blackout_resource_box.grid(row=1, column=2, columnspan=2, sticky="ew", padx=(0, 12))
+        ttk.Label(blackout_box, text="Початок", style="CardSubtle.TLabel").grid(row=1, column=4, sticky="w")
+        ttk.Entry(blackout_box, textvariable=blackout_start_var, width=17).grid(
+            row=1, column=5, sticky="ew", padx=(6, 12)
+        )
+        ttk.Label(blackout_box, text="Кінець", style="CardSubtle.TLabel").grid(row=1, column=6, sticky="w")
+        ttk.Entry(blackout_box, textvariable=blackout_end_var, width=17).grid(
+            row=1, column=7, sticky="ew", padx=(6, 0)
+        )
 
-        ttk.Label(blackout_box, text="Причина").grid(row=1, column=0, sticky="w", pady=(8, 0))
+        ttk.Label(blackout_box, text="Причина", style="CardSubtle.TLabel").grid(row=2, column=0, sticky="w", pady=(8, 0))
         ttk.Entry(blackout_box, textvariable=blackout_title_var).grid(
-            row=1,
+            row=2,
             column=1,
             columnspan=3,
             sticky="ew",
             padx=(6, 12),
             pady=(8, 0),
         )
-        blackout_add_button = ttk.Button(blackout_box, text="Додати blackout")
-        blackout_add_button.grid(row=1, column=5, sticky="w", padx=(6, 12), pady=(8, 0))
-        blackout_delete_button = ttk.Button(blackout_box, text="Видалити")
-        blackout_delete_button.grid(row=1, column=6, sticky="w", padx=(0, 12), pady=(8, 0))
-        blackout_reload_button = ttk.Button(blackout_box, text="Оновити")
-        blackout_reload_button.grid(row=1, column=7, sticky="w", pady=(8, 0))
+        blackout_add_button = ttk.Button(blackout_box, text="Додати blackout", style="Primary.TButton")
+        blackout_add_button.grid(row=2, column=5, sticky="w", padx=(6, 8), pady=(8, 0))
+        blackout_delete_button = ttk.Button(blackout_box, text="Видалити", style="Secondary.TButton")
+        blackout_delete_button.grid(row=2, column=6, sticky="w", padx=(0, 8), pady=(8, 0))
+        blackout_reload_button = ttk.Button(blackout_box, text="Оновити", style="Secondary.TButton")
+        blackout_reload_button.grid(row=2, column=7, sticky="w", pady=(8, 0))
 
-        ttk.Label(blackout_box, text="Пакет: з дати").grid(row=2, column=0, sticky="w", pady=(8, 0))
+        ttk.Label(blackout_box, text="Пакет: з дати", style="CardSubtle.TLabel").grid(row=3, column=0, sticky="w", pady=(8, 0))
         ttk.Entry(blackout_box, textvariable=blackout_batch_start_date_var, width=12).grid(
-            row=2, column=1, sticky="w", padx=(6, 12), pady=(8, 0)
+            row=3, column=1, sticky="w", padx=(6, 12), pady=(8, 0)
         )
-        ttk.Label(blackout_box, text="по дату").grid(row=2, column=2, sticky="w", pady=(8, 0))
+        ttk.Label(blackout_box, text="по дату", style="CardSubtle.TLabel").grid(row=3, column=2, sticky="w", pady=(8, 0))
         ttk.Entry(blackout_box, textvariable=blackout_batch_end_date_var, width=12).grid(
-            row=2, column=3, sticky="w", padx=(6, 12), pady=(8, 0)
+            row=3, column=3, sticky="w", padx=(6, 12), pady=(8, 0)
         )
-        ttk.Label(blackout_box, text="час").grid(row=2, column=4, sticky="w", pady=(8, 0))
+        ttk.Label(blackout_box, text="час", style="CardSubtle.TLabel").grid(row=3, column=4, sticky="w", pady=(8, 0))
         ttk.Entry(blackout_box, textvariable=blackout_batch_start_time_var, width=8).grid(
-            row=2, column=5, sticky="w", padx=(6, 6), pady=(8, 0)
+            row=3, column=5, sticky="w", padx=(6, 6), pady=(8, 0)
         )
         ttk.Entry(blackout_box, textvariable=blackout_batch_end_time_var, width=8).grid(
-            row=2, column=6, sticky="w", padx=(0, 12), pady=(8, 0)
+            row=3, column=6, sticky="w", padx=(0, 12), pady=(8, 0)
         )
-        blackout_batch_button = ttk.Button(blackout_box, text="Додати пакет")
-        blackout_batch_button.grid(row=2, column=7, sticky="w", pady=(8, 0))
+        blackout_batch_button = ttk.Button(blackout_box, text="Додати пакет", style="Primary.TButton")
+        blackout_batch_button.grid(row=3, column=7, sticky="w", pady=(8, 0))
 
-        ttk.Label(blackout_box, text="Дні тижня (1-7, через кому)").grid(row=3, column=0, sticky="w", pady=(8, 0))
+        ttk.Label(blackout_box, text="Дні тижня (1-7, через кому)", style="CardSubtle.TLabel").grid(
+            row=4, column=0, sticky="w", pady=(8, 0)
+        )
         ttk.Entry(blackout_box, textvariable=blackout_batch_weekdays_var, width=28).grid(
-            row=3,
+            row=4,
             column=1,
             columnspan=3,
             sticky="w",
@@ -1115,7 +1135,7 @@ class ScheduleMainWindow:
         )
 
         blackout_table_wrap = ttk.Frame(blackout_box, style="Card.TFrame")
-        blackout_table_wrap.grid(row=4, column=0, columnspan=8, sticky="ew", pady=(10, 0))
+        blackout_table_wrap.grid(row=5, column=0, columnspan=8, sticky="ew", pady=(10, 0))
         blackout_table = ttk.Treeview(
             blackout_table_wrap,
             columns=("resource", "start", "end", "title"),
