@@ -1,0 +1,800 @@
+def _build_company_schedule_view__impl(self, parent: ttk.Frame, company_id: int) -> None:
+    period_var = tk.StringVar()
+    week_start_var = tk.StringVar()
+    group_filter_var = tk.StringVar(value="Не обрано")
+    scenario_var = tk.StringVar(value="Опублікований")
+    scenario_compare_var = tk.StringVar(value="Опублікований")
+    status_var = tk.StringVar(value="Готово.")
+    plan_sync_var = tk.StringVar()
+    plan_sync_hint_var = tk.StringVar(value="Синхронізуйте вимоги з навчальних планів.")
+
+    blackout_scope_var = tk.StringVar(value="Викладач")
+    blackout_resource_var = tk.StringVar()
+    blackout_start_date_var = tk.StringVar()
+    blackout_start_time_var = tk.StringVar(value="08:30")
+    blackout_end_date_var = tk.StringVar()
+    blackout_end_time_var = tk.StringVar(value="18:00")
+    blackout_title_var = tk.StringVar()
+    blackout_batch_start_date_var = tk.StringVar()
+    blackout_batch_end_date_var = tk.StringVar()
+    blackout_batch_start_time_var = tk.StringVar(value="08:30")
+    blackout_batch_end_time_var = tk.StringVar(value="18:00")
+    blackout_weekday_labels: list[tuple[int, str]] = [
+        (1, "Пн"),
+        (2, "Вт"),
+        (3, "Ср"),
+        (4, "Чт"),
+        (5, "Пт"),
+        (6, "Сб"),
+        (7, "Нд"),
+    ]
+    blackout_batch_weekday_vars: dict[int, tk.BooleanVar] = {
+        day: tk.BooleanVar(value=(day <= 5))
+        for day, _ in blackout_weekday_labels
+    }
+    blackout_time_values = [f"{hour:02d}:{minute:02d}" for hour in range(7, 23) for minute in (0, 15, 30, 45)]
+    coverage_summary_var = tk.StringVar(value="Coverage: —")
+
+    room_type_options: list[tuple[str, RoomType | None]] = [
+        ("Не важливо", None),
+        ("Лекційна", RoomType.LECTURE_HALL),
+        ("Клас", RoomType.CLASSROOM),
+        ("Лабораторія", RoomType.LAB),
+        ("Комп'ютерна", RoomType.COMPUTER_LAB),
+        ("Інше", RoomType.OTHER),
+    ]
+    room_type_by_label = {label: room_type for label, room_type in room_type_options}
+    room_type_labels = [label for label, _ in room_type_options]
+
+    blackout_scope_options: list[tuple[str, ResourceType]] = [
+        ("Викладач", ResourceType.TEACHER),
+        ("Група", ResourceType.GROUP),
+        ("Аудиторія", ResourceType.ROOM),
+    ]
+    blackout_scope_type_by_label = {label: resource_type for label, resource_type in blackout_scope_options}
+    blackout_scope_labels = [label for label, _ in blackout_scope_options]
+    blackout_resource_values_by_scope: dict[str, list[str]] = {label: [] for label in blackout_scope_labels}
+    blackout_resource_name_by_id: dict[int, str] = {}
+    blackout_resource_scope_by_id: dict[int, str] = {}
+    blackout_table_columns = ("resource", "start", "end", "title")
+    blackout_heading_titles = {
+        "resource": "Ресурс",
+        "start": "Початок",
+        "end": "Кінець",
+        "title": "Причина",
+    }
+    blackout_filter_state: dict[str, object] = {
+        "rows": [],
+        "search_by_column": {},
+        "value_filter_by_column": {},
+        "sort_column": None,
+        "sort_desc": False,
+        "menu": None,
+    }
+    room_type_label_by_enum = {room_type: label for label, room_type in room_type_options if room_type is not None}
+    requirements_state: dict[str, list[dict[str, object]]] = {"items": []}
+    plan_sync_state: dict[str, object] = {"items": [], "selected_ids": [], "selection_touched": False}
+    schedule_entries_state: dict[int, dict[str, object]] = {}
+    scenario_values_state: dict[str, list[str]] = {"values": ["Опублікований"]}
+    period_state: dict[str, object] = {
+        "items": [],
+        "by_id": {},
+        "menu": None,
+    }
+    week_start_state: dict[str, object] = {
+        "labels": [],
+        "start_by_label": {},
+        "label_by_iso": {},
+    }
+    week_selector_state: dict[str, object] = {"menu": None, "values": []}
+    group_selector_state: dict[str, object] = {
+        "menu": None,
+        "values": [],
+        "all_values": [],
+        "meta_by_value": {},
+        "specialty_values": ["Усі спеціальності"],
+        "course_values": ["Усі курси"],
+        "specialty_filter": "Усі спеціальності",
+        "course_filter": "Усі курси",
+    }
+    scenario_selector_state: dict[str, object] = {"menu": None, "values": []}
+    scenario_compare_selector_state: dict[str, object] = {"menu": None, "values": []}
+
+    policy_max_sessions_var = tk.StringVar(value="4")
+    policy_max_consecutive_var = tk.StringVar(value="3")
+    policy_no_gaps_var = tk.BooleanVar(value=False)
+    policy_time_pref_var = tk.StringVar(value="Баланс")
+    policy_weight_time_var = tk.StringVar(value="2")
+    policy_weight_compact_var = tk.StringVar(value="3")
+    policy_weight_building_var = tk.StringVar(value="2")
+    policy_time_pref_options = {
+        "Баланс": TimePreference.BALANCED,
+        "Ранок": TimePreference.MORNING,
+        "Вечір": TimePreference.EVENING,
+    }
+
+    manual_requirement_var = tk.StringVar()
+    manual_date_var = tk.StringVar()
+    manual_order_var = tk.StringVar(value="1")
+    manual_room_var = tk.StringVar(value="Авто")
+    manual_lock_var = tk.BooleanVar(value=True)
+
+    schedule_shell = ttk.Frame(parent, style="Card.TFrame")
+    schedule_shell.pack(fill=tk.BOTH, expand=True)
+
+    schedule_canvas = tk.Canvas(
+        schedule_shell,
+        bg=self.theme.SURFACE,
+        bd=0,
+        highlightthickness=0,
+        relief=tk.FLAT,
+    )
+    schedule_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    schedule_scroll = ttk.Scrollbar(
+        schedule_shell,
+        orient=tk.VERTICAL,
+        command=schedule_canvas.yview,
+        style="App.Vertical.TScrollbar",
+    )
+    schedule_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+    schedule_canvas.configure(yscrollcommand=schedule_scroll.set)
+
+    schedule_body = ttk.Frame(schedule_canvas, style="Card.TFrame")
+    schedule_window = schedule_canvas.create_window((0, 0), anchor="nw", window=schedule_body)
+    schedule_scroll_state = {"visible": True}
+
+    def _sync_schedule_scroll(_event=None) -> None:
+        viewport_width = max(1, schedule_canvas.winfo_width())
+        viewport_height = max(1, schedule_canvas.winfo_height())
+        requested_height = max(1, schedule_body.winfo_reqheight())
+        schedule_canvas.itemconfigure(
+            schedule_window,
+            width=viewport_width,
+            height=max(viewport_height, requested_height),
+        )
+        bbox = schedule_canvas.bbox("all")
+        if bbox is not None:
+            schedule_canvas.configure(scrollregion=bbox)
+
+        need_scroll = requested_height > (viewport_height + 1)
+        if need_scroll and not schedule_scroll_state["visible"]:
+            schedule_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+            schedule_scroll_state["visible"] = True
+        elif not need_scroll and schedule_scroll_state["visible"]:
+            schedule_scroll.pack_forget()
+            schedule_scroll_state["visible"] = False
+
+    def _create_smooth_wheel_handlers(get_view, set_view, *, gain: float = 0.14):
+        state: dict[str, float] = {"velocity": 0.0}
+
+        def _wheel_step(step_units: float) -> str:
+            first, last = get_view()
+            first_f = float(first)
+            last_f = float(last)
+            visible = max(0.0001, last_f - first_f)
+            if visible >= 0.999:
+                return "break"
+
+            smoothed_units = state["velocity"] * 0.35 + max(-4.0, min(4.0, step_units)) * 0.65
+            if abs(smoothed_units) < 0.01:
+                smoothed_units = step_units
+            state["velocity"] = smoothed_units
+
+            max_first = max(0.0, 1.0 - visible)
+            next_first = max(0.0, min(first_f + smoothed_units * visible * gain, max_first))
+            if abs(next_first - first_f) < 0.00001:
+                return "break"
+            set_view(next_first)
+            return "break"
+
+        def _on_wheel(event: tk.Event) -> str:
+            delta = float(getattr(event, "delta", 0.0))
+            if delta == 0:
+                return "break"
+            return _wheel_step(-delta / 120.0)
+
+        def _on_button4(_event: tk.Event) -> str:
+            return _wheel_step(-1.0)
+
+        def _on_button5(_event: tk.Event) -> str:
+            return _wheel_step(1.0)
+
+        return _on_wheel, _on_button4, _on_button5
+
+    def _with_fallback(primary_handler, primary_view, fallback_handler):
+        def _handler(event: tk.Event) -> str:
+            first, last = primary_view()
+            first_f = float(first)
+            last_f = float(last)
+            if last_f - first_f >= 0.999:
+                return fallback_handler(event)
+            event_num = getattr(event, "num", 0)
+            delta = float(getattr(event, "delta", 0.0))
+            scroll_up = bool(event_num == 4 or delta > 0)
+            scroll_down = bool(event_num == 5 or delta < 0)
+            if scroll_up and first_f <= 0.0001:
+                return fallback_handler(event)
+            if scroll_down and last_f >= 0.9999:
+                return fallback_handler(event)
+            return primary_handler(event)
+
+        return _handler
+
+    def _bind_wheel_recursive(
+        widget: tk.Widget,
+        on_wheel,
+        on_up,
+        on_down,
+        *,
+        skip_widgets: set[tk.Widget] | None = None,
+    ) -> None:
+        if skip_widgets is not None and widget in skip_widgets:
+            return
+        widget.bind("<MouseWheel>", on_wheel, add="+")
+        widget.bind("<Button-4>", on_up, add="+")
+        widget.bind("<Button-5>", on_down, add="+")
+        for child in widget.winfo_children():
+            _bind_wheel_recursive(
+                child,
+                on_wheel,
+                on_up,
+                on_down,
+                skip_widgets=skip_widgets,
+            )
+
+    schedule_body.bind("<Configure>", _sync_schedule_scroll, add="+")
+    schedule_canvas.bind("<Configure>", _sync_schedule_scroll, add="+")
+    schedule_wheel_raw, schedule_wheel_up_raw, schedule_wheel_down_raw = _create_smooth_wheel_handlers(
+        schedule_canvas.yview,
+        schedule_canvas.yview_moveto,
+        gain=0.14,
+    )
+
+    def dismiss_schedule_popdowns() -> None:
+        self._dismiss_combobox_popdowns(schedule_body)
+        close_blackout_filter_menu()
+
+    def schedule_wheel(event: tk.Event) -> str:
+        dismiss_schedule_popdowns()
+        return schedule_wheel_raw(event)
+
+    def schedule_wheel_up(event: tk.Event) -> str:
+        dismiss_schedule_popdowns()
+        return schedule_wheel_up_raw(event)
+
+    def schedule_wheel_down(event: tk.Event) -> str:
+        dismiss_schedule_popdowns()
+        return schedule_wheel_down_raw(event)
+
+    schedule_canvas.bind("<MouseWheel>", schedule_wheel, add="+")
+    schedule_canvas.bind("<Button-4>", schedule_wheel_up, add="+")
+    schedule_canvas.bind("<Button-5>", schedule_wheel_down, add="+")
+
+    parent = schedule_body
+    tabs_bar = ttk.Frame(parent, style="Card.TFrame")
+    tabs_bar.pack(fill=tk.X, pady=(0, 8))
+    schedule_views: dict[str, ttk.Frame] = {
+        "view": ttk.Frame(parent, style="Card.TFrame"),
+        "setup": ttk.Frame(parent, style="Card.TFrame"),
+    }
+    for frame in schedule_views.values():
+        frame.pack(fill=tk.BOTH, expand=True)
+        frame.pack_forget()
+    schedule_tab_buttons: dict[str, RoundedMotionButton] = {}
+
+    def _set_schedule_tab_state(button: RoundedMotionButton, *, active: bool) -> None:
+        if active:
+            button.fill = self.theme.ACCENT
+            button.hover_fill = self.theme.ACCENT_HOVER
+            button.pressed_fill = self.theme.ACCENT_PRESSED
+            button.text_color = self.theme.TEXT_LIGHT
+            button.shadow_color = self.theme.SHADOW_SOFT
+        else:
+            button.fill = self.theme.SURFACE_ALT
+            button.hover_fill = self.theme.SECONDARY_HOVER
+            button.pressed_fill = self.theme.SECONDARY_PRESSED
+            button.text_color = self.theme.TEXT_PRIMARY
+            button.shadow_color = self.theme.SHADOW_SOFT
+        button._state = "normal"
+        button._lift = 0
+        button._draw()
+
+    def open_schedule_tab(name: str) -> None:
+        for frame in schedule_views.values():
+            frame.pack_forget()
+        schedule_views[name].pack(fill=tk.BOTH, expand=True)
+        for key, button in schedule_tab_buttons.items():
+            _set_schedule_tab_state(button, active=(key == name))
+        self.root.after_idle(_sync_schedule_scroll)
+
+    tab_specs = (
+        ("view", "Візуалізація"),
+        ("setup", "Налаштування"),
+    )
+    for key, label in tab_specs:
+        tab_button = self._motion_button(
+            tabs_bar,
+            text=label,
+            command=lambda selected=key: open_schedule_tab(selected),
+            primary=False,
+            width=170,
+            height=40,
+        )
+        tab_button.pack(side=tk.LEFT, padx=(0, 8))
+        schedule_tab_buttons[key] = tab_button
+
+    parent = schedule_views["view"]
+
+    header = ttk.Frame(parent, style="Card.TFrame")
+    header.pack(fill=tk.X, pady=(0, 8))
+
+    ttk.Label(header, text="Розклад", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")
+    ttk.Label(header, text="Період", style="Card.TLabel").grid(row=1, column=0, sticky="w", pady=(8, 0))
+
+    period_selector_shell = ttk.Frame(header, style="Card.TFrame")
+    period_selector_shell.grid(row=1, column=1, sticky="w", padx=(6, 10), pady=(8, 0))
+    period_selector_main = tk.Frame(
+        period_selector_shell,
+        bg=self.theme.SURFACE,
+        bd=0,
+        highlightthickness=1,
+        highlightbackground=self.theme.BORDER,
+        highlightcolor=self.theme.ACCENT,
+    )
+    period_selector_main.pack(fill=tk.X)
+    period_display = tk.Label(
+        period_selector_main,
+        textvariable=period_var,
+        bg=self.theme.SURFACE,
+        fg=self.theme.TEXT_PRIMARY,
+        anchor="w",
+        padx=10,
+        pady=8,
+        font=("Segoe UI", 10),
+        cursor="hand2",
+    )
+    period_display.pack(side=tk.LEFT, fill=tk.X, expand=True)
+    period_toggle_button = tk.Button(
+        period_selector_main,
+        text="▾",
+        width=3,
+        relief=tk.FLAT,
+        bd=0,
+        bg=self.theme.SURFACE_ALT,
+        fg=self.theme.TEXT_PRIMARY,
+        activebackground=self.theme.SECONDARY_HOVER,
+        activeforeground=self.theme.TEXT_PRIMARY,
+        cursor="hand2",
+    )
+    period_toggle_button.pack(side=tk.LEFT, fill=tk.Y)
+    period_empty_create_button = self._motion_button(
+        period_selector_shell,
+        text="+ Створити період",
+        command=lambda: None,
+        primary=True,
+        width=210,
+        height=34,
+    )
+    period_selector_main.pack_forget()
+    period_empty_create_button.pack(fill=tk.X)
+
+    def build_header_selector(
+        parent_widget: tk.Widget,
+        *,
+        text_var: tk.StringVar,
+        width_px: int,
+    ) -> tuple[tk.Frame, tk.Label, tk.Button]:
+        selector_main = tk.Frame(
+            parent_widget,
+            bg=self.theme.SURFACE,
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=self.theme.BORDER,
+            highlightcolor=self.theme.ACCENT,
+            width=width_px,
+            height=36,
+        )
+        selector_main.grid_propagate(False)
+        selector_label = tk.Label(
+            selector_main,
+            textvariable=text_var,
+            bg=self.theme.SURFACE,
+            fg=self.theme.TEXT_PRIMARY,
+            anchor="w",
+            padx=10,
+            pady=8,
+            font=("Segoe UI", 10),
+            cursor="hand2",
+        )
+        selector_label.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        selector_button = tk.Button(
+            selector_main,
+            text="▾",
+            width=3,
+            relief=tk.FLAT,
+            bd=0,
+            bg=self.theme.SURFACE_ALT,
+            fg=self.theme.TEXT_PRIMARY,
+            activebackground=self.theme.SECONDARY_HOVER,
+            activeforeground=self.theme.TEXT_PRIMARY,
+            cursor="hand2",
+        )
+        selector_button.pack(side=tk.LEFT, fill=tk.Y)
+        return selector_main, selector_label, selector_button
+
+    ttk.Label(header, text="Тиждень", style="Card.TLabel").grid(row=1, column=2, sticky="w", pady=(8, 0))
+    week_selector_main, week_selector_label, week_selector_button = build_header_selector(
+        header,
+        text_var=week_start_var,
+        width_px=250,
+    )
+    week_selector_main.grid(row=1, column=3, sticky="w", padx=(6, 4), pady=(8, 0))
+
+    group_selector_shell = ttk.Frame(header, style="Card.TFrame")
+    group_selector_shell.grid(row=1, column=4, columnspan=2, sticky="w", pady=(8, 0))
+    ttk.Label(group_selector_shell, text="Група", style="Card.TLabel").pack(side=tk.LEFT, padx=(0, 6))
+    group_selector_main, group_selector_label, group_selector_button = build_header_selector(
+        group_selector_shell,
+        text_var=group_filter_var,
+        width_px=168,
+    )
+    group_selector_main.pack(side=tk.LEFT)
+
+    ttk.Label(header, text="Сценарій", style="Card.TLabel").grid(row=2, column=0, sticky="w", pady=(8, 0))
+    scenario_selector_main, scenario_selector_label, scenario_selector_button = build_header_selector(
+        header,
+        text_var=scenario_var,
+        width_px=250,
+    )
+    scenario_selector_main.grid(row=2, column=1, sticky="w", padx=(6, 10), pady=(8, 0))
+
+    ttk.Label(header, text="Порівняти з", style="Card.TLabel").grid(row=2, column=2, sticky="w", pady=(8, 0))
+    scenario_compare_selector_main, scenario_compare_selector_label, scenario_compare_selector_button = build_header_selector(
+        header,
+        text_var=scenario_compare_var,
+        width_px=250,
+    )
+    scenario_compare_selector_main.grid(row=2, column=3, sticky="w", padx=(6, 10), pady=(8, 0))
+    scenario_compare_button = self._motion_button(
+        header,
+        text="Порівняти",
+        command=lambda: None,
+        primary=False,
+        width=122,
+        height=36,
+        canvas_bg=self.theme.SURFACE,
+    )
+    scenario_compare_button.grid(row=2, column=4, sticky="w", pady=(8, 0))
+    scenario_publish_button = self._motion_button(
+        header,
+        text="Опублікувати",
+        command=lambda: None,
+        primary=True,
+        width=140,
+        height=36,
+        canvas_bg=self.theme.SURFACE,
+    )
+    scenario_publish_button.grid(row=2, column=5, sticky="w", padx=(6, 0), pady=(8, 0))
+
+    tree = ttk.Treeview(
+        parent,
+        columns=("slot", "mon", "tue", "wed", "thu", "fri", "sat", "sun"),
+        show="headings",
+        height=16,
+    )
+    tree.heading("slot", text="Пара")
+    tree.column("slot", width=120, anchor="center", stretch=False)
+    for day in ("mon", "tue", "wed", "thu", "fri", "sat", "sun"):
+        tree.heading(day, text=day.upper())
+        tree.column(day, width=145, anchor="center", stretch=True)
+    tree.pack(fill=tk.BOTH, expand=True, pady=(8, 10))
+
+    parent = schedule_views["setup"]
+
+    plan_sync_box = ttk.LabelFrame(parent, text="Навчальні плани", padding=(12, 10), style="CardSection.TLabelframe")
+    plan_sync_box.pack(fill=tk.X)
+    plan_sync_box.columnconfigure(1, weight=1)
+
+    ttk.Label(plan_sync_box, text="Додати план", style="CardSubtle.TLabel").grid(row=0, column=0, sticky="w")
+    plan_selector_box = ttk.Combobox(
+        plan_sync_box,
+        textvariable=plan_sync_var,
+        state="readonly",
+    )
+    plan_selector_box.grid(row=0, column=1, sticky="ew", padx=(8, 8))
+    plan_add_button = ttk.Button(plan_sync_box, text="Додати", style="Secondary.TButton")
+    plan_add_button.grid(row=0, column=2, sticky="w", padx=(0, 8))
+    plan_remove_button = ttk.Button(plan_sync_box, text="Прибрати", style="Secondary.TButton")
+    plan_remove_button.grid(row=0, column=3, sticky="w", padx=(0, 8))
+    plan_clear_button = ttk.Button(plan_sync_box, text="Очистити", style="Secondary.TButton")
+    plan_clear_button.grid(row=0, column=4, sticky="w")
+
+    ttk.Label(plan_sync_box, text="Обрані", style="CardSubtle.TLabel").grid(row=1, column=0, sticky="nw", pady=(8, 0))
+    plan_selected_wrap = ttk.Frame(plan_sync_box, style="Card.TFrame")
+    plan_selected_wrap.grid(row=1, column=1, columnspan=4, sticky="ew", pady=(8, 0))
+    plan_selected_wrap.columnconfigure(0, weight=1)
+    plan_selected_listbox = tk.Listbox(
+        plan_selected_wrap,
+        height=4,
+        activestyle="none",
+        exportselection=False,
+        selectmode=tk.BROWSE,
+        relief=tk.FLAT,
+        borderwidth=0,
+    )
+    self.theme.style_listbox(plan_selected_listbox)
+    plan_selected_listbox.grid(row=0, column=0, sticky="ew")
+    plan_selected_scroll = ttk.Scrollbar(
+        plan_selected_wrap,
+        orient=tk.VERTICAL,
+        command=plan_selected_listbox.yview,
+        style="App.Vertical.TScrollbar",
+    )
+    plan_selected_scroll.grid(row=0, column=1, sticky="ns")
+    plan_selected_listbox.configure(yscrollcommand=plan_selected_scroll.set)
+
+    plan_sync_actions = ttk.Frame(plan_sync_box, style="Card.TFrame")
+    plan_sync_actions.grid(row=2, column=1, columnspan=4, sticky="w", pady=(8, 0))
+    plan_sync_selected_button = ttk.Button(plan_sync_actions, text="Синхр. обрані", style="Primary.TButton")
+    plan_sync_selected_button.pack(side=tk.LEFT)
+    plan_sync_all_button = ttk.Button(plan_sync_actions, text="Синхр. усі плани", style="Secondary.TButton")
+    plan_sync_all_button.pack(side=tk.LEFT, padx=(8, 0))
+    plan_sync_refresh_button = ttk.Button(plan_sync_actions, text="Оновити список", style="Secondary.TButton")
+    plan_sync_refresh_button.pack(side=tk.LEFT, padx=(8, 0))
+
+    ttk.Label(
+        plan_sync_box,
+        textvariable=plan_sync_hint_var,
+        style="CardSubtle.TLabel",
+    ).grid(row=3, column=0, columnspan=5, sticky="w", pady=(8, 0))
+
+    blackout_box = ttk.LabelFrame(
+        parent,
+        text="Недоступності ресурсів",
+        padding=(12, 10),
+        style="CardSection.TLabelframe",
+    )
+    blackout_box.pack(fill=tk.X, pady=(8, 0))
+    blackout_box.columnconfigure(1, weight=1)
+    blackout_box.columnconfigure(2, weight=1)
+    blackout_box.columnconfigure(3, weight=1)
+    blackout_box.columnconfigure(5, weight=1)
+    blackout_box.columnconfigure(7, weight=1)
+
+    ttk.Label(
+        blackout_box,
+        text="Blackout = один інтервал. Пакет = серія інтервалів у діапазоні дат за вибраними днями тижня.",
+        style="CardSubtle.TLabel",
+    ).grid(row=0, column=0, columnspan=8, sticky="w", pady=(0, 8))
+
+    ttk.Label(blackout_box, text="Ресурс", style="CardSubtle.TLabel").grid(row=1, column=0, sticky="w")
+    blackout_scope_box = ttk.Combobox(
+        blackout_box,
+        textvariable=blackout_scope_var,
+        values=blackout_scope_labels,
+        width=11,
+        state="readonly",
+    )
+    blackout_scope_box.grid(row=1, column=1, sticky="w", padx=(6, 12))
+    blackout_resource_box = ttk.Combobox(
+        blackout_box,
+        textvariable=blackout_resource_var,
+        width=34,
+        state="readonly",
+    )
+    blackout_resource_box.grid(row=1, column=2, columnspan=2, sticky="ew", padx=(0, 12))
+    ttk.Label(blackout_box, text="Початок", style="CardSubtle.TLabel").grid(row=1, column=4, sticky="w")
+    blackout_start_wrap = ttk.Frame(blackout_box, style="Card.TFrame")
+    blackout_start_wrap.grid(row=1, column=5, sticky="ew", padx=(6, 12))
+    blackout_start_wrap.columnconfigure(0, weight=1)
+    blackout_start_date_box = ttk.Combobox(
+        blackout_start_wrap,
+        textvariable=blackout_start_date_var,
+        state="readonly",
+        width=12,
+    )
+    blackout_start_date_box.grid(row=0, column=0, sticky="ew")
+    blackout_start_time_box = ttk.Combobox(
+        blackout_start_wrap,
+        textvariable=blackout_start_time_var,
+        values=blackout_time_values,
+        state="readonly",
+        width=7,
+    )
+    blackout_start_time_box.grid(row=0, column=1, sticky="w", padx=(6, 0))
+    ttk.Label(blackout_box, text="Кінець", style="CardSubtle.TLabel").grid(row=1, column=6, sticky="w")
+    blackout_end_wrap = ttk.Frame(blackout_box, style="Card.TFrame")
+    blackout_end_wrap.grid(row=1, column=7, sticky="ew", padx=(6, 0))
+    blackout_end_wrap.columnconfigure(0, weight=1)
+    blackout_end_date_box = ttk.Combobox(
+        blackout_end_wrap,
+        textvariable=blackout_end_date_var,
+        state="readonly",
+        width=12,
+    )
+    blackout_end_date_box.grid(row=0, column=0, sticky="ew")
+    blackout_end_time_box = ttk.Combobox(
+        blackout_end_wrap,
+        textvariable=blackout_end_time_var,
+        values=blackout_time_values,
+        state="readonly",
+        width=7,
+    )
+    blackout_end_time_box.grid(row=0, column=1, sticky="w", padx=(6, 0))
+
+    ttk.Label(blackout_box, text="Причина", style="CardSubtle.TLabel").grid(row=2, column=0, sticky="w", pady=(8, 0))
+    ttk.Entry(blackout_box, textvariable=blackout_title_var).grid(
+        row=2,
+        column=1,
+        columnspan=3,
+        sticky="ew",
+        padx=(6, 12),
+        pady=(8, 0),
+    )
+    blackout_add_button = ttk.Button(blackout_box, text="Додати blackout", style="Primary.TButton")
+    blackout_add_button.grid(row=2, column=5, sticky="w", padx=(6, 8), pady=(8, 0))
+    blackout_delete_button = ttk.Button(blackout_box, text="Видалити", style="Secondary.TButton")
+    blackout_delete_button.grid(row=2, column=6, sticky="w", padx=(0, 8), pady=(8, 0))
+    blackout_reload_button = ttk.Button(blackout_box, text="Оновити", style="Secondary.TButton")
+    blackout_reload_button.grid(row=2, column=7, sticky="w", pady=(8, 0))
+
+    ttk.Label(blackout_box, text="Пакет: з дати", style="CardSubtle.TLabel").grid(row=3, column=0, sticky="w", pady=(8, 0))
+    blackout_batch_start_date_box = ttk.Combobox(
+        blackout_box,
+        textvariable=blackout_batch_start_date_var,
+        state="readonly",
+        width=12,
+    )
+    blackout_batch_start_date_box.grid(row=3, column=1, sticky="w", padx=(6, 12), pady=(8, 0))
+    ttk.Label(blackout_box, text="по дату", style="CardSubtle.TLabel").grid(row=3, column=2, sticky="w", pady=(8, 0))
+    blackout_batch_end_date_box = ttk.Combobox(
+        blackout_box,
+        textvariable=blackout_batch_end_date_var,
+        state="readonly",
+        width=12,
+    )
+    blackout_batch_end_date_box.grid(row=3, column=3, sticky="w", padx=(6, 12), pady=(8, 0))
+    ttk.Label(blackout_box, text="час", style="CardSubtle.TLabel").grid(row=3, column=4, sticky="w", pady=(8, 0))
+    blackout_batch_start_time_box = ttk.Combobox(
+        blackout_box,
+        textvariable=blackout_batch_start_time_var,
+        values=blackout_time_values,
+        state="readonly",
+        width=8,
+    )
+    blackout_batch_start_time_box.grid(row=3, column=5, sticky="w", padx=(6, 6), pady=(8, 0))
+    blackout_batch_end_time_box = ttk.Combobox(
+        blackout_box,
+        textvariable=blackout_batch_end_time_var,
+        values=blackout_time_values,
+        state="readonly",
+        width=8,
+    )
+    blackout_batch_end_time_box.grid(row=3, column=6, sticky="w", padx=(0, 12), pady=(8, 0))
+    blackout_batch_button = ttk.Button(blackout_box, text="Додати пакет", style="Primary.TButton")
+    blackout_batch_button.grid(row=3, column=7, sticky="w", pady=(8, 0))
+
+    ttk.Label(blackout_box, text="Дні тижня", style="CardSubtle.TLabel").grid(
+        row=4, column=0, sticky="w", pady=(8, 0)
+    )
+    blackout_weekdays_wrap = ttk.Frame(blackout_box, style="Card.TFrame")
+    blackout_weekdays_wrap.grid(row=4, column=1, columnspan=3, sticky="w", padx=(6, 12), pady=(8, 0))
+    blackout_weekday_buttons: dict[int, tk.Button] = {}
+
+    def refresh_blackout_weekday_button(weekday: int) -> None:
+        button = blackout_weekday_buttons.get(weekday)
+        if button is None:
+            return
+        selected = bool(blackout_batch_weekday_vars[weekday].get())
+        if selected:
+            button.configure(
+                bg=self.theme.ACCENT,
+                fg=self.theme.TEXT_LIGHT,
+                activebackground=self.theme.ACCENT_HOVER,
+                activeforeground=self.theme.TEXT_LIGHT,
+            )
+        else:
+            button.configure(
+                bg=self.theme.SURFACE_ALT,
+                fg=self.theme.TEXT_PRIMARY,
+                activebackground=self.theme.SECONDARY_HOVER,
+                activeforeground=self.theme.TEXT_PRIMARY,
+            )
+
+    def toggle_blackout_weekday(weekday: int) -> None:
+        current = bool(blackout_batch_weekday_vars[weekday].get())
+        blackout_batch_weekday_vars[weekday].set(not current)
+        refresh_blackout_weekday_button(weekday)
+
+    for idx, (weekday, label) in enumerate(blackout_weekday_labels):
+        toggle_button = tk.Button(
+            blackout_weekdays_wrap,
+            text=label,
+            width=4,
+            relief=tk.FLAT,
+            bd=0,
+            padx=8,
+            pady=4,
+            cursor="hand2",
+            font=("Segoe UI", 9, "bold"),
+            command=lambda day=weekday: toggle_blackout_weekday(day),
+        )
+        toggle_button.pack(side=tk.LEFT, padx=(0 if idx == 0 else 8, 0))
+        blackout_weekday_buttons[weekday] = toggle_button
+        refresh_blackout_weekday_button(weekday)
+
+    blackout_table_wrap = ttk.Frame(blackout_box, style="Card.TFrame")
+    blackout_table_wrap.grid(row=5, column=0, columnspan=8, sticky="ew", pady=(10, 0))
+    blackout_table_style = "BlackoutFilters.Treeview"
+    blackout_style = ttk.Style(self.root)
+    try:
+        blackout_style.layout(
+            f"{blackout_table_style}.Heading",
+            [
+                ("Treeheading.cell", {"sticky": "nswe"}),
+                (
+                    "Treeheading.border",
+                    {
+                        "sticky": "nswe",
+                        "children": [
+                            (
+                                "Treeheading.padding",
+                                {
+                                    "sticky": "nswe",
+                                    "children": [
+                                        ("Treeheading.image", {"side": "right", "sticky": "se"}),
+                                        ("Treeheading.text", {"sticky": "we"}),
+                                    ],
+                                },
+                            )
+                        ],
+                    },
+                ),
+            ],
+        )
+    except tk.TclError:
+        pass
+    blackout_table = ttk.Treeview(
+        blackout_table_wrap,
+        columns=blackout_table_columns,
+        show="headings",
+        height=5,
+        style=blackout_table_style,
+    )
+    for column_id in blackout_table_columns:
+        blackout_table.heading(column_id, text=blackout_heading_titles[column_id])
+    blackout_table.column("resource", width=280, anchor="w")
+    blackout_table.column("start", width=160, anchor="center")
+    blackout_table.column("end", width=160, anchor="center")
+    blackout_table.column("title", width=300, anchor="w")
+    blackout_table.pack(side=tk.LEFT, fill=tk.X, expand=True)
+    blackout_scroll = ttk.Scrollbar(
+        blackout_table_wrap,
+        orient=tk.VERTICAL,
+        command=blackout_table.yview,
+        style="App.Vertical.TScrollbar",
+    )
+    blackout_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+    blackout_table.configure(yscrollcommand=blackout_scroll.set)
+    blackout_filter_icon_image_source = Image.new("RGBA", (18, 18), (0, 0, 0, 0))
+    blackout_filter_icon_draw = ImageDraw.Draw(blackout_filter_icon_image_source)
+    blackout_filter_icon_draw.polygon(
+        [(7, 6), (16, 6), (12, 10), (12, 15), (10, 15), (10, 10)],
+        fill=self.theme.ACCENT,
+    )
+    blackout_filter_icon = ImageTk.PhotoImage(blackout_filter_icon_image_source)
+
+    requirements_box = ttk.LabelFrame(parent, text="Вимоги", padding=10)
+    requirements_box.pack(fill=tk.X, pady=(8, 0))
+    requirements_actions = ttk.Frame(requirements_box, style="Card.TFrame")
+    requirements_actions.pack(fill=tk.X, pady=(0, 6))
+    requirements_refresh_button = ttk.Button(requirements_actions, text="Оновити")
+    requirements_refresh_button.pack(side=tk.LEFT, padx=(0, 8))
+    requirements_edit_button = ttk.Button(requirements_actions, text="Редагувати")
+    requirements_edit_button.pack(side=tk.LEFT, padx=(0, 8))
+    requirements_delete_button = ttk.Button(requirements_actions, text="Видалити")
+    requirements_delete_button.pack(side=tk.LEFT)
+
+    requirements_table_wrap = ttk.Frame(requirements_box, style="Card.TFrame")
+    requirements_table_wrap.pack(fill=tk.X)
+    requirements_table = ttk.Treeview(

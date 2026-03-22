@@ -1,0 +1,688 @@
+            available_users = auth_controller.list_available_personal_users_for_company(company_id=company_id)
+            stream = academic_controller.get_stream(group.stream_id) if getattr(group, "stream_id", None) is not None else None
+            course = (
+                academic_controller.get_course(stream.course_id)
+                if stream is not None and getattr(stream, "course_id", None) is not None
+                else None
+            )
+            specialty = (
+                academic_controller.get_specialty(course.specialty_id if course is not None else stream.specialty_id)
+                if stream is not None
+                else None
+            )
+            department = (
+                academic_controller.get_department(specialty.department_id)
+                if specialty is not None
+                else None
+            )
+
+        current_subgroups_by_id = {item.id: item for item in subgroups}
+        current_users_by_id = {item.id: item for item in users}
+
+        structure_parts: list[str] = []
+        if department is not None:
+            structure_parts.append(department.short_name or department.name)
+        if specialty is not None:
+            structure_parts.append(specialty.code or specialty.name)
+        if course is not None:
+            structure_parts.append(course.code or course.name)
+        if stream is not None:
+            structure_parts.append(stream.name)
+        structure_prefix = " → ".join(structure_parts) if structure_parts else "Без структури потоку"
+        detail_meta_var.set(
+            f"{structure_prefix}. Додавай учасників за логіном і перетягуй їх між підгрупами."
+        )
+
+        render_participant_cards(users)
+        render_subgroup_tree(users)
+
+        available_usernames = [item.username for item in available_users if item.id not in current_users_by_id]
+        participant_input_box["values"] = available_usernames
+        if participant_username_var.get().strip() not in available_usernames:
+            participant_username_var.set("")
+
+    def open_reassign_group_stream_modal() -> None:
+        group_id = group_state["id"]
+        if group_id is None:
+            return
+
+        with session_scope() as session:
+            resource_controller = ResourceController(session=session)
+            academic_controller = AcademicController(session=session)
+            group = resource_controller.get_resource(int(group_id))
+            if group is None or group.type != ResourceType.GROUP:
+                messagebox.showerror("Помилка", "Групу не знайдено.")
+                open_main_view()
+                return
+            streams = academic_controller.list_streams(company_id=company_id, include_archived=True)
+            courses = academic_controller.list_courses(company_id=company_id, include_archived=True)
+            specialties = academic_controller.list_specialties(company_id=company_id, include_archived=True)
+
+        if not streams:
+            messagebox.showerror("Курс/потік", "Немає доступних потоків для переназначення.", parent=self.root)
+            return
+
+        course_by_id = {item.id: item for item in courses}
+        specialty_by_id = {item.id: item for item in specialties}
+        stream_by_id = {item.id: item for item in streams}
+
+        stream_labels_by_course_id: dict[int | None, list[str]] = {}
+        stream_id_by_label: dict[str, int] = {}
+        for stream in streams:
+            course = course_by_id.get(stream.course_id) if stream.course_id is not None else None
+            course_name = (course.code or course.name) if course is not None else "Без курсу"
+            year_suffix = f" • набір {stream.admission_year}" if stream.admission_year is not None else ""
+            label = f"{stream.id} | {course_name} • {stream.name}{year_suffix}"
+            stream_id_by_label[label] = stream.id
+            stream_labels_by_course_id.setdefault(stream.course_id, []).append(label)
+
+        course_values: list[str] = []
+        course_id_by_label: dict[str, int | None] = {}
+        for course_id in sorted(stream_labels_by_course_id.keys(), key=lambda value: (value is None, value or 0)):
+            if course_id is None:
+                label = "Без курсу"
+            else:
+                course = course_by_id.get(course_id)
+                if course is None:
+                    label = f"{course_id} | Курс"
+                else:
+                    specialty = specialty_by_id.get(course.specialty_id)
+                    specialty_prefix = f"{specialty.code} / " if specialty is not None and specialty.code else ""
+                    course_label = f"{course.code} — {course.name}" if course.code else course.name
+                    label = f"{course.id} | {specialty_prefix}{course_label}"
+            course_values.append(label)
+            course_id_by_label[label] = course_id
+
+        if not course_values:
+            messagebox.showerror("Курс/потік", "Немає доступних курсів для переназначення.", parent=self.root)
+            return
+
+        current_stream = stream_by_id.get(group.stream_id) if group.stream_id is not None else None
+        current_course_id = current_stream.course_id if current_stream is not None else None
+        current_stream_label = None
+        if current_stream is not None:
+            for label, stream_id in stream_id_by_label.items():
+                if stream_id == current_stream.id:
+                    current_stream_label = label
+                    break
+
+        modal = tk.Toplevel(self.root)
+        modal.title("Переназначення курсу та потоку")
+        modal.transient(self.root)
+        modal.resizable(False, False)
+        modal.grab_set()
+
+        shell = ttk.Frame(modal, style="Card.TFrame", padding=14)
+        shell.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(shell, text="Переназначення групи", style="CardTitle.TLabel").pack(anchor="w")
+        ttk.Label(
+            shell,
+            text=f"Група: {group.name}",
+            style="CardSubtle.TLabel",
+        ).pack(anchor="w", pady=(2, 0))
+
+        course_var = tk.StringVar()
+        stream_var = tk.StringVar()
+
+        ttk.Label(shell, text="Курс", style="Card.TLabel").pack(anchor="w", pady=(10, 0))
+        course_box = ttk.Combobox(
+            shell,
+            textvariable=course_var,
+            values=course_values,
+            state="readonly",
+            width=58,
+        )
+        course_box.pack(fill=tk.X, pady=(6, 8))
+
+        ttk.Label(shell, text="Потік", style="Card.TLabel").pack(anchor="w")
+        stream_box = ttk.Combobox(
+            shell,
+            textvariable=stream_var,
+            values=[],
+            state="readonly",
+            width=58,
+        )
+        stream_box.pack(fill=tk.X, pady=(6, 10))
+
+        stream_hint_var = tk.StringVar(value="")
+        ttk.Label(shell, textvariable=stream_hint_var, style="CardSubtle.TLabel").pack(anchor="w")
+
+        def _refresh_stream_values(*_args) -> None:
+            selected_course_id = course_id_by_label.get(course_var.get().strip())
+            values = stream_labels_by_course_id.get(selected_course_id, [])
+            stream_box["values"] = values
+            if stream_var.get().strip() not in values:
+                if current_stream_label is not None and current_stream_label in values:
+                    stream_var.set(current_stream_label)
+                elif values:
+                    stream_var.set(values[0])
+                else:
+                    stream_var.set("")
+            stream_hint_var.set(f"Доступно потоків: {len(values)}")
+
+        initial_course_label = None
+        for label, course_id in course_id_by_label.items():
+            if course_id == current_course_id:
+                initial_course_label = label
+                break
+        course_var.set(initial_course_label or course_values[0])
+        _refresh_stream_values()
+        course_box.bind("<<ComboboxSelected>>", _refresh_stream_values, add="+")
+
+        footer = ttk.Frame(shell, style="Card.TFrame")
+        footer.pack(fill=tk.X, pady=(10, 0))
+
+        def on_submit_reassign_stream() -> None:
+            selected_stream_id = stream_id_by_label.get(stream_var.get().strip())
+            if selected_stream_id is None:
+                messagebox.showerror("Некоректні дані", "Оберіть потік зі списку.", parent=modal)
+                return
+            try:
+                with session_scope() as session:
+                    ResourceController(session=session).update_resource(
+                        int(group_id),
+                        stream_id=int(selected_stream_id),
+                    )
+            except Exception as exc:
+                messagebox.showerror("Не вдалося переназначити потік", str(exc), parent=modal)
+                return
+
+            modal.destroy()
+            load_group_detail()
+            render_group_cards()
+
+        self._motion_button(footer, text="Скасувати", command=modal.destroy, primary=False, width=130).pack(side=tk.RIGHT)
+        self._motion_button(footer, text="Зберегти", command=on_submit_reassign_stream, primary=True, width=130).pack(
+            side=tk.RIGHT,
+            padx=(0, 8),
+        )
+
+        modal.update_idletasks()
+        modal.geometry(f"+{self.root.winfo_rootx() + 230}+{self.root.winfo_rooty() + 130}")
+
+    def on_add_participant() -> None:
+        group_id = group_state["id"]
+        if group_id is None:
+            return
+
+        username = participant_username_var.get().strip()
+        if not username:
+            messagebox.showerror("Некоректні дані", "Вкажи логін учасника.")
+            return
+
+        if any(user.username == username for user in current_users_by_id.values()):
+            messagebox.showerror("Помилка", "Цей учасник уже в групі.")
+            return
+
+        try:
+            with session_scope() as session:
+                auth_controller = AuthController(session=session)
+                company_users = auth_controller.list_company_users(company_id=company_id)
+                company_personals = {item.username: item for item in company_users if item.role == UserRole.PERSONAL}
+                available_personals = {
+                    item.username: item
+                    for item in auth_controller.list_available_personal_users_for_company(company_id=company_id)
+                }
+
+                user = company_personals.get(username) or available_personals.get(username)
+                if user is None:
+                    raise ValueError("Особистий акаунт із таким логіном не знайдено.")
+
+                if user.company_id != company_id:
+                    auth_controller.reassign_personal_user_company(user_id=user.id, company_id=company_id)
+
+                auth_controller.update_user_membership(
+                    user.id,
+                    resource_id=int(group_id),
+                    subgroup_id=None,
+                )
+        except Exception as exc:
+            messagebox.showerror("Не вдалося додати учасника", str(exc))
+            return
+
+        participant_username_var.set("")
+        load_group_detail()
+        render_group_cards()
+
+    def on_create_subgroup() -> None:
+        group_id = group_state["id"]
+        group_name = group_state["name"]
+        if group_id is None or not isinstance(group_name, str):
+            return
+        raw_name = subgroup_name_var.get().strip()
+        if not raw_name:
+            messagebox.showerror("Некоректні дані", "Введи назву підгрупи.")
+            return
+        stored_name = f"{group_name}::{raw_name}"
+        try:
+            with session_scope() as session:
+                ResourceController(session=session).create_resource(
+                    name=stored_name,
+                    resource_type=ResourceType.SUBGROUP,
+                    company_id=company_id,
+                    parent_group_id=int(group_id),
+                )
+        except Exception as exc:
+            messagebox.showerror("Не вдалося створити підгрупу", str(exc))
+            return
+        subgroup_name_var.set("")
+        load_group_detail()
+
+    def on_delete_subgroup() -> None:
+        group_id = group_state["id"]
+        if group_id is None:
+            return
+        selection = subgroup_tree.selection()
+        if not selection:
+            messagebox.showerror("Помилка", "Обери підгрупу для видалення.")
+            return
+        selected_iid = selection[0]
+        subgroup_id = tree_subgroup_id_by_iid.get(selected_iid)
+        if subgroup_id is None:
+            messagebox.showerror("Помилка", "Обери саме підгрупу, а не учасника.")
+            return
+
+        subgroup_resource = current_subgroups_by_id.get(subgroup_id)
+        subgroup_name = subgroup_short_name(subgroup_resource.name) if subgroup_resource is not None else f"#{subgroup_id}"
+        if not messagebox.askyesno("Підтвердження", f"Видалити підгрупу '{subgroup_name}'?"):
+            return
+        try:
+            with session_scope() as session:
+                auth_controller = AuthController(session=session)
+                users = auth_controller.list_group_users(
+                    company_id=company_id,
+                    group_id=int(group_id),
+                    subgroup_ids=[subgroup_id],
+                )
+                for user in users:
+                    if user.subgroup_id == subgroup_id:
+                        auth_controller.update_user_membership(user.id, resource_id=int(group_id), subgroup_id=None)
+                ResourceController(session=session).delete_resource(subgroup_id)
+        except Exception as exc:
+            messagebox.showerror("Не вдалося видалити підгрупу", str(exc))
+            return
+        load_group_detail()
+
+    def on_detail_tree_press(event: tk.Event) -> None:
+        item = subgroup_tree.identify_row(event.y)
+        if item.startswith("user_"):
+            tree_drag_state["item"] = item
+            tree_drag_state["active"] = False
+        else:
+            tree_drag_state["item"] = None
+            tree_drag_state["active"] = False
+
+    def on_detail_tree_motion(event: tk.Event) -> None:
+        item = tree_drag_state["item"]
+        if item is None:
+            return
+        tree_drag_state["active"] = True
+        target = subgroup_tree.identify_row(event.y)
+        if target:
+            subgroup_tree.selection_set(target)
+
+    def on_detail_tree_release(event: tk.Event) -> None:
+        item = tree_drag_state["item"]
+        if item is None:
+            return
+
+        target = subgroup_tree.identify_row(event.y)
+        if not target:
+            selected = subgroup_tree.selection()
+            target = selected[0] if selected else "sg_none"
+        if target.startswith("user_"):
+            target = subgroup_tree.parent(target)
+        if target not in tree_subgroup_id_by_iid:
+            target = "sg_none"
+
+        user_id = int(item.split("_", maxsplit=1)[1])
+        subgroup_id = tree_subgroup_id_by_iid.get(target)
+        group_id = group_state["id"]
+
+        tree_drag_state["item"] = None
+        was_drag = bool(tree_drag_state["active"])
+        tree_drag_state["active"] = False
+        if not was_drag or group_id is None:
+            return
+
+        try:
+            with session_scope() as session:
+                AuthController(session=session).update_user_membership(
+                    user_id,
+                    resource_id=int(group_id),
+                    subgroup_id=subgroup_id,
+                )
+        except Exception as exc:
+            messagebox.showerror("Не вдалося оновити підгрупу", str(exc))
+            return
+
+        load_group_detail()
+
+    subgroup_tree.bind("<ButtonPress-1>", on_detail_tree_press)
+    subgroup_tree.bind("<B1-Motion>", on_detail_tree_motion)
+    subgroup_tree.bind("<ButtonRelease-1>", on_detail_tree_release)
+
+    def open_create_group_modal() -> None:
+        with session_scope() as session:
+            auth_controller = AuthController(session=session)
+            academic_controller = AcademicController(session=session)
+            personal_users = auth_controller.list_available_personal_users_for_company(
+                company_id=company_id
+            )
+            streams = academic_controller.list_streams(company_id=company_id, include_archived=False)
+            courses = academic_controller.list_courses(company_id=company_id, include_archived=True)
+            specialties = academic_controller.list_specialties(company_id=company_id, include_archived=True)
+        if not streams:
+            messagebox.showerror("Створення групи", "Спочатку створіть потік (кафедра → спеціальність → курс → потік).")
+            return
+        user_by_username = {item.username: item for item in personal_users}
+        user_by_id = {item.id: item for item in personal_users}
+
+        modal = tk.Toplevel(self.root)
+        modal.title("Створення групи")
+        modal.geometry("900x640")
+        modal.minsize(840, 560)
+        modal.transient(self.root)
+        modal.grab_set()
+        modal.configure(bg=self.theme.APP_BG)
+
+        root = ttk.Frame(modal, padding=14, style="Card.TFrame")
+        root.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(root, text="Нова група", style="CardTitle.TLabel").pack(anchor="w")
+        ttk.Label(
+            root,
+            text="Вкажи назву, додай учасників за логіном, створи підгрупи і розподіли перетягуванням.",
+            style="CardSubtle.TLabel",
+        ).pack(anchor="w", pady=(2, 10))
+
+        course_by_id = {item.id: item for item in courses}
+        specialty_by_id = {item.id: item for item in specialties}
+        stream_values = []
+        for item in streams:
+            course = course_by_id.get(getattr(item, "course_id", None))
+            specialty = specialty_by_id.get(course.specialty_id) if course is not None else specialty_by_id.get(item.specialty_id)
+            spec_label = f"{specialty.code} — " if specialty is not None and specialty.code else ""
+            course_label = f"{(course.code or course.name)} • " if course is not None else ""
+            year_suffix = f" • набір {item.admission_year}" if item.admission_year is not None else ""
+            stream_values.append(f"{item.id} | {spec_label}{course_label}{item.name}{year_suffix}")
+        stream_var = tk.StringVar(value=stream_values[0])
+
+        stream_row = ttk.Frame(root, style="Card.TFrame")
+        stream_row.pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(stream_row, text="Потік", style="Card.TLabel").pack(side=tk.LEFT)
+        ttk.Combobox(stream_row, textvariable=stream_var, values=stream_values, width=34, state="readonly").pack(
+            side=tk.LEFT,
+            padx=(8, 0),
+        )
+
+        group_name_var = tk.StringVar()
+        group_row = ttk.Frame(root, style="Card.TFrame")
+        group_row.pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(group_row, text="Назва групи", style="Card.TLabel").pack(side=tk.LEFT)
+        group_name_entry = ttk.Entry(group_row, textvariable=group_name_var, width=34)
+        group_name_entry.pack(side=tk.LEFT, padx=(8, 0))
+
+        participant_var = tk.StringVar()
+        add_row = ttk.Frame(root, style="Card.TFrame")
+        add_row.pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(add_row, text="Учасник (логін)", style="Card.TLabel").pack(side=tk.LEFT)
+        participant_box = ttk.Combobox(add_row, textvariable=participant_var, width=26, state="normal")
+        participant_box.pack(side=tk.LEFT, padx=(8, 8))
+
+        subgroup_var = tk.StringVar()
+        subgroup_row = ttk.Frame(root, style="Card.TFrame")
+        subgroup_row.pack(fill=tk.X, pady=(0, 10))
+        ttk.Label(subgroup_row, text="Підгрупа", style="Card.TLabel").pack(side=tk.LEFT)
+        subgroup_entry = ttk.Entry(subgroup_row, textvariable=subgroup_var, width=22)
+        subgroup_entry.pack(side=tk.LEFT, padx=(8, 8))
+
+        footer = ttk.Frame(root, style="Card.TFrame")
+        footer.pack(side=tk.BOTTOM, fill=tk.X, pady=(10, 0))
+
+        tree_container = ttk.Frame(root, style="Card.TFrame")
+        tree_container.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
+        tree = ttk.Treeview(
+            tree_container,
+            show="tree headings",
+            height=10,
+            selectmode="browse",
+        )
+        tree.heading("#0", text="Підгрупи та учасники", anchor="w")
+        tree.column("#0", anchor="w", minwidth=240, width=360, stretch=True)
+        tree.tag_configure(
+            "bucket",
+            font=("Segoe UI", 10, "bold"),
+            background=self.theme.SURFACE_ALT,
+            foreground=self.theme.TEXT_PRIMARY,
+        )
+        tree.tag_configure(
+            "participant",
+            font=("Segoe UI", 10),
+            foreground=self.theme.TEXT_PRIMARY,
+        )
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        tree_scroll = ttk.Scrollbar(
+            tree_container,
+            orient=tk.VERTICAL,
+            command=tree.yview,
+            style="App.Vertical.TScrollbar",
+        )
+        tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        tree.configure(yscrollcommand=tree_scroll.set)
+
+        unassigned_iid = "group_none"
+        tree.insert("", tk.END, iid=unassigned_iid, text="Без підгрупи [0]", open=True, tags=("bucket",))
+        subgroup_iid_by_name: dict[str, str] = {}
+        subgroup_name_by_iid: dict[str, str] = {}
+        added_users: dict[int, str] = {}
+        assignment_by_user_id: dict[int, str | None] = {}
+        drag_state: dict[str, str | bool | None] = {"item": None, "active": False}
+
+        def refresh_tree_bucket_labels() -> None:
+            tree.item(unassigned_iid, text=f"Без підгрупи [{len(tree.get_children(unassigned_iid))}]")
+            for subgroup_name, subgroup_iid in subgroup_iid_by_name.items():
+                tree.item(subgroup_iid, text=f"Підгрупа: {subgroup_name} [{len(tree.get_children(subgroup_iid))}]")
+
+        def refresh_suggestions() -> None:
+            available = [item.username for item in personal_users if item.id not in added_users]
+            participant_box["values"] = available
+            if participant_var.get().strip() not in available:
+                participant_var.set("")
+
+        def add_participant_from_input() -> None:
+            username = participant_var.get().strip()
+            if not username:
+                messagebox.showerror("Помилка", "Вкажи логін учасника.", parent=modal)
+                return
+            user = user_by_username.get(username)
+            if user is None:
+                messagebox.showerror("Помилка", "Користувача з таким логіном не знайдено.", parent=modal)
+                return
+            if user.id in added_users:
+                return
+            item_iid = f"user_{user.id}"
+            tree.insert(unassigned_iid, tk.END, iid=item_iid, text=f"Учасник: {user.username}", tags=("participant",))
+            added_users[user.id] = user.username
+            assignment_by_user_id[user.id] = None
+            participant_var.set("")
+            refresh_suggestions()
+            refresh_tree_bucket_labels()
+
+        def remove_selected_participant() -> None:
+            selected = tree.selection()
+            if not selected:
+                return
+            item = selected[0]
+            if not item.startswith("user_"):
+                return
+            user_id = int(item.split("_", maxsplit=1)[1])
+            tree.delete(item)
+            added_users.pop(user_id, None)
+            assignment_by_user_id.pop(user_id, None)
+            refresh_suggestions()
+            refresh_tree_bucket_labels()
+
+        def add_subgroup() -> None:
+            name = subgroup_var.get().strip()
+            if not name:
+                messagebox.showerror("Помилка", "Вкажи назву підгрупи.", parent=modal)
+                return
+            if name in subgroup_iid_by_name:
+                return
+            iid = f"sg_{len(subgroup_iid_by_name) + 1}_{uuid4().hex[:4]}"
+            tree.insert("", tk.END, iid=iid, text=f"Підгрупа: {name} [0]", open=True, tags=("bucket",))
+            subgroup_iid_by_name[name] = iid
+            subgroup_name_by_iid[iid] = name
+            subgroup_var.set("")
+            refresh_tree_bucket_labels()
+
+        def remove_selected_subgroup() -> None:
+            selected = tree.selection()
+            if not selected:
+                return
+            iid = selected[0]
+            if iid not in subgroup_name_by_iid:
+                return
+            for child in tree.get_children(iid):
+                tree.move(child, unassigned_iid, tk.END)
+                user_id = int(child.split("_", maxsplit=1)[1])
+                assignment_by_user_id[user_id] = None
+            name = subgroup_name_by_iid.pop(iid)
+            subgroup_iid_by_name.pop(name, None)
+            tree.delete(iid)
+            refresh_tree_bucket_labels()
+
+        def on_tree_press(event: tk.Event) -> None:
+            item = tree.identify_row(event.y)
+            if item.startswith("user_"):
+                drag_state["item"] = item
+                drag_state["active"] = False
+            else:
+                drag_state["item"] = None
+                drag_state["active"] = False
+
+        def on_tree_motion(event: tk.Event) -> None:
+            item = drag_state["item"]
+            if item is None:
+                return
+            drag_state["active"] = True
+            target = tree.identify_row(event.y)
+            if target:
+                tree.selection_set(target)
+
+        def on_tree_release(event: tk.Event) -> None:
+            item = drag_state["item"]
+            if item is None:
+                return
+
+            target = tree.identify_row(event.y)
+            if not target:
+                selected = tree.selection()
+                target = selected[0] if selected else unassigned_iid
+            if target.startswith("user_"):
+                target = tree.parent(target)
+            if target != unassigned_iid and target not in subgroup_name_by_iid:
+                target = unassigned_iid
+            if drag_state["active"] and tree.parent(item) != target:
+                tree.move(item, target, tk.END)
+            user_id = int(item.split("_", maxsplit=1)[1])
+            assignment_by_user_id[user_id] = subgroup_name_by_iid.get(target)
+            drag_state["item"] = None
+            drag_state["active"] = False
+            refresh_tree_bucket_labels()
+
+        def save_group() -> None:
+            group_name = group_name_var.get().strip()
+            if not group_name:
+                messagebox.showerror("Некоректні дані", "Введи назву групи.", parent=modal)
+                return
+            stream_id = parse_selected_prefixed_id(stream_var.get())
+            if stream_id is None:
+                messagebox.showerror("Некоректні дані", "Обери потік зі списку.", parent=modal)
+                return
+            try:
+                with session_scope() as session:
+                    resource_controller = ResourceController(session=session)
+                    auth_controller = AuthController(session=session)
+                    group = resource_controller.create_resource(
+                        name=group_name,
+                        resource_type=ResourceType.GROUP,
+                        company_id=company_id,
+                        stream_id=stream_id,
+                    )
+                    subgroup_id_by_name: dict[str, int] = {}
+                    for subgroup_name in subgroup_iid_by_name:
+                        created = resource_controller.create_resource(
+                            name=f"{group_name}::{subgroup_name}",
+                            resource_type=ResourceType.SUBGROUP,
+                            company_id=company_id,
+                            parent_group_id=group.id,
+                        )
+                        subgroup_id_by_name[subgroup_name] = created.id
+
+                    for user_id, subgroup_name in assignment_by_user_id.items():
+                        user = user_by_id.get(user_id)
+                        if user is not None and user.company_id != company_id:
+                            auth_controller.reassign_personal_user_company(user_id=user_id, company_id=company_id)
+                            user.company_id = company_id
+                        auth_controller.update_user_membership(
+                            user_id,
+                            resource_id=group.id,
+                            subgroup_id=subgroup_id_by_name.get(subgroup_name) if subgroup_name else None,
+                        )
+            except IntegrityError:
+                messagebox.showerror(
+                    "Не вдалося створити групу",
+                    "Група або підгрупа з такою назвою вже існує.",
+                    parent=modal,
+                )
+                return
+            except Exception as exc:
+                messagebox.showerror("Не вдалося створити групу", str(exc), parent=modal)
+                return
+            modal.destroy()
+            render_group_cards()
+
+        self._motion_button(add_row, text="Додати", command=add_participant_from_input, primary=True, width=110).pack(
+            side=tk.LEFT,
+            padx=(0, 8),
+        )
+        self._motion_button(add_row, text="Прибрати", command=remove_selected_participant, primary=False, width=120).pack(
+            side=tk.LEFT
+        )
+
+        self._motion_button(subgroup_row, text="Додати підгрупу", command=add_subgroup, primary=False, width=150).pack(
+            side=tk.LEFT,
+            padx=(0, 8),
+        )
+        self._motion_button(
+            subgroup_row,
+            text="Видалити підгрупу",
+            command=remove_selected_subgroup,
+            primary=False,
+            width=170,
+        ).pack(side=tk.LEFT)
+
+        self._motion_button(footer, text="Скасувати", command=modal.destroy, primary=False, width=140).pack(side=tk.RIGHT)
+        self._motion_button(footer, text="Зберегти", command=save_group, primary=True, width=140).pack(
+            side=tk.RIGHT,
+            padx=(0, 8),
+        )
+
+        tree.bind("<ButtonPress-1>", on_tree_press)
+        tree.bind("<B1-Motion>", on_tree_motion)
+        tree.bind("<ButtonRelease-1>", on_tree_release)
+        group_name_entry.focus_set()
+        refresh_suggestions()
+        refresh_tree_bucket_labels()
+
+    course_filter_box.bind("<<ComboboxSelected>>", on_course_filter_change, add="+")
+    stream_filter_box.bind("<<ComboboxSelected>>", on_stream_filter_change, add="+")
+    cards_canvas.bind("<Configure>", on_cards_resize, add="+")
+    main_view.bind("<Map>", lambda _event: on_cards_resize(), add="+")
+
+    hierarchy_back_button.command = on_hierarchy_back
+    back_button.command = open_main_view
+    set_hierarchy_level("departments", department_id=None, specialty_id=None)
+    open_main_view()

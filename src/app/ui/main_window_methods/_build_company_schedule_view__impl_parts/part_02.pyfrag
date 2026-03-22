@@ -1,0 +1,800 @@
+        requirements_table_wrap,
+        columns=("name", "params", "teacher", "target", "room"),
+        show="headings",
+        height=6,
+    )
+    requirements_table.heading("name", text="Назва")
+    requirements_table.heading("params", text="Параметри")
+    requirements_table.heading("teacher", text="Викладачі")
+    requirements_table.heading("target", text="Цілі")
+    requirements_table.heading("room", text="Аудиторія")
+    requirements_table.column("name", width=220, anchor="w")
+    requirements_table.column("params", width=180, anchor="center")
+    requirements_table.column("teacher", width=190, anchor="w")
+    requirements_table.column("target", width=190, anchor="w")
+    requirements_table.column("room", width=290, anchor="w")
+    requirements_table.pack(side=tk.LEFT, fill=tk.X, expand=True)
+    requirements_scroll = ttk.Scrollbar(
+        requirements_table_wrap,
+        orient=tk.VERTICAL,
+        command=requirements_table.yview,
+        style="App.Vertical.TScrollbar",
+    )
+    requirements_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+    requirements_table.configure(yscrollcommand=requirements_scroll.set)
+
+    policy_box = ttk.LabelFrame(parent, text="Політика генерації", padding=10)
+    policy_box.pack(fill=tk.X, pady=(8, 0))
+    ttk.Label(policy_box, text="Макс пар/день").grid(row=0, column=0, sticky="w")
+    ttk.Entry(policy_box, textvariable=policy_max_sessions_var, width=8).grid(row=0, column=1, sticky="w", padx=(6, 12))
+    ttk.Label(policy_box, text="Макс підряд блоків").grid(row=0, column=2, sticky="w")
+    ttk.Entry(policy_box, textvariable=policy_max_consecutive_var, width=8).grid(row=0, column=3, sticky="w", padx=(6, 12))
+    ttk.Checkbutton(policy_box, text="Заборонити вікна", variable=policy_no_gaps_var).grid(
+        row=0, column=4, sticky="w", padx=(0, 12)
+    )
+    ttk.Label(policy_box, text="Перевага часу").grid(row=0, column=5, sticky="w")
+    ttk.Combobox(
+        policy_box,
+        textvariable=policy_time_pref_var,
+        values=list(policy_time_pref_options.keys()),
+        state="readonly",
+        width=10,
+    ).grid(row=0, column=6, sticky="w", padx=(6, 12))
+    ttk.Label(policy_box, text="W час").grid(row=1, column=0, sticky="w", pady=(8, 0))
+    ttk.Entry(policy_box, textvariable=policy_weight_time_var, width=8).grid(row=1, column=1, sticky="w", padx=(6, 12), pady=(8, 0))
+    ttk.Label(policy_box, text="W компактність").grid(row=1, column=2, sticky="w", pady=(8, 0))
+    ttk.Entry(policy_box, textvariable=policy_weight_compact_var, width=8).grid(
+        row=1, column=3, sticky="w", padx=(6, 12), pady=(8, 0)
+    )
+    ttk.Label(policy_box, text="W переходи").grid(row=1, column=4, sticky="w", pady=(8, 0))
+    ttk.Entry(policy_box, textvariable=policy_weight_building_var, width=8).grid(
+        row=1, column=5, sticky="w", padx=(6, 12), pady=(8, 0)
+    )
+    policy_save_button = ttk.Button(policy_box, text="Зберегти політику")
+    policy_save_button.grid(row=1, column=6, sticky="w", pady=(8, 0))
+
+    manual_box = ttk.LabelFrame(parent, text="Ручний слот", padding=10)
+    manual_box.pack(fill=tk.X, pady=(8, 0))
+    ttk.Label(manual_box, text="Вимога").grid(row=0, column=0, sticky="w")
+    manual_requirement_box = ttk.Combobox(
+        manual_box,
+        textvariable=manual_requirement_var,
+        width=34,
+        state="readonly",
+    )
+    manual_requirement_box.grid(row=0, column=1, sticky="w", padx=(6, 12))
+    ttk.Label(manual_box, text="Дата").grid(row=0, column=2, sticky="w")
+    ttk.Entry(manual_box, textvariable=manual_date_var, width=12).grid(row=0, column=3, sticky="w", padx=(6, 12))
+    ttk.Label(manual_box, text="Номер блоку").grid(row=0, column=4, sticky="w")
+    ttk.Entry(manual_box, textvariable=manual_order_var, width=8).grid(row=0, column=5, sticky="w", padx=(6, 12))
+    ttk.Label(manual_box, text="Аудиторія").grid(row=0, column=6, sticky="w")
+    manual_room_box = ttk.Combobox(manual_box, textvariable=manual_room_var, width=24, state="readonly")
+    manual_room_box.grid(row=0, column=7, sticky="w", padx=(6, 12))
+    ttk.Checkbutton(manual_box, text="Закріпити (LOCK)", variable=manual_lock_var).grid(row=1, column=0, sticky="w", pady=(8, 0))
+    manual_add_button = ttk.Button(manual_box, text="Додати ручний слот")
+    manual_add_button.grid(row=1, column=1, sticky="w", pady=(8, 0))
+    manual_update_button = ttk.Button(manual_box, text="Оновити вибране")
+    manual_update_button.grid(row=1, column=2, sticky="w", padx=(8, 0), pady=(8, 0))
+
+    entries_box = ttk.LabelFrame(parent, text="Заняття (CRUD)", padding=10)
+    entries_box.pack(fill=tk.X, pady=(8, 0))
+    entries_actions = ttk.Frame(entries_box, style="Card.TFrame")
+    entries_actions.pack(fill=tk.X, pady=(0, 6))
+    entries_refresh_button = ttk.Button(entries_actions, text="Оновити")
+    entries_refresh_button.pack(side=tk.LEFT, padx=(0, 8))
+    entries_prefill_button = ttk.Button(entries_actions, text="У поля ручного слота")
+    entries_prefill_button.pack(side=tk.LEFT, padx=(0, 8))
+    entries_lock_button = ttk.Button(entries_actions, text="LOCK")
+    entries_lock_button.pack(side=tk.LEFT, padx=(0, 8))
+    entries_unlock_button = ttk.Button(entries_actions, text="UNLOCK")
+    entries_unlock_button.pack(side=tk.LEFT, padx=(0, 8))
+    entries_delete_button = ttk.Button(entries_actions, text="Видалити")
+    entries_delete_button.pack(side=tk.LEFT)
+
+    entries_table_wrap = ttk.Frame(entries_box, style="Card.TFrame")
+    entries_table_wrap.pack(fill=tk.X)
+    entries_table = ttk.Treeview(
+        entries_table_wrap,
+        columns=("id", "requirement", "slot", "room", "flags"),
+        show="headings",
+        height=6,
+    )
+    entries_table.heading("id", text="ID")
+    entries_table.heading("requirement", text="Вимога")
+    entries_table.heading("slot", text="Слот")
+    entries_table.heading("room", text="Аудиторія")
+    entries_table.heading("flags", text="Ознаки")
+    entries_table.column("id", width=70, anchor="center")
+    entries_table.column("requirement", width=280, anchor="w")
+    entries_table.column("slot", width=230, anchor="center")
+    entries_table.column("room", width=240, anchor="w")
+    entries_table.column("flags", width=160, anchor="center")
+    entries_table.pack(side=tk.LEFT, fill=tk.X, expand=True)
+    entries_scroll = ttk.Scrollbar(
+        entries_table_wrap,
+        orient=tk.VERTICAL,
+        command=entries_table.yview,
+        style="App.Vertical.TScrollbar",
+    )
+    entries_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+    entries_table.configure(yscrollcommand=entries_scroll.set)
+
+    coverage_box = ttk.LabelFrame(parent, text="Coverage dashboard", padding=10)
+    coverage_box.pack(fill=tk.X, pady=(8, 0))
+    coverage_actions = ttk.Frame(coverage_box, style="Card.TFrame")
+    coverage_actions.pack(fill=tk.X, pady=(0, 6))
+    ttk.Label(coverage_actions, textvariable=coverage_summary_var, style="CardSubtle.TLabel").pack(side=tk.LEFT)
+    coverage_refresh_button = ttk.Button(coverage_actions, text="Оновити coverage")
+    coverage_refresh_button.pack(side=tk.RIGHT)
+    coverage_table_wrap = ttk.Frame(coverage_box, style="Card.TFrame")
+    coverage_table_wrap.pack(fill=tk.X)
+    coverage_table = ttk.Treeview(
+        coverage_table_wrap,
+        columns=("reason", "requirements", "missing", "message"),
+        show="headings",
+        height=4,
+    )
+    coverage_table.heading("reason", text="Причина")
+    coverage_table.heading("requirements", text="Вимог")
+    coverage_table.heading("missing", text="Не закрито занять")
+    coverage_table.heading("message", text="Приклад")
+    coverage_table.column("reason", width=170, anchor="center")
+    coverage_table.column("requirements", width=90, anchor="center")
+    coverage_table.column("missing", width=150, anchor="center")
+    coverage_table.column("message", width=520, anchor="w")
+    coverage_table.pack(side=tk.LEFT, fill=tk.X, expand=True)
+    coverage_scroll = ttk.Scrollbar(
+        coverage_table_wrap,
+        orient=tk.VERTICAL,
+        command=coverage_table.yview,
+        style="App.Vertical.TScrollbar",
+    )
+    coverage_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+    coverage_table.configure(yscrollcommand=coverage_scroll.set)
+
+    def _bind_table_wheel(widget: tk.Widget, view_get, view_set) -> None:
+        table_wheel, table_wheel_up, table_wheel_down = _create_smooth_wheel_handlers(
+            view_get,
+            view_set,
+            gain=0.14,
+        )
+        wheel_f_raw = _with_fallback(table_wheel, view_get, schedule_wheel)
+        up_f_raw = _with_fallback(table_wheel_up, view_get, schedule_wheel_up)
+        down_f_raw = _with_fallback(table_wheel_down, view_get, schedule_wheel_down)
+
+        def wheel_f(event: tk.Event) -> str:
+            dismiss_schedule_popdowns()
+            return wheel_f_raw(event)
+
+        def up_f(event: tk.Event) -> str:
+            dismiss_schedule_popdowns()
+            return up_f_raw(event)
+
+        def down_f(event: tk.Event) -> str:
+            dismiss_schedule_popdowns()
+            return down_f_raw(event)
+
+        widget.bind("<MouseWheel>", wheel_f, add="+")
+        widget.bind("<Button-4>", up_f, add="+")
+        widget.bind("<Button-5>", down_f, add="+")
+
+    _bind_table_wheel(blackout_table, blackout_table.yview, blackout_table.yview_moveto)
+    _bind_table_wheel(requirements_table, requirements_table.yview, requirements_table.yview_moveto)
+    _bind_table_wheel(entries_table, entries_table.yview, entries_table.yview_moveto)
+    _bind_table_wheel(coverage_table, coverage_table.yview, coverage_table.yview_moveto)
+
+    _bind_wheel_recursive(
+        schedule_body,
+        schedule_wheel,
+        schedule_wheel_up,
+        schedule_wheel_down,
+        skip_widgets={blackout_table, requirements_table, entries_table, coverage_table},
+    )
+
+    buttons = ttk.Frame(parent, style="Card.TFrame")
+    buttons.pack(fill=tk.X, pady=(8, 8))
+
+    status = ttk.Label(parent, textvariable=status_var, anchor="w", style="CardSubtle.TLabel")
+    status.pack(fill=tk.X)
+
+    def parse_period_id() -> int:
+        raw = period_var.get().strip()
+        if not raw:
+            raise ValueError("Оберіть період.")
+        return int(raw.split("|", maxsplit=1)[0].strip())
+
+    def parse_scenario_id(raw: str) -> int | None:
+        value = raw.strip()
+        if not value or value == "Опублікований":
+            return None
+        return int(value.split("|", maxsplit=1)[0].strip())
+
+    def selected_scenario_id() -> int | None:
+        return parse_scenario_id(scenario_var.get())
+
+    def selected_plan_id() -> int:
+        raw = plan_sync_var.get().strip()
+        if not raw:
+            raise ValueError("Оберіть навчальний план.")
+        return parse_prefixed_id(raw, field_name="навчальний план")
+
+    def parse_week_start() -> date | None:
+        raw = week_start_var.get().strip()
+        if not raw:
+            return None
+        start_by_label = week_start_state.get("start_by_label", {})
+        if isinstance(start_by_label, dict):
+            resolved = start_by_label.get(raw)
+            if isinstance(resolved, date):
+                return resolved
+        if "|" in raw:
+            tail = raw.split("|", maxsplit=1)[1].strip()
+            start_part = tail.split("..", maxsplit=1)[0].strip()
+            return date.fromisoformat(start_part)
+        if "•" in raw and "—" in raw:
+            right = raw.split("•", maxsplit=1)[1].strip()
+            start_part = right.split("—", maxsplit=1)[0].strip()
+            return date.fromisoformat(start_part)
+        return date.fromisoformat(raw)
+
+    def parse_prefixed_id(raw: str, *, field_name: str) -> int:
+        value = raw.strip()
+        if not value or "|" not in value:
+            raise ValueError(f"Оберіть '{field_name}'.")
+        return int(value.split("|", maxsplit=1)[0].strip())
+
+    def selected_plan_ids() -> list[int]:
+        raw_ids = plan_sync_state.get("selected_ids", [])
+        if not isinstance(raw_ids, list):
+            return []
+        resolved: list[int] = []
+        for value in raw_ids:
+            try:
+                resolved.append(int(value))
+            except (TypeError, ValueError):
+                continue
+        return resolved
+
+    def refresh_plan_selection_controls(*, plans_count: int | None = None) -> None:
+        total_plans = plans_count
+        if total_plans is None:
+            raw_items = plan_sync_state.get("items", [])
+            if isinstance(raw_items, list):
+                total_plans = len(raw_items)
+            else:
+                total_plans = 0
+        selected_ids = selected_plan_ids()
+        has_plans = total_plans > 0
+        has_selected = bool(selected_ids)
+        has_list_selection = bool(plan_selected_listbox.curselection())
+        can_add = has_plans and bool(plan_sync_var.get().strip())
+
+        plan_add_button.configure(state=("normal" if can_add else "disabled"))
+        plan_remove_button.configure(state=("normal" if has_list_selection else "disabled"))
+        plan_clear_button.configure(state=("normal" if has_selected else "disabled"))
+        plan_sync_selected_button.configure(state=("normal" if has_selected else "disabled"))
+        plan_sync_all_button.configure(state=("normal" if has_plans else "disabled"))
+
+        plan_sync_hint_var.set(
+            f"Активних планів: {total_plans}. "
+            f"У виборі для синхронізації: {len(selected_ids)}."
+        )
+
+    def render_plan_selection() -> None:
+        raw_items = plan_sync_state.get("items", [])
+        items = raw_items if isinstance(raw_items, list) else []
+        plan_by_id: dict[int, dict[str, object]] = {}
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            try:
+                plan_by_id[int(item["id"])] = item
+            except (KeyError, TypeError, ValueError):
+                continue
+
+        normalized_selected = [plan_id for plan_id in selected_plan_ids() if plan_id in plan_by_id]
+        plan_sync_state["selected_ids"] = normalized_selected
+
+        selected_index = plan_selected_listbox.curselection()
+        selected_offset = int(selected_index[0]) if selected_index else None
+        plan_selected_listbox.delete(0, tk.END)
+        for plan_id in normalized_selected:
+            plan_name = str(plan_by_id[plan_id].get("name", "")).strip()
+            plan_selected_listbox.insert(tk.END, f"{plan_id} | {plan_name}")
+        if selected_offset is not None and 0 <= selected_offset < len(normalized_selected):
+            plan_selected_listbox.selection_set(selected_offset)
+        refresh_plan_selection_controls(plans_count=len(plan_by_id))
+
+    def parse_optional_positive_int(raw: str, *, field_name: str) -> int | None:
+        value = raw.strip()
+        if not value:
+            return None
+        try:
+            parsed = int(value)
+        except ValueError as exc:
+            raise ValueError(f"Поле '{field_name}' має бути цілим числом.") from exc
+        if parsed <= 0:
+            raise ValueError(f"Поле '{field_name}' має бути більше нуля.")
+        return parsed
+
+    def parse_non_negative_int(raw: str, *, field_name: str) -> int:
+        value = raw.strip()
+        if not value:
+            raise ValueError(f"Заповніть поле '{field_name}'.")
+        try:
+            parsed = int(value)
+        except ValueError as exc:
+            raise ValueError(f"Поле '{field_name}' має бути цілим числом.") from exc
+        if parsed < 0:
+            raise ValueError(f"Поле '{field_name}' має бути невід'ємним.")
+        return parsed
+
+    def parse_datetime_input(raw: str, *, field_name: str) -> datetime:
+        value = raw.strip()
+        if not value:
+            raise ValueError(f"Заповніть поле '{field_name}'.")
+        normalized = value.replace("T", " ")
+        try:
+            return datetime.fromisoformat(normalized)
+        except ValueError as exc:
+            raise ValueError(f"Поле '{field_name}' має формат YYYY-MM-DD HH:MM.") from exc
+
+    def parse_date_input(raw: str, *, field_name: str) -> date:
+        value = raw.strip()
+        if not value:
+            raise ValueError(f"Заповніть поле '{field_name}'.")
+        try:
+            return date.fromisoformat(value)
+        except ValueError as exc:
+            raise ValueError(f"Поле '{field_name}' має формат YYYY-MM-DD.") from exc
+
+    def parse_time_input(raw: str, *, field_name: str) -> time:
+        value = raw.strip()
+        if not value:
+            raise ValueError(f"Заповніть поле '{field_name}'.")
+        try:
+            return time.fromisoformat(value)
+        except ValueError as exc:
+            raise ValueError(f"Поле '{field_name}' має формат HH:MM.") from exc
+
+    def period_weeks_count(start_date: date, end_date: date) -> int:
+        days_count = (end_date - start_date).days + 1
+        return max(1, (days_count + 6) // 7)
+
+    def period_label(item: dict[str, object]) -> str:
+        period_id = int(item["id"])
+        name = str(item.get("name") or "").strip()
+        if name:
+            return f"{period_id} | {name}"
+        return f"{period_id} | Період #{period_id}"
+
+    def close_period_menu() -> None:
+        popup = period_state.get("menu")
+        if popup is None:
+            return
+        try:
+            if isinstance(popup, tk.Toplevel) and popup.winfo_exists():
+                try:
+                    popup.grab_release()
+                except tk.TclError:
+                    pass
+                popup.destroy()
+        except tk.TclError:
+            pass
+        period_state["menu"] = None
+
+    def close_selector_menu(selector_state: dict[str, object]) -> None:
+        popup = selector_state.get("menu")
+        if popup is None:
+            return
+        try:
+            if isinstance(popup, tk.Toplevel) and popup.winfo_exists():
+                try:
+                    popup.grab_release()
+                except tk.TclError:
+                    pass
+                popup.destroy()
+        except tk.TclError:
+            pass
+        selector_state["menu"] = None
+
+    def close_all_header_menus(*, keep: dict[str, object] | None = None) -> None:
+        close_period_menu()
+        close_blackout_filter_menu()
+        for state in (
+            week_selector_state,
+            group_selector_state,
+            scenario_selector_state,
+            scenario_compare_selector_state,
+        ):
+            if keep is state:
+                continue
+            close_selector_menu(state)
+
+    def track_popup_geometry(
+        *,
+        popup: tk.Toplevel,
+        anchor_widget: tk.Widget,
+        width: int,
+        height: int,
+        close_callback,
+        clip_widget: tk.Widget | None = None,
+        poll_ms: int = 90,
+    ) -> None:
+        def _apply() -> None:
+            if not popup.winfo_exists():
+                return
+            try:
+                if not anchor_widget.winfo_exists() or not anchor_widget.winfo_ismapped():
+                    close_callback()
+                    return
+
+                anchor_left = anchor_widget.winfo_rootx()
+                anchor_top = anchor_widget.winfo_rooty()
+                anchor_right = anchor_left + anchor_widget.winfo_width()
+                anchor_bottom = anchor_top + anchor_widget.winfo_height()
+
+                if clip_widget is not None:
+                    if not clip_widget.winfo_exists() or not clip_widget.winfo_ismapped():
+                        close_callback()
+                        return
+                    clip_left = clip_widget.winfo_rootx()
+                    clip_top = clip_widget.winfo_rooty()
+                    clip_right = clip_left + clip_widget.winfo_width()
+                    clip_bottom = clip_top + clip_widget.winfo_height()
+                    inside_clip = not (
+                        anchor_right <= clip_left
+                        or anchor_left >= clip_right
+                        or anchor_bottom <= clip_top
+                        or anchor_top >= clip_bottom
+                    )
+                    if not inside_clip:
+                        close_callback()
+                        return
+
+                self.root.update_idletasks()
+                anchor_widget.update_idletasks()
+                x_pos = anchor_left
+                y_pos = anchor_top + anchor_widget.winfo_height()
+                screen_width = self.root.winfo_screenwidth()
+                screen_height = self.root.winfo_screenheight()
+                x_pos = max(0, min(x_pos, screen_width - width - 4))
+                if y_pos + height > screen_height:
+                    y_pos = max(0, anchor_top - height - 2)
+                popup.geometry(f"{width}x{height}+{x_pos}+{y_pos}")
+                popup.lift()
+                popup.after(poll_ms, _apply)
+            except tk.TclError:
+                close_callback()
+
+        _apply()
+
+    def open_selector_popup(
+        *,
+        selector_state: dict[str, object],
+        anchor_widget: tk.Widget,
+        values: list[str],
+        selected_value: str,
+        on_pick,
+        searchable: bool = False,
+    ) -> None:
+        if not values:
+            return
+        popup = selector_state.get("menu")
+        if isinstance(popup, tk.Toplevel) and popup.winfo_exists():
+            close_selector_menu(selector_state)
+            return
+
+        close_all_header_menus(keep=selector_state)
+        popup = tk.Toplevel(self.root)
+        popup.withdraw()
+        popup.overrideredirect(True)
+        popup.configure(bg=self.theme.BORDER)
+        selector_state["menu"] = popup
+        popup.bind("<Escape>", lambda _e: close_selector_menu(selector_state), add="+")
+
+        shell = tk.Frame(popup, bg=self.theme.SURFACE, bd=0, highlightthickness=0)
+        shell.pack(fill=tk.BOTH, expand=True, padx=1, pady=1)
+
+        search_var = tk.StringVar(value="")
+        filtered_values: list[str] = list(values)
+        search_entry: tk.Entry | None = None
+
+        if searchable:
+            search_row = tk.Frame(shell, bg=self.theme.SURFACE_ALT, bd=0, highlightthickness=0)
+            search_row.pack(fill=tk.X, padx=6, pady=(6, 4))
+            search_entry = tk.Entry(
+                search_row,
+                textvariable=search_var,
+                relief=tk.FLAT,
+                bd=0,
+                highlightthickness=1,
+                highlightbackground=self.theme.BORDER,
+                highlightcolor=self.theme.ACCENT,
+                bg=self.theme.SURFACE,
+                fg=self.theme.TEXT_PRIMARY,
+                insertbackground=self.theme.TEXT_PRIMARY,
+                font=("Segoe UI", 10),
+            )
+            search_entry.pack(fill=tk.X, ipady=6)
+
+        list_wrap = tk.Frame(shell, bg=self.theme.SURFACE, bd=0, highlightthickness=0)
+        list_wrap.pack(fill=tk.BOTH, expand=True, padx=6, pady=(0, 6))
+        listbox = tk.Listbox(
+            list_wrap,
+            activestyle="none",
+            exportselection=False,
+            selectmode=tk.SINGLE,
+            relief=tk.FLAT,
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=self.theme.BORDER,
+            highlightcolor=self.theme.ACCENT,
+            bg=self.theme.SURFACE,
+            fg=self.theme.TEXT_PRIMARY,
+            selectbackground=self.theme.ACCENT,
+            selectforeground=self.theme.TEXT_LIGHT,
+            font=("Segoe UI", 10),
+        )
+        listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        list_scroll = ttk.Scrollbar(
+            list_wrap,
+            orient=tk.VERTICAL,
+            command=listbox.yview,
+            style="App.Vertical.TScrollbar",
+        )
+        list_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        listbox.configure(yscrollcommand=list_scroll.set)
+
+        def render_values() -> None:
+            nonlocal filtered_values
+            query = search_var.get().strip().casefold()
+            if query:
+                filtered_values = [value for value in values if query in value.casefold()]
+            else:
+                filtered_values = list(values)
+            listbox.delete(0, tk.END)
+            for value in filtered_values:
+                listbox.insert(tk.END, value)
+            if selected_value in filtered_values:
+                selected_index = filtered_values.index(selected_value)
+                listbox.selection_set(selected_index)
+                listbox.see(selected_index)
+            elif filtered_values:
+                listbox.selection_set(0)
+                listbox.see(0)
+
+        def commit_selection(_event=None) -> str:
+            selected = listbox.curselection()
+            if not selected:
+                return "break"
+            picked_value = str(listbox.get(selected[0]))
+            close_selector_menu(selector_state)
+            on_pick(picked_value)
+            return "break"
+
+        def close_on_outside_click(event: tk.Event) -> str | None:
+            if not popup.winfo_exists():
+                return None
+            x_root = int(getattr(event, "x_root", 0))
+            y_root = int(getattr(event, "y_root", 0))
+            left = popup.winfo_rootx()
+            top = popup.winfo_rooty()
+            right = left + popup.winfo_width()
+            bottom = top + popup.winfo_height()
+            if left <= x_root < right and top <= y_root < bottom:
+                return None
+            close_selector_menu(selector_state)
+            return "break"
+
+        listbox.bind("<Return>", commit_selection, add="+")
+        listbox.bind("<Double-Button-1>", commit_selection, add="+")
+        listbox.bind("<ButtonRelease-1>", commit_selection, add="+")
+        popup.bind("<ButtonPress-1>", close_on_outside_click, add="+")
+        if searchable and search_entry is not None:
+            search_var.trace_add("write", lambda *_args: render_values())
+            search_entry.bind("<Down>", lambda _e: (listbox.focus_set(), "break")[1], add="+")
+
+        render_values()
+        popup.update_idletasks()
+        self.root.update_idletasks()
+        anchor_widget.update_idletasks()
+        base_width = max(anchor_widget.winfo_width(), 320 if searchable else 260)
+        rows_count = max(1, min(9, len(filtered_values)))
+        base_height = rows_count * 24 + (52 if searchable else 10)
+
+        popup.deiconify()
+        track_popup_geometry(
+            popup=popup,
+            anchor_widget=anchor_widget,
+            width=base_width,
+            height=base_height,
+            close_callback=lambda: close_selector_menu(selector_state),
+            clip_widget=schedule_canvas,
+        )
+        popup.grab_set()
+        if searchable and search_entry is not None:
+            search_entry.focus_set()
+        else:
+            listbox.focus_set()
+
+    def selected_period_item() -> dict[str, object] | None:
+        raw = period_var.get().strip()
+        if not raw or "|" not in raw:
+            return None
+        try:
+            period_id = int(raw.split("|", maxsplit=1)[0].strip())
+        except ValueError:
+            return None
+        period_by_id = period_state.get("by_id", {})
+        if isinstance(period_by_id, dict):
+            item = period_by_id.get(period_id)
+            if isinstance(item, dict):
+                return item
+        return None
+
+    def refresh_week_start_selector(*, keep_selection: bool = True) -> None:
+        selected_period = selected_period_item()
+        previous_raw = week_start_var.get().strip()
+        labels: list[str] = []
+        start_by_label: dict[str, date] = {}
+        label_by_iso: dict[str, str] = {}
+        current_label: str | None = None
+        if isinstance(selected_period, dict):
+            period_start = selected_period["start_date"]
+            period_end = selected_period["end_date"]
+            weeks_count = int(selected_period["weeks_count"])
+            today = date.today()
+            for week_index in range(1, weeks_count + 1):
+                week_start = period_start + timedelta(days=(week_index - 1) * 7)
+                week_end = min(period_end, week_start + timedelta(days=6))
+                is_current_week = week_start <= today <= week_end
+                label = f"Тиждень {week_index} • {week_start.isoformat()} — {week_end.isoformat()}"
+                if is_current_week:
+                    label += " • поточний"
+                    current_label = label
+                labels.append(label)
+                start_by_label[label] = week_start
+                label_by_iso[week_start.isoformat()] = label
+
+        week_start_state["labels"] = labels
+        week_start_state["start_by_label"] = start_by_label
+        week_start_state["label_by_iso"] = label_by_iso
+        week_selector_state["values"] = labels
+        is_enabled = bool(labels)
+        week_selector_button.configure(state=("normal" if is_enabled else "disabled"))
+        week_selector_label.configure(fg=self.theme.TEXT_PRIMARY if is_enabled else self.theme.TEXT_MUTED)
+
+        selected_label: str = ""
+        if keep_selection and previous_raw in start_by_label:
+            selected_label = previous_raw
+        elif keep_selection and previous_raw in label_by_iso:
+            selected_label = label_by_iso[previous_raw]
+        elif current_label is not None:
+            selected_label = current_label
+        elif labels:
+            selected_label = labels[0]
+        week_start_var.set(selected_label)
+
+    def select_period(period_id: int | None, *, trigger_reload: bool) -> None:
+        period_by_id = period_state.get("by_id", {})
+        if period_id is None or not isinstance(period_by_id, dict) or period_id not in period_by_id:
+            period_var.set("")
+            refresh_week_start_selector(keep_selection=False)
+            if trigger_reload:
+                on_period_changed()
+            return
+        item = period_by_id[period_id]
+        if isinstance(item, dict):
+            period_var.set(period_label(item))
+        refresh_week_start_selector(keep_selection=True)
+        if trigger_reload:
+            on_period_changed()
+
+    def refresh_period_selector_state() -> None:
+        items = period_state.get("items", [])
+        has_periods = isinstance(items, list) and bool(items)
+        close_period_menu()
+        period_selector_main.pack_forget()
+        period_empty_create_button.pack_forget()
+        if has_periods:
+            period_selector_main.pack(fill=tk.X)
+            period_toggle_button.configure(state="normal")
+            period_display.bind("<Button-1>", lambda _e: open_period_menu())
+        else:
+            period_var.set("")
+            period_empty_create_button.pack(fill=tk.X)
+
+    def list_week_template_choices(*, include_ids: set[int] | None = None) -> tuple[list[str], dict[str, int], dict[int, str]]:
+        include_ids = include_ids or set()
+        with session_scope() as session:
+            overview = TemplateController(session=session).load_templates_overview(company_id)
+        templates = sorted(
+            list(overview.week_templates),
+            key=lambda item: (bool(item.is_archived), str(item.name).lower(), int(item.id)),
+        )
+        visible = [item for item in templates if (not bool(item.is_archived)) or (int(item.id) in include_ids)]
+        if not visible:
+            raise ValueError("Немає доступних шаблонів тижня. Створіть їх у вкладці шаблонів.")
+
+        labels: list[str] = []
+        by_label: dict[str, int] = {}
+        by_id: dict[int, str] = {}
+        for item in visible:
+            archived_suffix = " [архів]" if bool(item.is_archived) else ""
+            label = f"{int(item.id)} | {item.name}{archived_suffix}"
+            labels.append(label)
+            by_label[label] = int(item.id)
+            by_id[int(item.id)] = label
+        return labels, by_label, by_id
+
+    def open_period_modal(*, period_id: int | None = None) -> None:
+        existing = period_state.get("by_id", {}).get(period_id) if period_id is not None else None
+        is_edit = isinstance(existing, dict)
+        period_data = existing if is_edit else None
+        include_template_ids: set[int] = set()
+        if period_data is not None:
+            week_map = period_data.get("week_pattern_by_week_index", {})
+            if isinstance(week_map, dict):
+                include_template_ids = {int(value) for value in week_map.values()}
+        try:
+            template_labels, template_id_by_label, template_label_by_id = list_week_template_choices(
+                include_ids=include_template_ids
+            )
+        except Exception as exc:
+            messagebox.showerror("Період", str(exc), parent=self.root)
+            return
+
+        if is_edit and period_data is not None:
+            start_date = period_data["start_date"]
+            weeks_default = int(period_data["weeks_count"])
+            period_name_default = str(period_data.get("name") or "")
+            existing_week_map = dict(period_data.get("week_pattern_by_week_index", {}))
+        else:
+            items = period_state.get("items", [])
+            if isinstance(items, list) and items:
+                last_period = items[-1]
+                start_date = last_period["end_date"] + timedelta(days=1)
+            else:
+                start_date = date.today()
+            weeks_default = 16
+            period_name_default = ""
+            default_template_id = template_id_by_label[template_labels[0]]
+            existing_week_map = {index: default_template_id for index in range(1, weeks_default + 1)}
+
+        modal = tk.Toplevel(self.root)
+        modal.title("Редагувати період" if is_edit else "Створити період")
+        modal.transient(self.root)
+        modal.grab_set()
+        modal.resizable(False, False)
+
+        shell = ttk.Frame(modal, style="Card.TFrame", padding=14)
+        shell.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(shell, text="Редагування періоду" if is_edit else "Створення періоду", style="CardTitle.TLabel").pack(anchor="w")
+        ttk.Label(
+            shell,
+            text="Оберіть назву, дату старту та кількість тижнів.",
+            style="CardSubtle.TLabel",
+        ).pack(anchor="w", pady=(2, 10))
+
+        form = ttk.Frame(shell, style="Card.TFrame")
+        form.pack(fill=tk.X)
+        ttk.Label(form, text="Назва", style="Card.TLabel").grid(row=0, column=0, sticky="w")
+        period_name_var = tk.StringVar(value=period_name_default)
+        ttk.Entry(form, textvariable=period_name_var, width=34).grid(row=0, column=1, sticky="w", padx=(8, 12))
+        ttk.Label(form, text="Кількість тижнів", style="Card.TLabel").grid(row=0, column=2, sticky="w")
+        weeks_count_var = tk.StringVar(value=str(weeks_default))
+        ttk.Entry(form, textvariable=weeks_count_var, width=8).grid(row=0, column=3, sticky="w", padx=(8, 0))
+        ttk.Label(form, text="Початок", style="Card.TLabel").grid(row=1, column=0, sticky="w", pady=(8, 0))
+
+        start_year_var = tk.StringVar(value=str(start_date.year))
+        start_month_var = tk.StringVar(value=f"{start_date.month:02d}")
+        start_day_var = tk.StringVar(value=f"{start_date.day:02d}")
+
+        years_pool = {start_date.year, date.today().year}
+        items = period_state.get("items", [])
+        if isinstance(items, list):
+            for period_item in items:
+                if not isinstance(period_item, dict):
+                    continue
+                item_start = period_item.get("start_date")
