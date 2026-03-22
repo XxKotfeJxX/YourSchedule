@@ -1190,12 +1190,49 @@ class ScheduleMainWindow:
         )
         blackout_weekdays_wrap = ttk.Frame(blackout_box, style="Card.TFrame")
         blackout_weekdays_wrap.grid(row=4, column=1, columnspan=3, sticky="w", padx=(6, 12), pady=(8, 0))
+        blackout_weekday_buttons: dict[int, tk.Button] = {}
+
+        def refresh_blackout_weekday_button(weekday: int) -> None:
+            button = blackout_weekday_buttons.get(weekday)
+            if button is None:
+                return
+            selected = bool(blackout_batch_weekday_vars[weekday].get())
+            if selected:
+                button.configure(
+                    bg=self.theme.ACCENT,
+                    fg=self.theme.TEXT_LIGHT,
+                    activebackground=self.theme.ACCENT_HOVER,
+                    activeforeground=self.theme.TEXT_LIGHT,
+                )
+            else:
+                button.configure(
+                    bg=self.theme.SURFACE_ALT,
+                    fg=self.theme.TEXT_PRIMARY,
+                    activebackground=self.theme.SECONDARY_HOVER,
+                    activeforeground=self.theme.TEXT_PRIMARY,
+                )
+
+        def toggle_blackout_weekday(weekday: int) -> None:
+            current = bool(blackout_batch_weekday_vars[weekday].get())
+            blackout_batch_weekday_vars[weekday].set(not current)
+            refresh_blackout_weekday_button(weekday)
+
         for idx, (weekday, label) in enumerate(blackout_weekday_labels):
-            ttk.Checkbutton(
+            toggle_button = tk.Button(
                 blackout_weekdays_wrap,
                 text=label,
-                variable=blackout_batch_weekday_vars[weekday],
-            ).pack(side=tk.LEFT, padx=(0 if idx == 0 else 8, 0))
+                width=4,
+                relief=tk.FLAT,
+                bd=0,
+                padx=8,
+                pady=4,
+                cursor="hand2",
+                font=("Segoe UI", 9, "bold"),
+                command=lambda day=weekday: toggle_blackout_weekday(day),
+            )
+            toggle_button.pack(side=tk.LEFT, padx=(0 if idx == 0 else 8, 0))
+            blackout_weekday_buttons[weekday] = toggle_button
+            refresh_blackout_weekday_button(weekday)
 
         blackout_table_wrap = ttk.Frame(blackout_box, style="Card.TFrame")
         blackout_table_wrap.grid(row=5, column=0, columnspan=8, sticky="ew", pady=(10, 0))
