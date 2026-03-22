@@ -608,6 +608,10 @@ class ScheduleMainWindow:
             "start_by_label": {},
             "label_by_iso": {},
         }
+        week_selector_state: dict[str, object] = {"menu": None, "values": []}
+        group_selector_state: dict[str, object] = {"menu": None, "values": []}
+        scenario_selector_state: dict[str, object] = {"menu": None, "values": []}
+        scenario_compare_selector_state: dict[str, object] = {"menu": None, "values": []}
 
         policy_max_sessions_var = tk.StringVar(value="4")
         policy_max_consecutive_var = tk.StringVar(value="3")
@@ -875,24 +879,100 @@ class ScheduleMainWindow:
         period_selector_main.pack_forget()
         period_empty_create_button.pack(fill=tk.X)
 
+        def build_header_selector(
+            parent_widget: tk.Widget,
+            *,
+            text_var: tk.StringVar,
+            width_px: int,
+        ) -> tuple[tk.Frame, tk.Label, tk.Button]:
+            selector_main = tk.Frame(
+                parent_widget,
+                bg=self.theme.SURFACE,
+                bd=0,
+                highlightthickness=1,
+                highlightbackground=self.theme.BORDER,
+                highlightcolor=self.theme.ACCENT,
+                width=width_px,
+                height=36,
+            )
+            selector_main.grid_propagate(False)
+            selector_label = tk.Label(
+                selector_main,
+                textvariable=text_var,
+                bg=self.theme.SURFACE,
+                fg=self.theme.TEXT_PRIMARY,
+                anchor="w",
+                padx=10,
+                pady=8,
+                font=("Segoe UI", 10),
+                cursor="hand2",
+            )
+            selector_label.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            selector_button = tk.Button(
+                selector_main,
+                text="▾",
+                width=3,
+                relief=tk.FLAT,
+                bd=0,
+                bg=self.theme.SURFACE_ALT,
+                fg=self.theme.TEXT_PRIMARY,
+                activebackground=self.theme.SECONDARY_HOVER,
+                activeforeground=self.theme.TEXT_PRIMARY,
+                cursor="hand2",
+            )
+            selector_button.pack(side=tk.LEFT, fill=tk.Y)
+            return selector_main, selector_label, selector_button
+
         ttk.Label(header, text="Початок тижня", style="Card.TLabel").grid(row=1, column=2, sticky="w", pady=(8, 0))
-        week_start_box = ttk.Combobox(header, textvariable=week_start_var, width=26, state="readonly")
-        week_start_box.grid(row=1, column=3, sticky="w", padx=(6, 10), pady=(8, 0))
+        week_selector_main, week_selector_label, week_selector_button = build_header_selector(
+            header,
+            text_var=week_start_var,
+            width_px=250,
+        )
+        week_selector_main.grid(row=1, column=3, sticky="w", padx=(6, 10), pady=(8, 0))
 
         ttk.Label(header, text="Група", style="Card.TLabel").grid(row=1, column=4, sticky="w", pady=(8, 0))
-        group_box = ttk.Combobox(header, textvariable=group_filter_var, width=22, state="readonly")
-        group_box.grid(row=1, column=5, sticky="w", padx=(6, 10), pady=(8, 0))
+        group_selector_main, group_selector_label, group_selector_button = build_header_selector(
+            header,
+            text_var=group_filter_var,
+            width_px=260,
+        )
+        group_selector_main.grid(row=1, column=5, sticky="w", padx=(6, 10), pady=(8, 0))
 
         ttk.Label(header, text="Сценарій", style="Card.TLabel").grid(row=2, column=0, sticky="w", pady=(8, 0))
-        scenario_box = ttk.Combobox(header, textvariable=scenario_var, width=22, state="readonly")
-        scenario_box.grid(row=2, column=1, sticky="w", padx=(6, 10), pady=(8, 0))
+        scenario_selector_main, scenario_selector_label, scenario_selector_button = build_header_selector(
+            header,
+            text_var=scenario_var,
+            width_px=250,
+        )
+        scenario_selector_main.grid(row=2, column=1, sticky="w", padx=(6, 10), pady=(8, 0))
 
         ttk.Label(header, text="Порівняти з", style="Card.TLabel").grid(row=2, column=2, sticky="w", pady=(8, 0))
-        scenario_compare_box = ttk.Combobox(header, textvariable=scenario_compare_var, width=22, state="readonly")
-        scenario_compare_box.grid(row=2, column=3, sticky="w", padx=(6, 10), pady=(8, 0))
-        scenario_compare_button = ttk.Button(header, text="Порівняти")
+        scenario_compare_selector_main, scenario_compare_selector_label, scenario_compare_selector_button = build_header_selector(
+            header,
+            text_var=scenario_compare_var,
+            width_px=250,
+        )
+        scenario_compare_selector_main.grid(row=2, column=3, sticky="w", padx=(6, 10), pady=(8, 0))
+        scenario_compare_button = self._motion_button(
+            header,
+            text="Порівняти",
+            command=lambda: None,
+            primary=False,
+            width=122,
+            height=36,
+            canvas_bg=self.theme.SURFACE,
+        )
         scenario_compare_button.grid(row=2, column=4, sticky="w", pady=(8, 0))
-        scenario_publish_button = ttk.Button(header, text="Опублікувати")
+        scenario_publish_button = self._motion_button(
+            header,
+            text="Опублікувати",
+            command=lambda: None,
+            primary=True,
+            width=140,
+            height=36,
+            canvas_bg=self.theme.SURFACE,
+        )
         scenario_publish_button.grid(row=2, column=5, sticky="w", padx=(6, 0), pady=(8, 0))
 
         tree = ttk.Treeview(
@@ -1285,6 +1365,10 @@ class ScheduleMainWindow:
                 tail = raw.split("|", maxsplit=1)[1].strip()
                 start_part = tail.split("..", maxsplit=1)[0].strip()
                 return date.fromisoformat(start_part)
+            if "•" in raw and "—" in raw:
+                right = raw.split("•", maxsplit=1)[1].strip()
+                start_part = right.split("—", maxsplit=1)[0].strip()
+                return date.fromisoformat(start_part)
             return date.fromisoformat(raw)
 
         def parse_prefixed_id(raw: str, *, field_name: str) -> int:
@@ -1391,6 +1475,190 @@ class ScheduleMainWindow:
                 pass
             period_state["menu"] = None
 
+        def close_selector_menu(selector_state: dict[str, object]) -> None:
+            popup = selector_state.get("menu")
+            if popup is None:
+                return
+            try:
+                if isinstance(popup, tk.Toplevel) and popup.winfo_exists():
+                    try:
+                        popup.grab_release()
+                    except tk.TclError:
+                        pass
+                    popup.destroy()
+            except tk.TclError:
+                pass
+            selector_state["menu"] = None
+
+        def close_all_header_menus(*, keep: dict[str, object] | None = None) -> None:
+            close_period_menu()
+            for state in (
+                week_selector_state,
+                group_selector_state,
+                scenario_selector_state,
+                scenario_compare_selector_state,
+            ):
+                if keep is state:
+                    continue
+                close_selector_menu(state)
+
+        def open_selector_popup(
+            *,
+            selector_state: dict[str, object],
+            anchor_widget: tk.Widget,
+            values: list[str],
+            selected_value: str,
+            on_pick,
+            searchable: bool = False,
+        ) -> None:
+            if not values:
+                return
+            popup = selector_state.get("menu")
+            if isinstance(popup, tk.Toplevel) and popup.winfo_exists():
+                close_selector_menu(selector_state)
+                return
+
+            close_all_header_menus(keep=selector_state)
+            popup = tk.Toplevel(self.root)
+            popup.withdraw()
+            popup.overrideredirect(True)
+            popup.configure(bg=self.theme.BORDER)
+            selector_state["menu"] = popup
+            popup.bind("<Escape>", lambda _e: close_selector_menu(selector_state), add="+")
+
+            shell = tk.Frame(popup, bg=self.theme.SURFACE, bd=0, highlightthickness=0)
+            shell.pack(fill=tk.BOTH, expand=True, padx=1, pady=1)
+
+            search_var = tk.StringVar(value="")
+            filtered_values: list[str] = list(values)
+            search_entry: tk.Entry | None = None
+
+            if searchable:
+                search_row = tk.Frame(shell, bg=self.theme.SURFACE_ALT, bd=0, highlightthickness=0)
+                search_row.pack(fill=tk.X, padx=6, pady=(6, 4))
+                search_entry = tk.Entry(
+                    search_row,
+                    textvariable=search_var,
+                    relief=tk.FLAT,
+                    bd=0,
+                    highlightthickness=1,
+                    highlightbackground=self.theme.BORDER,
+                    highlightcolor=self.theme.ACCENT,
+                    bg=self.theme.SURFACE,
+                    fg=self.theme.TEXT_PRIMARY,
+                    insertbackground=self.theme.TEXT_PRIMARY,
+                    font=("Segoe UI", 10),
+                )
+                search_entry.pack(fill=tk.X, ipady=6)
+
+            list_wrap = tk.Frame(shell, bg=self.theme.SURFACE, bd=0, highlightthickness=0)
+            list_wrap.pack(fill=tk.BOTH, expand=True, padx=6, pady=(0, 6))
+            listbox = tk.Listbox(
+                list_wrap,
+                activestyle="none",
+                exportselection=False,
+                selectmode=tk.SINGLE,
+                relief=tk.FLAT,
+                bd=0,
+                highlightthickness=1,
+                highlightbackground=self.theme.BORDER,
+                highlightcolor=self.theme.ACCENT,
+                bg=self.theme.SURFACE,
+                fg=self.theme.TEXT_PRIMARY,
+                selectbackground=self.theme.ACCENT,
+                selectforeground=self.theme.TEXT_LIGHT,
+                font=("Segoe UI", 10),
+            )
+            listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            list_scroll = ttk.Scrollbar(
+                list_wrap,
+                orient=tk.VERTICAL,
+                command=listbox.yview,
+                style="App.Vertical.TScrollbar",
+            )
+            list_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+            listbox.configure(yscrollcommand=list_scroll.set)
+
+            def render_values() -> None:
+                nonlocal filtered_values
+                query = search_var.get().strip().casefold()
+                if query:
+                    filtered_values = [value for value in values if query in value.casefold()]
+                else:
+                    filtered_values = list(values)
+                listbox.delete(0, tk.END)
+                for value in filtered_values:
+                    listbox.insert(tk.END, value)
+                if selected_value in filtered_values:
+                    selected_index = filtered_values.index(selected_value)
+                    listbox.selection_set(selected_index)
+                    listbox.see(selected_index)
+                elif filtered_values:
+                    listbox.selection_set(0)
+                    listbox.see(0)
+
+            def commit_selection(_event=None) -> str:
+                selected = listbox.curselection()
+                if not selected:
+                    return "break"
+                picked_value = str(listbox.get(selected[0]))
+                close_selector_menu(selector_state)
+                on_pick(picked_value)
+                return "break"
+
+            def close_on_outside_click(event: tk.Event) -> str | None:
+                if not popup.winfo_exists():
+                    return None
+                x_root = int(getattr(event, "x_root", 0))
+                y_root = int(getattr(event, "y_root", 0))
+                left = popup.winfo_rootx()
+                top = popup.winfo_rooty()
+                right = left + popup.winfo_width()
+                bottom = top + popup.winfo_height()
+                if left <= x_root < right and top <= y_root < bottom:
+                    return None
+                close_selector_menu(selector_state)
+                return "break"
+
+            listbox.bind("<Return>", commit_selection, add="+")
+            listbox.bind("<Double-Button-1>", commit_selection, add="+")
+            listbox.bind("<ButtonRelease-1>", commit_selection, add="+")
+            popup.bind("<ButtonPress-1>", close_on_outside_click, add="+")
+            if searchable and search_entry is not None:
+                search_var.trace_add("write", lambda *_args: render_values())
+                search_entry.bind("<Down>", lambda _e: (listbox.focus_set(), "break")[1], add="+")
+
+            render_values()
+            popup.update_idletasks()
+            self.root.update_idletasks()
+            anchor_widget.update_idletasks()
+            base_width = max(anchor_widget.winfo_width(), 320 if searchable else 260)
+            rows_count = max(1, min(9, len(filtered_values)))
+            base_height = rows_count * 24 + (52 if searchable else 10)
+            x_pos = anchor_widget.winfo_rootx()
+            y_pos = anchor_widget.winfo_rooty() + anchor_widget.winfo_height()
+            screen_width = self.root.winfo_screenwidth()
+            screen_height = self.root.winfo_screenheight()
+            x_pos = max(0, min(x_pos, screen_width - base_width - 4))
+            if y_pos + base_height > screen_height:
+                y_pos = max(0, anchor_widget.winfo_rooty() - base_height - 2)
+            geometry_value = f"{base_width}x{base_height}+{x_pos}+{y_pos}"
+
+            def apply_geometry() -> None:
+                if not popup.winfo_exists():
+                    return
+                popup.geometry(geometry_value)
+                popup.lift()
+
+            popup.deiconify()
+            apply_geometry()
+            popup.after_idle(apply_geometry)
+            popup.grab_set()
+            if searchable and search_entry is not None:
+                search_entry.focus_set()
+            else:
+                listbox.focus_set()
+
         def selected_period_item() -> dict[str, object] | None:
             raw = period_var.get().strip()
             if not raw or "|" not in raw:
@@ -1422,7 +1690,7 @@ class ScheduleMainWindow:
                     week_start = period_start + timedelta(days=(week_index - 1) * 7)
                     week_end = min(period_end, week_start + timedelta(days=6))
                     is_current_week = week_start <= today <= week_end
-                    label = f"{week_index} | {week_start.isoformat()}..{week_end.isoformat()}"
+                    label = f"Тиждень {week_index} • {week_start.isoformat()} — {week_end.isoformat()}"
                     if is_current_week:
                         label += " • поточний"
                         current_label = label
@@ -1433,7 +1701,10 @@ class ScheduleMainWindow:
             week_start_state["labels"] = labels
             week_start_state["start_by_label"] = start_by_label
             week_start_state["label_by_iso"] = label_by_iso
-            week_start_box.configure(values=labels)
+            week_selector_state["values"] = labels
+            is_enabled = bool(labels)
+            week_selector_button.configure(state=("normal" if is_enabled else "disabled"))
+            week_selector_label.configure(fg=self.theme.TEXT_PRIMARY if is_enabled else self.theme.TEXT_MUTED)
 
             selected_label: str = ""
             if keep_selection and previous_raw in start_by_label:
@@ -1906,6 +2177,10 @@ class ScheduleMainWindow:
                 close_period_menu()
                 return
 
+            close_selector_menu(week_selector_state)
+            close_selector_menu(group_selector_state)
+            close_selector_menu(scenario_selector_state)
+            close_selector_menu(scenario_compare_selector_state)
             close_period_menu()
             popup = tk.Toplevel(self.root)
             popup.withdraw()
@@ -2029,7 +2304,78 @@ class ScheduleMainWindow:
             popup.grab_set()
 
         period_toggle_button.configure(command=open_period_menu)
+        period_display.bind("<Button-1>", lambda _e: open_period_menu())
         period_empty_create_button.command = lambda: open_period_modal(period_id=None)
+
+        def open_week_start_menu() -> None:
+            values = week_selector_state.get("values", [])
+            if not isinstance(values, list):
+                values = []
+            open_selector_popup(
+                selector_state=week_selector_state,
+                anchor_widget=week_selector_main,
+                values=values,
+                selected_value=week_start_var.get().strip(),
+                on_pick=lambda selected: (
+                    week_start_var.set(selected),
+                    on_load_week(),
+                ),
+                searchable=False,
+            )
+
+        def open_group_filter_menu() -> None:
+            values = group_selector_state.get("values", [])
+            if not isinstance(values, list):
+                values = []
+            open_selector_popup(
+                selector_state=group_selector_state,
+                anchor_widget=group_selector_main,
+                values=values,
+                selected_value=group_filter_var.get().strip(),
+                on_pick=lambda selected: (
+                    group_filter_var.set(selected),
+                    on_load_week(),
+                ),
+                searchable=True,
+            )
+
+        def open_scenario_menu() -> None:
+            values = scenario_selector_state.get("values", [])
+            if not isinstance(values, list):
+                values = []
+            open_selector_popup(
+                selector_state=scenario_selector_state,
+                anchor_widget=scenario_selector_main,
+                values=values,
+                selected_value=scenario_var.get().strip(),
+                on_pick=lambda selected: (
+                    scenario_var.set(selected),
+                    on_load_week(),
+                ),
+                searchable=False,
+            )
+
+        def open_scenario_compare_menu() -> None:
+            values = scenario_compare_selector_state.get("values", [])
+            if not isinstance(values, list):
+                values = []
+            open_selector_popup(
+                selector_state=scenario_compare_selector_state,
+                anchor_widget=scenario_compare_selector_main,
+                values=values,
+                selected_value=scenario_compare_var.get().strip(),
+                on_pick=lambda selected: scenario_compare_var.set(selected),
+                searchable=False,
+            )
+
+        week_selector_button.configure(command=open_week_start_menu)
+        week_selector_label.bind("<Button-1>", lambda _e: open_week_start_menu(), add="+")
+        group_selector_button.configure(command=open_group_filter_menu)
+        group_selector_label.bind("<Button-1>", lambda _e: open_group_filter_menu(), add="+")
+        scenario_selector_button.configure(command=open_scenario_menu)
+        scenario_selector_label.bind("<Button-1>", lambda _e: open_scenario_menu(), add="+")
+        scenario_compare_selector_button.configure(command=open_scenario_compare_menu)
+        scenario_compare_selector_label.bind("<Button-1>", lambda _e: open_scenario_compare_menu(), add="+")
 
         def selected_group_resource_id() -> int | None:
             raw = group_filter_var.get().strip()
@@ -2690,12 +3036,19 @@ class ScheduleMainWindow:
                     )
 
             scenario_values_state["values"] = values
-            scenario_box["values"] = values
-            scenario_compare_box["values"] = values
+            scenario_selector_state["values"] = list(values)
+            scenario_compare_selector_state["values"] = list(values)
             if scenario_var.get() not in values:
                 scenario_var.set(values[0])
             if scenario_compare_var.get() not in values:
                 scenario_compare_var.set(values[0])
+            scenario_enabled = bool(values)
+            scenario_selector_button.configure(state=("normal" if scenario_enabled else "disabled"))
+            scenario_selector_label.configure(fg=self.theme.TEXT_PRIMARY if scenario_enabled else self.theme.TEXT_MUTED)
+            scenario_compare_selector_button.configure(state=("normal" if scenario_enabled else "disabled"))
+            scenario_compare_selector_label.configure(
+                fg=self.theme.TEXT_PRIMARY if scenario_enabled else self.theme.TEXT_MUTED
+            )
 
         def on_create_scenarios_ab() -> None:
             try:
@@ -2834,9 +3187,14 @@ class ScheduleMainWindow:
                 load_scenarios(period_id=None)
 
             group_values = [f"{item.id} | {item.name}" for item in groups]
-            group_box["values"] = ["Усі групи"] + group_values
-            if group_filter_var.get() not in group_box["values"]:
+            group_selector_values = ["Усі групи"] + group_values
+            group_selector_state["values"] = list(group_selector_values)
+            if group_filter_var.get() not in group_selector_values:
                 group_filter_var.set("Усі групи")
+            group_selector_button.configure(state=("normal" if group_selector_values else "disabled"))
+            group_selector_label.configure(
+                fg=self.theme.TEXT_PRIMARY if group_selector_values else self.theme.TEXT_MUTED
+            )
 
             teacher_values = [f"{item.id} | {item.name}" for item in teachers]
             teacher_box["values"] = teacher_values
@@ -3345,8 +3703,8 @@ class ScheduleMainWindow:
         blackout_delete_button.configure(command=on_delete_blackout)
         blackout_reload_button.configure(command=load_blackouts)
         coverage_refresh_button.configure(command=load_coverage_dashboard)
-        scenario_compare_button.configure(command=on_compare_scenarios)
-        scenario_publish_button.configure(command=on_publish_scenario)
+        scenario_compare_button.command = on_compare_scenarios
+        scenario_publish_button.command = on_publish_scenario
         policy_save_button.configure(command=on_save_policy)
         manual_add_button.configure(command=on_add_manual_entry)
         manual_update_button.configure(command=on_update_manual_entry)
@@ -3366,9 +3724,6 @@ class ScheduleMainWindow:
         load_coverage_dashboard()
         subject_target_box.bind("<<ComboboxSelected>>", lambda _e: refresh_subject_target_controls(), add="+")
         blackout_scope_box.bind("<<ComboboxSelected>>", lambda _e: refresh_blackout_resource_choices(), add="+")
-        week_start_box.bind("<<ComboboxSelected>>", lambda _e: on_load_week(), add="+")
-        group_box.bind("<<ComboboxSelected>>", lambda _e: on_load_week(), add="+")
-        scenario_box.bind("<<ComboboxSelected>>", lambda _e: on_load_week(), add="+")
         entries_table.bind("<Double-1>", lambda _e: load_selected_entry_into_manual(), add="+")
         requirements_table.bind("<Double-1>", lambda _e: open_requirement_edit_modal(), add="+")
         open_schedule_tab("view")
