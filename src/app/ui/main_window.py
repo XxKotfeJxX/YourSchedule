@@ -543,7 +543,7 @@ class ScheduleMainWindow:
     def _build_company_schedule_view(self, parent: ttk.Frame, company_id: int) -> None:
         period_var = tk.StringVar()
         week_start_var = tk.StringVar()
-        group_filter_var = tk.StringVar(value="Усі групи")
+        group_filter_var = tk.StringVar(value="Не обрано")
         scenario_var = tk.StringVar(value="Опублікований")
         scenario_compare_var = tk.StringVar(value="Опублікований")
         status_var = tk.StringVar(value="Готово.")
@@ -609,7 +609,16 @@ class ScheduleMainWindow:
             "label_by_iso": {},
         }
         week_selector_state: dict[str, object] = {"menu": None, "values": []}
-        group_selector_state: dict[str, object] = {"menu": None, "values": []}
+        group_selector_state: dict[str, object] = {
+            "menu": None,
+            "values": [],
+            "all_values": [],
+            "meta_by_value": {},
+            "specialty_values": ["Усі спеціальності"],
+            "course_values": ["Усі курси"],
+            "specialty_filter": "Усі спеціальності",
+            "course_filter": "Усі курси",
+        }
         scenario_selector_state: dict[str, object] = {"menu": None, "values": []}
         scenario_compare_selector_state: dict[str, object] = {"menu": None, "values": []}
 
@@ -2324,20 +2333,214 @@ class ScheduleMainWindow:
             )
 
         def open_group_filter_menu() -> None:
-            values = group_selector_state.get("values", [])
-            if not isinstance(values, list):
-                values = []
-            open_selector_popup(
-                selector_state=group_selector_state,
-                anchor_widget=group_selector_main,
-                values=values,
-                selected_value=group_filter_var.get().strip(),
-                on_pick=lambda selected: (
-                    group_filter_var.set(selected),
-                    on_load_week(),
-                ),
-                searchable=True,
+            values = group_selector_state.get("all_values", [])
+            if not isinstance(values, list) or not values:
+                return
+            popup = group_selector_state.get("menu")
+            if isinstance(popup, tk.Toplevel) and popup.winfo_exists():
+                close_selector_menu(group_selector_state)
+                return
+
+            close_all_header_menus(keep=group_selector_state)
+            popup = tk.Toplevel(self.root)
+            popup.withdraw()
+            popup.overrideredirect(True)
+            popup.configure(bg=self.theme.BORDER)
+            group_selector_state["menu"] = popup
+            popup.bind("<Escape>", lambda _e: close_selector_menu(group_selector_state), add="+")
+
+            shell = tk.Frame(popup, bg=self.theme.SURFACE, bd=0, highlightthickness=0)
+            shell.pack(fill=tk.BOTH, expand=True, padx=1, pady=1)
+
+            filters_row = tk.Frame(shell, bg=self.theme.SURFACE_ALT, bd=0, highlightthickness=0)
+            filters_row.pack(fill=tk.X, padx=6, pady=(6, 4))
+            ttk.Label(filters_row, text="Спеціальність", style="CardSubtle.TLabel").grid(row=0, column=0, sticky="w")
+            ttk.Label(filters_row, text="Курс", style="CardSubtle.TLabel").grid(row=0, column=1, sticky="w", padx=(8, 0))
+
+            specialty_values = group_selector_state.get("specialty_values", ["Усі спеціальності"])
+            if not isinstance(specialty_values, list) or not specialty_values:
+                specialty_values = ["Усі спеціальності"]
+            course_values = group_selector_state.get("course_values", ["Усі курси"])
+            if not isinstance(course_values, list) or not course_values:
+                course_values = ["Усі курси"]
+
+            specialty_filter_var = tk.StringVar(value=str(group_selector_state.get("specialty_filter", "Усі спеціальності")))
+            if specialty_filter_var.get() not in specialty_values:
+                specialty_filter_var.set("Усі спеціальності")
+            course_filter_var = tk.StringVar(value=str(group_selector_state.get("course_filter", "Усі курси")))
+            if course_filter_var.get() not in course_values:
+                course_filter_var.set("Усі курси")
+
+            specialty_box = ttk.Combobox(
+                filters_row,
+                textvariable=specialty_filter_var,
+                values=specialty_values,
+                state="readonly",
+                width=26,
             )
+            specialty_box.grid(row=1, column=0, sticky="ew", pady=(2, 0))
+            course_box = ttk.Combobox(
+                filters_row,
+                textvariable=course_filter_var,
+                values=course_values,
+                state="readonly",
+                width=16,
+            )
+            course_box.grid(row=1, column=1, sticky="ew", padx=(8, 0), pady=(2, 0))
+            filters_row.columnconfigure(0, weight=1)
+            filters_row.columnconfigure(1, weight=0)
+
+            search_row = tk.Frame(shell, bg=self.theme.SURFACE_ALT, bd=0, highlightthickness=0)
+            search_row.pack(fill=tk.X, padx=6, pady=(0, 4))
+            search_var = tk.StringVar(value="")
+            search_entry = tk.Entry(
+                search_row,
+                textvariable=search_var,
+                relief=tk.FLAT,
+                bd=0,
+                highlightthickness=1,
+                highlightbackground=self.theme.BORDER,
+                highlightcolor=self.theme.ACCENT,
+                bg=self.theme.SURFACE,
+                fg=self.theme.TEXT_PRIMARY,
+                insertbackground=self.theme.TEXT_PRIMARY,
+                font=("Segoe UI", 10),
+            )
+            search_entry.pack(fill=tk.X, ipady=6)
+
+            list_wrap = tk.Frame(shell, bg=self.theme.SURFACE, bd=0, highlightthickness=0)
+            list_wrap.pack(fill=tk.BOTH, expand=True, padx=6, pady=(0, 6))
+            listbox = tk.Listbox(
+                list_wrap,
+                activestyle="none",
+                exportselection=False,
+                selectmode=tk.SINGLE,
+                relief=tk.FLAT,
+                bd=0,
+                highlightthickness=1,
+                highlightbackground=self.theme.BORDER,
+                highlightcolor=self.theme.ACCENT,
+                bg=self.theme.SURFACE,
+                fg=self.theme.TEXT_PRIMARY,
+                selectbackground=self.theme.ACCENT,
+                selectforeground=self.theme.TEXT_LIGHT,
+                font=("Segoe UI", 10),
+            )
+            listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            list_scroll = ttk.Scrollbar(
+                list_wrap,
+                orient=tk.VERTICAL,
+                command=listbox.yview,
+                style="App.Vertical.TScrollbar",
+            )
+            list_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+            listbox.configure(yscrollcommand=list_scroll.set)
+
+            meta_by_value = group_selector_state.get("meta_by_value", {})
+            if not isinstance(meta_by_value, dict):
+                meta_by_value = {}
+            filtered_values: list[str] = []
+
+            def render_filtered_values() -> None:
+                nonlocal filtered_values
+                selected_specialty = specialty_filter_var.get().strip() or "Усі спеціальності"
+                selected_course = course_filter_var.get().strip() or "Усі курси"
+                query = search_var.get().strip().casefold()
+                group_selector_state["specialty_filter"] = selected_specialty
+                group_selector_state["course_filter"] = selected_course
+
+                filtered_values = []
+                for value in values:
+                    if value == "Не обрано":
+                        if query and query not in "не обрано":
+                            continue
+                        filtered_values.append(value)
+                        continue
+                    meta = meta_by_value.get(value, {})
+                    specialty_label = str(meta.get("specialty_label", "Без спеціальності"))
+                    course_label = str(meta.get("course_label", "Без курсу"))
+                    if selected_specialty != "Усі спеціальності" and specialty_label != selected_specialty:
+                        continue
+                    if selected_course != "Усі курси" and course_label != selected_course:
+                        continue
+                    if query:
+                        haystack = f"{value} {specialty_label} {course_label}".casefold()
+                        if query not in haystack:
+                            continue
+                    filtered_values.append(value)
+
+                listbox.delete(0, tk.END)
+                for item in filtered_values:
+                    listbox.insert(tk.END, item)
+                selected_value = group_filter_var.get().strip()
+                if selected_value in filtered_values:
+                    selected_index = filtered_values.index(selected_value)
+                    listbox.selection_set(selected_index)
+                    listbox.see(selected_index)
+                elif filtered_values:
+                    listbox.selection_set(0)
+                    listbox.see(0)
+
+            def commit_selection(_event=None) -> str:
+                selected = listbox.curselection()
+                if not selected:
+                    return "break"
+                picked_value = str(listbox.get(selected[0]))
+                close_selector_menu(group_selector_state)
+                group_filter_var.set(picked_value)
+                on_load_week()
+                return "break"
+
+            def close_on_outside_click(event: tk.Event) -> str | None:
+                if not popup.winfo_exists():
+                    return None
+                x_root = int(getattr(event, "x_root", 0))
+                y_root = int(getattr(event, "y_root", 0))
+                left = popup.winfo_rootx()
+                top = popup.winfo_rooty()
+                right = left + popup.winfo_width()
+                bottom = top + popup.winfo_height()
+                if left <= x_root < right and top <= y_root < bottom:
+                    return None
+                close_selector_menu(group_selector_state)
+                return "break"
+
+            specialty_box.bind("<<ComboboxSelected>>", lambda _e: render_filtered_values(), add="+")
+            course_box.bind("<<ComboboxSelected>>", lambda _e: render_filtered_values(), add="+")
+            search_var.trace_add("write", lambda *_args: render_filtered_values())
+            search_entry.bind("<Down>", lambda _e: (listbox.focus_set(), "break")[1], add="+")
+            listbox.bind("<Return>", commit_selection, add="+")
+            listbox.bind("<Double-Button-1>", commit_selection, add="+")
+            listbox.bind("<ButtonRelease-1>", commit_selection, add="+")
+            popup.bind("<ButtonPress-1>", close_on_outside_click, add="+")
+
+            render_filtered_values()
+            popup.update_idletasks()
+            self.root.update_idletasks()
+            group_selector_main.update_idletasks()
+            menu_width = max(group_selector_main.winfo_width(), 520)
+            rows_count = max(1, min(10, len(filtered_values)))
+            menu_height = 110 + rows_count * 24
+            x_pos = group_selector_main.winfo_rootx()
+            y_pos = group_selector_main.winfo_rooty() + group_selector_main.winfo_height()
+            screen_width = self.root.winfo_screenwidth()
+            screen_height = self.root.winfo_screenheight()
+            x_pos = max(0, min(x_pos, screen_width - menu_width - 4))
+            if y_pos + menu_height > screen_height:
+                y_pos = max(0, group_selector_main.winfo_rooty() - menu_height - 2)
+            geometry_value = f"{menu_width}x{menu_height}+{x_pos}+{y_pos}"
+
+            def apply_geometry() -> None:
+                if not popup.winfo_exists():
+                    return
+                popup.geometry(geometry_value)
+                popup.lift()
+
+            popup.deiconify()
+            apply_geometry()
+            popup.after_idle(apply_geometry)
+            popup.grab_set()
+            search_entry.focus_set()
 
         def open_scenario_menu() -> None:
             values = scenario_selector_state.get("values", [])
@@ -2379,8 +2582,9 @@ class ScheduleMainWindow:
 
         def selected_group_resource_id() -> int | None:
             raw = group_filter_var.get().strip()
-            if not raw or raw == "Усі групи":
-                return None
+            if not raw or raw == "Не обрано":
+                # Special sentinel: render only an empty grid shell without schedule entries.
+                return -1
             return parse_prefixed_id(raw, field_name="група")
 
         def selected_teacher_resource_id() -> int:
@@ -3143,7 +3347,11 @@ class ScheduleMainWindow:
                 teachers = resources.list_resources(resource_type=ResourceType.TEACHER, company_id=company_id)
                 rooms = resources.list_resources(resource_type=ResourceType.ROOM, company_id=company_id)
                 room_profiles = RoomController(session=session).list_rooms(company_id=company_id, include_archived=False)
-                streams = AcademicController(session=session).list_streams(company_id=company_id, include_archived=False)
+                academic = AcademicController(session=session)
+                streams = academic.list_streams(company_id=company_id, include_archived=False)
+                streams_all = academic.list_streams(company_id=company_id, include_archived=True)
+                courses_all = academic.list_courses(company_id=company_id, include_archived=True)
+                specialties_all = academic.list_specialties(company_id=company_id, include_archived=True)
                 period_items: list[dict[str, object]] = []
                 for item in periods:
                     weeks_count = period_weeks_count(item.start_date, item.end_date)
@@ -3187,10 +3395,69 @@ class ScheduleMainWindow:
                 load_scenarios(period_id=None)
 
             group_values = [f"{item.id} | {item.name}" for item in groups]
-            group_selector_values = ["Усі групи"] + group_values
+            group_selector_values = ["Не обрано"] + group_values
             group_selector_state["values"] = list(group_selector_values)
+            group_selector_state["all_values"] = list(group_selector_values)
+
+            stream_by_id = {int(item.id): item for item in streams_all}
+            course_by_id = {int(item.id): item for item in courses_all}
+            specialty_by_id = {int(item.id): item for item in specialties_all}
+
+            group_meta_by_value: dict[str, dict[str, object]] = {}
+            specialty_filters: set[str] = set()
+            course_filters: set[str] = set()
+            for resource in groups:
+                value = f"{resource.id} | {resource.name}"
+                stream = stream_by_id.get(int(resource.stream_id)) if resource.stream_id is not None else None
+                course = (
+                    course_by_id.get(int(stream.course_id))
+                    if stream is not None and stream.course_id is not None
+                    else None
+                )
+                specialty = (
+                    specialty_by_id.get(int(stream.specialty_id))
+                    if stream is not None and stream.specialty_id is not None
+                    else None
+                )
+                specialty_label = "Без спеціальності"
+                if specialty is not None:
+                    specialty_label = (
+                        f"{specialty.code} — {specialty.name}"
+                        if specialty.code
+                        else str(specialty.name)
+                    )
+                study_year = (
+                    int(course.study_year)
+                    if course is not None and course.study_year is not None
+                    else int(stream.study_year)
+                    if stream is not None and stream.study_year is not None
+                    else None
+                )
+                course_label = f"{study_year} курс" if study_year is not None else "Без курсу"
+                specialty_filters.add(specialty_label)
+                course_filters.add(course_label)
+                group_meta_by_value[value] = {
+                    "specialty_label": specialty_label,
+                    "course_label": course_label,
+                }
+
+            group_selector_state["meta_by_value"] = group_meta_by_value
+            group_selector_state["specialty_values"] = ["Усі спеціальності"] + sorted(specialty_filters)
+            group_selector_state["course_values"] = ["Усі курси"] + sorted(
+                course_filters,
+                key=lambda raw: (
+                    1,
+                    int(raw.split(" ", maxsplit=1)[0]),
+                )
+                if raw.endswith("курс") and raw.split(" ", maxsplit=1)[0].isdigit()
+                else (2, raw),
+            )
+            if str(group_selector_state.get("specialty_filter", "")) not in group_selector_state["specialty_values"]:
+                group_selector_state["specialty_filter"] = "Усі спеціальності"
+            if str(group_selector_state.get("course_filter", "")) not in group_selector_state["course_values"]:
+                group_selector_state["course_filter"] = "Усі курси"
             if group_filter_var.get() not in group_selector_values:
-                group_filter_var.set("Усі групи")
+                group_filter_var.set("Не обрано")
             group_selector_button.configure(state=("normal" if group_selector_values else "disabled"))
             group_selector_label.configure(
                 fg=self.theme.TEXT_PRIMARY if group_selector_values else self.theme.TEXT_MUTED
@@ -3287,7 +3554,13 @@ class ScheduleMainWindow:
                 return
             render_grid(grid)
             scope_label = "опублікований" if selected_scenario_id() is None else "чернетка"
-            status_var.set(f"Завантажено тиждень {grid.week_start}. Рядків: {len(grid.rows)}. Режим: {scope_label}.")
+            if resource_id == -1:
+                status_var.set(
+                    f"Завантажено тиждень {grid.week_start}. "
+                    f"Групу не обрано: показано сітку без занять. Режим: {scope_label}."
+                )
+            else:
+                status_var.set(f"Завантажено тиждень {grid.week_start}. Рядків: {len(grid.rows)}. Режим: {scope_label}.")
             load_coverage_dashboard()
             load_schedule_entries()
 
