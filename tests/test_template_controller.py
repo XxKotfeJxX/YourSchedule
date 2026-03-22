@@ -366,6 +366,55 @@ def test_day_template_crud_create_update_archive(session: Session) -> None:
     assert archived.is_archived is True
 
 
+def test_day_template_allows_empty_schedule(session: Session) -> None:
+    company_id = _create_company(session)
+    controller = TemplateController(session=session)
+
+    created = controller.create_day_template(
+        company_id=company_id,
+        name="Вихідний",
+        mark_type_ids=[],
+    )
+    updated = controller.update_day_template(
+        company_id=company_id,
+        day_template_id=created.id,
+        name="Вихідний (оновлений)",
+        mark_type_ids=[],
+    )
+    session.commit()
+
+    assert created.mark_type_ids == ()
+    assert updated.mark_type_ids == ()
+    assert updated.preview.total_blocks == 0
+    assert updated.name == "Вихідний (оновлений)"
+
+
+def test_day_template_can_be_cleared_to_empty(session: Session) -> None:
+    company_id = _create_company(session)
+    controller = TemplateController(session=session)
+    teach = controller.create_mark_type(
+        company_id=company_id,
+        name="Teach 45",
+        kind=MarkKind.TEACHING,
+        duration_minutes=45,
+    )
+    day = controller.create_day_template(
+        company_id=company_id,
+        name="Спочатку непорожній",
+        mark_type_ids=[teach.id],
+    )
+
+    updated = controller.update_day_template(
+        company_id=company_id,
+        day_template_id=day.id,
+        mark_type_ids=[],
+    )
+    session.commit()
+
+    assert updated.mark_type_ids == ()
+    assert updated.preview.total_blocks == 0
+
+
 def test_week_template_crud_create_update_archive(session: Session) -> None:
     company_id = _create_company(session)
     controller = TemplateController(session=session)

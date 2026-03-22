@@ -611,7 +611,7 @@ class TemplateService:
 
     def _validate_mark_type_ids(self, *, session: Session, company_id: int, mark_type_ids: list[int]) -> None:
         if not mark_type_ids:
-            raise ValueError("Шаблон дня має містити щонайменше один блок.")
+            return
         if any(mark_type_id <= 0 for mark_type_id in mark_type_ids):
             raise ValueError("Ідентифікатор блоку має бути додатнім.")
         repository = self.repository_cls(session)

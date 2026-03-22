@@ -1043,8 +1043,6 @@ class DayTemplateWorkflow:
             clean_name = name_var.get().strip()
             if not clean_name:
                 raise ValueError("Назва шаблону дня обов'язкова.")
-            if not timeline_ids:
-                raise ValueError("Розклад дня не може бути порожнім.")
             with session_scope() as session:
                 controller = TemplateController(session=session)
                 if item is None:
