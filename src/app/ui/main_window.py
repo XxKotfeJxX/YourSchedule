@@ -1847,8 +1847,8 @@ class ScheduleMainWindow:
 
             close_period_menu()
             popup = tk.Toplevel(self.root)
+            popup.withdraw()
             popup.overrideredirect(True)
-            popup.transient(self.root)
             popup.configure(bg=self.theme.BORDER)
             period_state["menu"] = popup
             popup.bind("<Escape>", lambda _e: close_period_menu(), add="+")
@@ -1938,15 +1938,23 @@ class ScheduleMainWindow:
             anchor_widget.update_idletasks()
             menu_width = max(220, period_selector_main.winfo_width(), shell.winfo_reqwidth())
             menu_height = max(40, shell.winfo_reqheight() + 2)
-            x_pos = anchor_widget.winfo_rootx()
-            y_pos = anchor_widget.winfo_rooty() + anchor_widget.winfo_height() + 2
 
+            root_x = self.root.winfo_rootx()
+            root_y = self.root.winfo_rooty()
+            root_w = max(1, self.root.winfo_width())
+            root_h = max(1, self.root.winfo_height())
             pointer_x = self.root.winfo_pointerx()
             pointer_y = self.root.winfo_pointery()
-            # Fallback for cases when Tk reports stale root coords inside scrolled canvas containers.
-            if abs(x_pos - pointer_x) > 420 or abs(y_pos - pointer_y) > 260:
+            pointer_inside_root = (
+                root_x <= pointer_x <= (root_x + root_w)
+                and root_y <= pointer_y <= (root_y + root_h)
+            )
+            if pointer_inside_root:
                 x_pos = pointer_x - menu_width + max(20, period_toggle_button.winfo_width() + 12)
                 y_pos = pointer_y + 6
+            else:
+                x_pos = anchor_widget.winfo_rootx()
+                y_pos = anchor_widget.winfo_rooty() + anchor_widget.winfo_height() + 2
 
             screen_width = self.root.winfo_screenwidth()
             screen_height = self.root.winfo_screenheight()
@@ -1954,8 +1962,17 @@ class ScheduleMainWindow:
             if y_pos + menu_height > screen_height:
                 alt_y = anchor_widget.winfo_rooty() - menu_height - 2
                 y_pos = alt_y if alt_y >= 0 else max(0, screen_height - menu_height - 4)
-            popup.geometry(f"{menu_width}x{menu_height}+{x_pos}+{y_pos}")
-            popup.lift()
+            geometry_value = f"{menu_width}x{menu_height}+{x_pos}+{y_pos}"
+
+            def apply_menu_geometry() -> None:
+                if not popup.winfo_exists():
+                    return
+                popup.geometry(geometry_value)
+                popup.lift()
+
+            popup.deiconify()
+            apply_menu_geometry()
+            popup.after_idle(apply_menu_geometry)
 
         period_toggle_button.configure(command=open_period_menu)
         period_empty_create_button.command = lambda: open_period_modal(period_id=None)
