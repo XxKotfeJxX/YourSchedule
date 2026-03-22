@@ -122,10 +122,14 @@ class _BaseTemplateCard(ttk.Frame):
 
     def _show_context_menu(self, *, x: int, y: int) -> None:
         def queue_action(action: ActionCallback) -> None:
+            root = self.winfo_toplevel()
             try:
-                self.after_idle(action)
+                if bool(root.winfo_exists()):
+                    root.after(1, action)
+                    return
             except Exception:
-                action()
+                pass
+            action()
 
         menu = tk.Menu(
             self,
