@@ -586,7 +586,7 @@ class ScheduleMainWindow:
         blackout_resource_scope_by_id: dict[int, str] = {}
         room_type_label_by_enum = {room_type: label for label, room_type in room_type_options if room_type is not None}
         requirements_state: dict[str, list[dict[str, object]]] = {"items": []}
-        plan_sync_state: dict[str, object] = {"items": [], "selected_ids": []}
+        plan_sync_state: dict[str, object] = {"items": [], "selected_ids": [], "selection_touched": False}
         schedule_entries_state: dict[int, dict[str, object]] = {}
         scenario_values_state: dict[str, list[str]] = {"values": ["Опублікований"]}
         period_state: dict[str, object] = {
@@ -3420,9 +3420,12 @@ class ScheduleMainWindow:
             plan_sync_state["items"] = [{"id": int(item.id), "name": str(item.name)} for item in plans]
             plan_values = [f"{item['id']} | {item['name']}" for item in plan_sync_state["items"]]
             existing_selected_ids = selected_plan_ids()
+            selection_touched = bool(plan_sync_state.get("selection_touched", False))
             available_ids = [int(item["id"]) for item in plan_sync_state["items"]]
             if existing_selected_ids:
                 plan_sync_state["selected_ids"] = [plan_id for plan_id in existing_selected_ids if plan_id in available_ids]
+            elif selection_touched:
+                plan_sync_state["selected_ids"] = []
             else:
                 plan_sync_state["selected_ids"] = list(available_ids)
             plan_selector_box["values"] = plan_values
@@ -3693,6 +3696,7 @@ class ScheduleMainWindow:
                 return
             selected_ids.append(plan_id)
             plan_sync_state["selected_ids"] = selected_ids
+            plan_sync_state["selection_touched"] = True
             render_plan_selection()
             status_var.set(f"План #{plan_id} додано у вибір синхронізації.")
 
@@ -3708,11 +3712,13 @@ class ScheduleMainWindow:
             removed_id = int(selected_ids[index])
             del selected_ids[index]
             plan_sync_state["selected_ids"] = selected_ids
+            plan_sync_state["selection_touched"] = True
             render_plan_selection()
             status_var.set(f"План #{removed_id} прибрано з вибору синхронізації.")
 
         def on_clear_plan_selection() -> None:
             plan_sync_state["selected_ids"] = []
+            plan_sync_state["selection_touched"] = True
             render_plan_selection()
             status_var.set("Список обраних планів очищено.")
 
