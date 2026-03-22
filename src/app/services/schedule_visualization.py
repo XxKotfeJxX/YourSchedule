@@ -77,7 +77,7 @@ class ScheduleVisualizationService:
 
         row_orders = sorted({block.order_in_day for block in teaching_blocks})
         rows: list[WeeklyGridRow] = []
-        for order in row_orders:
+        for slot_index, order in enumerate(row_orders, start=1):
             row_cells = {}
             for weekday in range(7):
                 values = sorted(set(schedule_cells.get((order, weekday), [])))
@@ -85,7 +85,7 @@ class ScheduleVisualizationService:
             rows.append(
                 WeeklyGridRow(
                     order_in_day=order,
-                    slot_label=f"{order}. {time_label_by_order.get(order, '')}".strip(),
+                    slot_label=f"{slot_index}. {time_label_by_order.get(order, '')}".strip(),
                     cells=row_cells,
                 )
             )

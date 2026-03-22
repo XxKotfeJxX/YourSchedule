@@ -187,3 +187,48 @@ def test_weekly_grid_can_render_selected_scenario(session: Session) -> None:
     first_row = grid.rows[0]
     assert first_row.cells[0] == ""
     assert "Scenario Math" in first_row.cells[1]
+
+
+def test_slot_labels_are_sequential_when_break_blocks_exist(session: Session) -> None:
+    teaching = MarkType(name="Teach 45", kind=MarkKind.TEACHING, duration_minutes=45)
+    brk = MarkType(name="Break 10", kind=MarkKind.BREAK, duration_minutes=10)
+    day_pattern = DayPattern(name="Day with break")
+    day_pattern.items = [
+        DayPatternItem(order_index=1, mark_type=teaching),
+        DayPatternItem(order_index=2, mark_type=brk),
+        DayPatternItem(order_index=3, mark_type=teaching),
+    ]
+    week_pattern = WeekPattern(
+        monday_pattern=day_pattern,
+        tuesday_pattern=day_pattern,
+        wednesday_pattern=day_pattern,
+        thursday_pattern=day_pattern,
+        friday_pattern=day_pattern,
+        saturday_pattern=day_pattern,
+        sunday_pattern=day_pattern,
+    )
+    period = CalendarPeriod(
+        start_date=date(2026, 3, 2),
+        end_date=date(2026, 3, 8),
+        week_pattern=week_pattern,
+    )
+    session.add(period)
+    session.commit()
+
+    TimeBlockGeneratorService(day_start_time=time(hour=8, minute=30)).generate_for_period(
+        session=session,
+        calendar_period_id=period.id,
+    )
+    session.commit()
+
+    grid = ScheduleVisualizationService().build_weekly_grid(
+        session=session,
+        calendar_period_id=period.id,
+        week_start=date(2026, 3, 2),
+    )
+
+    assert len(grid.rows) == 2
+    assert grid.rows[0].order_in_day == 1
+    assert grid.rows[1].order_in_day == 3
+    assert grid.rows[0].slot_label.startswith("1.")
+    assert grid.rows[1].slot_label.startswith("2.")
