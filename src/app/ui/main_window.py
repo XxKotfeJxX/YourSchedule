@@ -1282,11 +1282,41 @@ class ScheduleMainWindow:
 
         blackout_table_wrap = ttk.Frame(blackout_box, style="Card.TFrame")
         blackout_table_wrap.grid(row=5, column=0, columnspan=8, sticky="ew", pady=(10, 0))
+        blackout_table_style = "BlackoutFilters.Treeview"
+        blackout_style = ttk.Style(self.root)
+        try:
+            blackout_style.layout(
+                f"{blackout_table_style}.Heading",
+                [
+                    ("Treeheading.cell", {"sticky": "nswe"}),
+                    (
+                        "Treeheading.border",
+                        {
+                            "sticky": "nswe",
+                            "children": [
+                                (
+                                    "Treeheading.padding",
+                                    {
+                                        "sticky": "nswe",
+                                        "children": [
+                                            ("Treeheading.image", {"side": "right", "sticky": "se"}),
+                                            ("Treeheading.text", {"sticky": "we"}),
+                                        ],
+                                    },
+                                )
+                            ],
+                        },
+                    ),
+                ],
+            )
+        except tk.TclError:
+            pass
         blackout_table = ttk.Treeview(
             blackout_table_wrap,
             columns=blackout_table_columns,
             show="headings",
             height=5,
+            style=blackout_table_style,
         )
         for column_id in blackout_table_columns:
             blackout_table.heading(column_id, text=blackout_heading_titles[column_id])
@@ -1303,6 +1333,13 @@ class ScheduleMainWindow:
         )
         blackout_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         blackout_table.configure(yscrollcommand=blackout_scroll.set)
+        blackout_filter_icon_image_source = Image.new("RGBA", (18, 18), (0, 0, 0, 0))
+        blackout_filter_icon_draw = ImageDraw.Draw(blackout_filter_icon_image_source)
+        blackout_filter_icon_draw.polygon(
+            [(7, 6), (16, 6), (12, 10), (12, 15), (10, 15), (10, 10)],
+            fill=self.theme.ACCENT,
+        )
+        blackout_filter_icon = ImageTk.PhotoImage(blackout_filter_icon_image_source)
 
         requirements_box = ttk.LabelFrame(parent, text="Вимоги", padding=10)
         requirements_box.pack(fill=tk.X, pady=(8, 0))
@@ -2968,10 +3005,12 @@ class ScheduleMainWindow:
             for column_id in blackout_table_columns:
                 title = blackout_heading_titles[column_id]
                 if blackout_is_column_filtered(column_id):
-                    title += " [ф]"
+                    heading_image = blackout_filter_icon
+                else:
+                    heading_image = ""
                 if sort_column == column_id:
                     title += " ↓" if sort_desc else " ↑"
-                blackout_table.heading(column_id, text=title)
+                blackout_table.heading(column_id, text=title, image=heading_image)
 
         def render_blackouts_table() -> None:
             raw_rows = blackout_filter_state.get("rows", [])
