@@ -409,11 +409,11 @@ class ScheduleMainWindow:
         ).pack(anchor="w")
 
     def _show_company_dashboard(self, *args, **kwargs):
-        return _show_company_dashboard__impl(self, *args, **kwargs)
+        return globals()["_show_company_dashboard__impl"](self, *args, **kwargs)
 
 
     def _build_company_schedule_view(self, *args, **kwargs):
-        return _build_company_schedule_view__impl(self, *args, **kwargs)
+        return globals()["_build_company_schedule_view__impl"](self, *args, **kwargs)
 
 
 
@@ -427,19 +427,19 @@ class ScheduleMainWindow:
 
 
     def _build_company_groups_view(self, *args, **kwargs):
-        return _build_company_groups_view__impl(self, *args, **kwargs)
+        return globals()["_build_company_groups_view__impl"](self, *args, **kwargs)
 
 
     def _build_company_rooms_view(self, *args, **kwargs):
-        return _build_company_rooms_view__impl(self, *args, **kwargs)
+        return globals()["_build_company_rooms_view__impl"](self, *args, **kwargs)
 
 
     def _build_company_settings_view(self, *args, **kwargs):
-        return _build_company_settings_view__impl(self, *args, **kwargs)
+        return globals()["_build_company_settings_view__impl"](self, *args, **kwargs)
 
 
     def _build_company_settings_profile_tab(self, *args, **kwargs):
-        return _build_company_settings_profile_tab__impl(self, *args, **kwargs)
+        return globals()["_build_company_settings_profile_tab__impl"](self, *args, **kwargs)
 
 
     def _build_company_settings_templates_tab(self, parent: ttk.Frame, *, company_id: int) -> None:
@@ -469,6 +469,6 @@ class ScheduleMainWindow:
         ).pack(anchor="w", pady=(8, 0))
 
     def _show_personal_dashboard(self, *args, **kwargs):
-        return _show_personal_dashboard__impl(self, *args, **kwargs)
+        return globals()["_show_personal_dashboard__impl"](self, *args, **kwargs)
 
 

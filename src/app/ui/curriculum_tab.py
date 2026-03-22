@@ -738,105 +738,105 @@ class CompanyCurriculumTab:
 
     # Plans
     def _build_plans_tab(self, *args, **kwargs):
-        return _build_plans_tab__impl(self, *args, **kwargs)
+        return globals()["_build_plans_tab__impl"](self, *args, **kwargs)
 
 
     def _build_plan_editor(self, *args, **kwargs):
-        return _build_plan_editor__impl(self, *args, **kwargs)
+        return globals()["_build_plan_editor__impl"](self, *args, **kwargs)
 
 
     def _build_components_editor(self, *args, **kwargs):
-        return _build_components_editor__impl(self, *args, **kwargs)
+        return globals()["_build_components_editor__impl"](self, *args, **kwargs)
 
 
     def _build_assignments_editor(self, *args, **kwargs):
-        return _build_assignments_editor__impl(self, *args, **kwargs)
+        return globals()["_build_assignments_editor__impl"](self, *args, **kwargs)
 
 
     def _load_plan_reference_data(self, *args, **kwargs):
-        return _load_plan_reference_data__impl(self, *args, **kwargs)
+        return globals()["_load_plan_reference_data__impl"](self, *args, **kwargs)
 
 
     def _load_plans(self, *args, **kwargs):
-        return _load_plans__impl(self, *args, **kwargs)
+        return globals()["_load_plans__impl"](self, *args, **kwargs)
 
 
     def _on_plan_select(self, *args, **kwargs):
-        return _on_plan_select__impl(self, *args, **kwargs)
+        return globals()["_on_plan_select__impl"](self, *args, **kwargs)
 
 
     def _format_optional_ref(self, *args, **kwargs):
-        return _format_optional_ref__impl(self, *args, **kwargs)
+        return globals()["_format_optional_ref__impl"](self, *args, **kwargs)
 
 
     def _create_plan(self, *args, **kwargs):
-        return _create_plan__impl(self, *args, **kwargs)
+        return globals()["_create_plan__impl"](self, *args, **kwargs)
 
 
     def _update_plan(self, *args, **kwargs):
-        return _update_plan__impl(self, *args, **kwargs)
+        return globals()["_update_plan__impl"](self, *args, **kwargs)
 
 
     def _delete_plan(self, *args, **kwargs):
-        return _delete_plan__impl(self, *args, **kwargs)
+        return globals()["_delete_plan__impl"](self, *args, **kwargs)
 
 
     def _sync_plan(self, *args, **kwargs):
-        return _sync_plan__impl(self, *args, **kwargs)
+        return globals()["_sync_plan__impl"](self, *args, **kwargs)
 
 
     def _load_components(self, *args, **kwargs):
-        return _load_components__impl(self, *args, **kwargs)
+        return globals()["_load_components__impl"](self, *args, **kwargs)
 
 
     def _on_component_select(self, *args, **kwargs):
-        return _on_component_select__impl(self, *args, **kwargs)
+        return globals()["_on_component_select__impl"](self, *args, **kwargs)
 
 
     def _create_component(self, *args, **kwargs):
-        return _create_component__impl(self, *args, **kwargs)
+        return globals()["_create_component__impl"](self, *args, **kwargs)
 
 
     def _update_component(self, *args, **kwargs):
-        return _update_component__impl(self, *args, **kwargs)
+        return globals()["_update_component__impl"](self, *args, **kwargs)
 
 
     def _delete_component(self, *args, **kwargs):
-        return _delete_component__impl(self, *args, **kwargs)
+        return globals()["_delete_component__impl"](self, *args, **kwargs)
 
 
     def _load_assignments(self, *args, **kwargs):
-        return _load_assignments__impl(self, *args, **kwargs)
+        return globals()["_load_assignments__impl"](self, *args, **kwargs)
 
 
     def _target_display(self, *args, **kwargs):
-        return _target_display__impl(self, *args, **kwargs)
+        return globals()["_target_display__impl"](self, *args, **kwargs)
 
 
     def _on_assignment_select(self, *args, **kwargs):
-        return _on_assignment_select__impl(self, *args, **kwargs)
+        return globals()["_on_assignment_select__impl"](self, *args, **kwargs)
 
 
     def _refresh_assignment_target_controls(self, *args, **kwargs):
-        return _refresh_assignment_target_controls__impl(self, *args, **kwargs)
+        return globals()["_refresh_assignment_target_controls__impl"](self, *args, **kwargs)
 
 
     def _resolve_target_ids(self, *args, **kwargs):
-        return _resolve_target_ids__impl(self, *args, **kwargs)
+        return globals()["_resolve_target_ids__impl"](self, *args, **kwargs)
 
 
     def _create_assignment(self, *args, **kwargs):
-        return _create_assignment__impl(self, *args, **kwargs)
+        return globals()["_create_assignment__impl"](self, *args, **kwargs)
 
 
     def _update_assignment(self, *args, **kwargs):
-        return _update_assignment__impl(self, *args, **kwargs)
+        return globals()["_update_assignment__impl"](self, *args, **kwargs)
 
 
     def _delete_assignment(self, *args, **kwargs):
-        return _delete_assignment__impl(self, *args, **kwargs)
+        return globals()["_delete_assignment__impl"](self, *args, **kwargs)
 
 
     def _sync_assignment(self, *args, **kwargs):
-        return _sync_assignment__impl(self, *args, **kwargs)
+        return globals()["_sync_assignment__impl"](self, *args, **kwargs)
 

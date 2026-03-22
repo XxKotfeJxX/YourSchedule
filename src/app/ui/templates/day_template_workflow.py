@@ -50,7 +50,7 @@ class DayTemplateWorkflow:
         self.open_edit_dialog(item=None, mark_types=mark_types)
 
     def open_edit_dialog(self, *args, **kwargs):
-        return open_edit_dialog__impl(self, *args, **kwargs)
+        return globals()["open_edit_dialog__impl"](self, *args, **kwargs)
 
 
     def duplicate(self, item: DayTemplateOverview) -> None:

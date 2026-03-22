@@ -409,169 +409,169 @@ class GreedySchedulerService:
         )
 
     def build_coverage_dashboard(self, *args, **kwargs):
-        return build_coverage_dashboard__impl(self, *args, **kwargs)
+        return globals()["build_coverage_dashboard__impl"](self, *args, **kwargs)
 
 
     def get_policy(self, *args, **kwargs):
-        return get_policy__impl(self, *args, **kwargs)
+        return globals()["get_policy__impl"](self, *args, **kwargs)
 
 
     def update_policy(self, *args, **kwargs):
-        return update_policy__impl(self, *args, **kwargs)
+        return globals()["update_policy__impl"](self, *args, **kwargs)
 
 
     def _resolve_policy(self, *args, **kwargs):
-        return _resolve_policy__impl(self, *args, **kwargs)
+        return globals()["_resolve_policy__impl"](self, *args, **kwargs)
 
 
     def _validate_scenario_context(self, *args, **kwargs):
-        return _validate_scenario_context__impl(self, *args, **kwargs)
+        return globals()["_validate_scenario_context__impl"](self, *args, **kwargs)
 
 
     def analyze_feasibility(self, *args, **kwargs):
-        return analyze_feasibility__impl(self, *args, **kwargs)
+        return globals()["analyze_feasibility__impl"](self, *args, **kwargs)
 
 
     def list_schedule_entries(self, *args, **kwargs):
-        return list_schedule_entries__impl(self, *args, **kwargs)
+        return globals()["list_schedule_entries__impl"](self, *args, **kwargs)
 
 
     def delete_schedule_entry(self, *args, **kwargs):
-        return delete_schedule_entry__impl(self, *args, **kwargs)
+        return globals()["delete_schedule_entry__impl"](self, *args, **kwargs)
 
 
     def set_schedule_entry_lock(self, *args, **kwargs):
-        return set_schedule_entry_lock__impl(self, *args, **kwargs)
+        return globals()["set_schedule_entry_lock__impl"](self, *args, **kwargs)
 
 
     def update_manual_entry(self, *args, **kwargs):
-        return update_manual_entry__impl(self, *args, **kwargs)
+        return globals()["update_manual_entry__impl"](self, *args, **kwargs)
 
 
     def create_manual_entry(self, *args, **kwargs):
-        return create_manual_entry__impl(self, *args, **kwargs)
+        return globals()["create_manual_entry__impl"](self, *args, **kwargs)
 
 
     def build_schedule(self, *args, **kwargs):
-        return build_schedule__impl(self, *args, **kwargs)
+        return globals()["build_schedule__impl"](self, *args, **kwargs)
 
 
     def _ensure_entry_in_period(self, *args, **kwargs):
-        return _ensure_entry_in_period__impl(self, *args, **kwargs)
+        return globals()["_ensure_entry_in_period__impl"](self, *args, **kwargs)
 
 
     def _prepare_manual_slot(self, *args, **kwargs):
-        return _prepare_manual_slot__impl(self, *args, **kwargs)
+        return globals()["_prepare_manual_slot__impl"](self, *args, **kwargs)
 
 
     def _load_teaching_blocks(self, *args, **kwargs):
-        return _load_teaching_blocks__impl(self, *args, **kwargs)
+        return globals()["_load_teaching_blocks__impl"](self, *args, **kwargs)
 
 
     def _load_requirements(self, *args, **kwargs):
-        return _load_requirements__impl(self, *args, **kwargs)
+        return globals()["_load_requirements__impl"](self, *args, **kwargs)
 
 
     def _build_resource_reservations(self, *args, **kwargs):
-        return _build_resource_reservations__impl(self, *args, **kwargs)
+        return globals()["_build_resource_reservations__impl"](self, *args, **kwargs)
 
 
     def _build_requirement_block_reservations(self, *args, **kwargs):
-        return _build_requirement_block_reservations__impl(self, *args, **kwargs)
+        return globals()["_build_requirement_block_reservations__impl"](self, *args, **kwargs)
 
 
     def _build_weekly_usage(self, *args, **kwargs):
-        return _build_weekly_usage__impl(self, *args, **kwargs)
+        return globals()["_build_weekly_usage__impl"](self, *args, **kwargs)
 
 
     def _build_existing_session_counts(self, *args, **kwargs):
-        return _build_existing_session_counts__impl(self, *args, **kwargs)
+        return globals()["_build_existing_session_counts__impl"](self, *args, **kwargs)
 
 
     def _sort_requirements_by_difficulty(self, *args, **kwargs):
-        return _sort_requirements_by_difficulty__impl(self, *args, **kwargs)
+        return globals()["_sort_requirements_by_difficulty__impl"](self, *args, **kwargs)
 
 
     def _generate_candidates(self, *args, **kwargs):
-        return _generate_candidates__impl(self, *args, **kwargs)
+        return globals()["_generate_candidates__impl"](self, *args, **kwargs)
 
 
     def _diagnose_requirement_failures(self, *args, **kwargs):
-        return _diagnose_requirement_failures__impl(self, *args, **kwargs)
+        return globals()["_diagnose_requirement_failures__impl"](self, *args, **kwargs)
 
 
     def _first_conflicting_resource(self, *args, **kwargs):
-        return _first_conflicting_resource__impl(self, *args, **kwargs)
+        return globals()["_first_conflicting_resource__impl"](self, *args, **kwargs)
 
 
     def _diagnose_hard_constraint_violation(self, *args, **kwargs):
-        return _diagnose_hard_constraint_violation__impl(self, *args, **kwargs)
+        return globals()["_diagnose_hard_constraint_violation__impl"](self, *args, **kwargs)
 
 
     def _build_room_options_by_requirement(self, *args, **kwargs):
-        return _build_room_options_by_requirement__impl(self, *args, **kwargs)
+        return globals()["_build_room_options_by_requirement__impl"](self, *args, **kwargs)
 
 
     def _build_room_default_resource_map(self, *args, **kwargs):
-        return _build_room_default_resource_map__impl(self, *args, **kwargs)
+        return globals()["_build_room_default_resource_map__impl"](self, *args, **kwargs)
 
 
     def _room_matches_requirement(self, *args, **kwargs):
-        return _room_matches_requirement__impl(self, *args, **kwargs)
+        return globals()["_room_matches_requirement__impl"](self, *args, **kwargs)
 
 
     def _build_day_order_bounds(self, *args, **kwargs):
-        return _build_day_order_bounds__impl(self, *args, **kwargs)
+        return globals()["_build_day_order_bounds__impl"](self, *args, **kwargs)
 
 
     def _build_resource_day_states(self, *args, **kwargs):
-        return _build_resource_day_states__impl(self, *args, **kwargs)
+        return globals()["_build_resource_day_states__impl"](self, *args, **kwargs)
 
 
     def _reserve_candidate_day_state(self, *args, **kwargs):
-        return _reserve_candidate_day_state__impl(self, *args, **kwargs)
+        return globals()["_reserve_candidate_day_state__impl"](self, *args, **kwargs)
 
 
     def _collect_blackout_resource_ids(self, *args, **kwargs):
-        return _collect_blackout_resource_ids__impl(self, *args, **kwargs)
+        return globals()["_collect_blackout_resource_ids__impl"](self, *args, **kwargs)
 
 
     def _load_blackouts(self, *args, **kwargs):
-        return _load_blackouts__impl(self, *args, **kwargs)
+        return globals()["_load_blackouts__impl"](self, *args, **kwargs)
 
 
     def _build_blackout_reservations(self, *args, **kwargs):
-        return _build_blackout_reservations__impl(self, *args, **kwargs)
+        return globals()["_build_blackout_reservations__impl"](self, *args, **kwargs)
 
 
     def _violates_hard_constraints(self, *args, **kwargs):
-        return _violates_hard_constraints__impl(self, *args, **kwargs)
+        return globals()["_violates_hard_constraints__impl"](self, *args, **kwargs)
 
 
     def _score_candidate(self, *args, **kwargs):
-        return _score_candidate__impl(self, *args, **kwargs)
+        return globals()["_score_candidate__impl"](self, *args, **kwargs)
 
 
     def _pick_available_room(self, *args, **kwargs):
-        return _pick_available_room__impl(self, *args, **kwargs)
+        return globals()["_pick_available_room__impl"](self, *args, **kwargs)
 
 
     def _resolve_block_ids(self, *args, **kwargs):
-        return _resolve_block_ids__impl(self, *args, **kwargs)
+        return globals()["_resolve_block_ids__impl"](self, *args, **kwargs)
 
 
     def _has_resource_conflict(self, *args, **kwargs):
-        return _has_resource_conflict__impl(self, *args, **kwargs)
+        return globals()["_has_resource_conflict__impl"](self, *args, **kwargs)
 
 
     def _gap_count(self, *args, **kwargs):
-        return _gap_count__impl(self, *args, **kwargs)
+        return globals()["_gap_count__impl"](self, *args, **kwargs)
 
 
     def _longest_streak(self, *args, **kwargs):
-        return _longest_streak__impl(self, *args, **kwargs)
+        return globals()["_longest_streak__impl"](self, *args, **kwargs)
 
 
     def _week_key(self, *args, **kwargs):
-        return _week_key__impl(self, *args, **kwargs)
+        return globals()["_week_key__impl"](self, *args, **kwargs)
 

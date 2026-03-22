@@ -22,16 +22,16 @@ _METHOD_PARTS: dict[str, list[str]] = {
         "_build_company_schedule_view__impl_parts/part_06.pyfrag",
     ],
     "_build_company_settings_profile_tab__impl": [
-        "_build_company_settings_profile_tab__impl.py",
+        "_build_company_settings_profile_tab__impl.pyfrag",
     ],
     "_build_company_settings_view__impl": [
-        "_build_company_settings_view__impl.py",
+        "_build_company_settings_view__impl.pyfrag",
     ],
     "_show_company_dashboard__impl": [
-        "_show_company_dashboard__impl.py",
+        "_show_company_dashboard__impl.pyfrag",
     ],
     "_show_personal_dashboard__impl": [
-        "_show_personal_dashboard__impl.py",
+        "_show_personal_dashboard__impl.pyfrag",
     ],
 }
 
