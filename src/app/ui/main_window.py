@@ -1367,6 +1367,10 @@ class ScheduleMainWindow:
                 return
             try:
                 if isinstance(popup, tk.Toplevel) and popup.winfo_exists():
+                    try:
+                        popup.grab_release()
+                    except tk.TclError:
+                        pass
                     popup.destroy()
             except tk.TclError:
                 pass
@@ -1934,34 +1938,10 @@ class ScheduleMainWindow:
 
             popup.update_idletasks()
             self.root.update_idletasks()
-            anchor_widget = period_selector_main if period_selector_main.winfo_ismapped() else period_selector_shell
-            anchor_widget.update_idletasks()
             menu_width = max(220, period_selector_main.winfo_width(), shell.winfo_reqwidth())
             menu_height = max(40, shell.winfo_reqheight() + 2)
-
-            root_x = self.root.winfo_rootx()
-            root_y = self.root.winfo_rooty()
-            root_w = max(1, self.root.winfo_width())
-            root_h = max(1, self.root.winfo_height())
-            pointer_x = self.root.winfo_pointerx()
-            pointer_y = self.root.winfo_pointery()
-            pointer_inside_root = (
-                root_x <= pointer_x <= (root_x + root_w)
-                and root_y <= pointer_y <= (root_y + root_h)
-            )
-            if pointer_inside_root:
-                x_pos = pointer_x - menu_width + max(20, period_toggle_button.winfo_width() + 12)
-                y_pos = pointer_y + 6
-            else:
-                x_pos = anchor_widget.winfo_rootx()
-                y_pos = anchor_widget.winfo_rooty() + anchor_widget.winfo_height() + 2
-
-            screen_width = self.root.winfo_screenwidth()
-            screen_height = self.root.winfo_screenheight()
-            x_pos = max(0, min(x_pos, screen_width - menu_width - 4))
-            if y_pos + menu_height > screen_height:
-                alt_y = anchor_widget.winfo_rooty() - menu_height - 2
-                y_pos = alt_y if alt_y >= 0 else max(0, screen_height - menu_height - 4)
+            x_pos = period_selector_main.winfo_rootx()
+            y_pos = period_selector_main.winfo_rooty() + period_selector_main.winfo_height()
             geometry_value = f"{menu_width}x{menu_height}+{x_pos}+{y_pos}"
 
             def apply_menu_geometry() -> None:
@@ -1970,9 +1950,26 @@ class ScheduleMainWindow:
                 popup.geometry(geometry_value)
                 popup.lift()
 
+            def close_on_outside_click(event: tk.Event) -> str | None:
+                if not popup.winfo_exists():
+                    return None
+                x_root = int(getattr(event, "x_root", 0))
+                y_root = int(getattr(event, "y_root", 0))
+                left = popup.winfo_rootx()
+                top = popup.winfo_rooty()
+                right = left + popup.winfo_width()
+                bottom = top + popup.winfo_height()
+                inside = left <= x_root < right and top <= y_root < bottom
+                if inside:
+                    return None
+                close_period_menu()
+                return "break"
+
+            popup.bind("<ButtonPress-1>", close_on_outside_click, add="+")
             popup.deiconify()
             apply_menu_geometry()
             popup.after_idle(apply_menu_geometry)
+            popup.grab_set()
 
         period_toggle_button.configure(command=open_period_menu)
         period_empty_create_button.command = lambda: open_period_modal(period_id=None)
