@@ -834,11 +834,6 @@ class ScheduleMainWindow:
         header.pack(fill=tk.X, pady=(0, 8))
 
         ttk.Label(header, text="Розклад", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")
-        ttk.Label(
-            header,
-            text="Період = інтервал дат (наприклад семестр).",
-            style="CardSubtle.TLabel",
-        ).grid(row=0, column=1, columnspan=5, sticky="w", padx=(10, 0))
         ttk.Label(header, text="Період", style="Card.TLabel").grid(row=1, column=0, sticky="w", pady=(8, 0))
 
         period_selector_shell = ttk.Frame(header, style="Card.TFrame")
@@ -1001,56 +996,78 @@ class ScheduleMainWindow:
 
         parent = schedule_views["setup"]
 
-        subject_box = ttk.LabelFrame(parent, text="Предмет", padding=10)
+        subject_box = ttk.LabelFrame(parent, text="Предмет", padding=(12, 10), style="CardSection.TLabelframe")
         subject_box.pack(fill=tk.X)
+        for col in range(4):
+            subject_box.columnconfigure(col, weight=1, uniform="subject-field-col")
 
-        ttk.Label(subject_box, text="Назва").grid(row=0, column=0, sticky="w")
-        ttk.Entry(subject_box, textvariable=subject_name_var, width=20).grid(row=0, column=1, sticky="w", padx=(6, 12))
-        ttk.Label(subject_box, text="Тривалість (блоків)").grid(row=0, column=2, sticky="w")
-        ttk.Entry(subject_box, textvariable=subject_duration_var, width=6).grid(row=0, column=3, sticky="w", padx=(6, 12))
-        ttk.Label(subject_box, text="Кількість занять").grid(row=0, column=4, sticky="w")
-        ttk.Entry(subject_box, textvariable=subject_sessions_var, width=6).grid(row=0, column=5, sticky="w", padx=(6, 12))
-        ttk.Label(subject_box, text="Макс/тиждень").grid(row=0, column=6, sticky="w")
-        ttk.Entry(subject_box, textvariable=subject_max_week_var, width=6).grid(row=0, column=7, sticky="w", padx=(6, 12))
-        ttk.Label(subject_box, text="Викладач").grid(row=1, column=0, sticky="w", pady=(8, 0))
-        teacher_box = ttk.Combobox(subject_box, textvariable=subject_teacher_var, width=20, state="readonly")
-        teacher_box.grid(row=1, column=1, sticky="w", padx=(6, 12), pady=(8, 0))
-        ttk.Label(subject_box, text="Ціль").grid(row=1, column=2, sticky="w", pady=(8, 0))
+        def build_subject_field(row: int, col: int, label_text: str) -> ttk.Frame:
+            field_shell = ttk.Frame(subject_box, style="Card.TFrame")
+            field_shell.grid(
+                row=row,
+                column=col,
+                sticky="ew",
+                padx=(0, 10) if col < 3 else (0, 0),
+                pady=(0, 8),
+            )
+            ttk.Label(field_shell, text=label_text, style="CardSubtle.TLabel").pack(anchor="w", pady=(0, 4))
+            return field_shell
+
+        name_field = build_subject_field(0, 0, "Назва")
+        ttk.Entry(name_field, textvariable=subject_name_var).pack(fill=tk.X)
+
+        duration_field = build_subject_field(0, 1, "Тривалість (блоків)")
+        ttk.Entry(duration_field, textvariable=subject_duration_var).pack(fill=tk.X)
+
+        sessions_field = build_subject_field(0, 2, "Кількість занять")
+        ttk.Entry(sessions_field, textvariable=subject_sessions_var).pack(fill=tk.X)
+
+        max_week_field = build_subject_field(0, 3, "Макс/тиждень")
+        ttk.Entry(max_week_field, textvariable=subject_max_week_var).pack(fill=tk.X)
+
+        teacher_field = build_subject_field(1, 0, "Викладач")
+        teacher_box = ttk.Combobox(teacher_field, textvariable=subject_teacher_var, state="readonly")
+        teacher_box.pack(fill=tk.X)
+
+        target_field = build_subject_field(1, 1, "Ціль")
         subject_target_box = ttk.Combobox(
-            subject_box,
+            target_field,
             textvariable=subject_target_var,
             values=["Група", "Потік"],
-            width=10,
             state="readonly",
         )
-        subject_target_box.grid(row=1, column=3, sticky="w", padx=(6, 12), pady=(8, 0))
-        ttk.Label(subject_box, text="Група").grid(row=1, column=4, sticky="w", pady=(8, 0))
-        subject_group_box = ttk.Combobox(subject_box, textvariable=subject_group_var, width=20, state="readonly")
-        subject_group_box.grid(row=1, column=5, sticky="w", padx=(6, 12), pady=(8, 0))
-        ttk.Label(subject_box, text="Потік").grid(row=1, column=6, sticky="w", pady=(8, 0))
-        subject_stream_box = ttk.Combobox(subject_box, textvariable=subject_stream_var, width=22, state="readonly")
-        subject_stream_box.grid(row=1, column=7, sticky="w", padx=(6, 0), pady=(8, 0))
-        ttk.Label(subject_box, text="Тип аудиторії").grid(row=2, column=0, sticky="w", pady=(8, 0))
+        subject_target_box.pack(fill=tk.X)
+
+        group_field = build_subject_field(1, 2, "Група")
+        subject_group_box = ttk.Combobox(group_field, textvariable=subject_group_var, state="readonly")
+        subject_group_box.pack(fill=tk.X)
+
+        stream_field = build_subject_field(1, 3, "Потік")
+        subject_stream_box = ttk.Combobox(stream_field, textvariable=subject_stream_var, state="readonly")
+        subject_stream_box.pack(fill=tk.X)
+
+        room_type_field = build_subject_field(2, 0, "Тип аудиторії")
         subject_room_type_box = ttk.Combobox(
-            subject_box,
+            room_type_field,
             textvariable=subject_room_type_var,
             values=room_type_labels,
-            width=20,
             state="readonly",
         )
-        subject_room_type_box.grid(row=2, column=1, sticky="w", padx=(6, 12), pady=(8, 0))
-        ttk.Label(subject_box, text="Мін. місткість").grid(row=2, column=2, sticky="w", pady=(8, 0))
-        ttk.Entry(subject_box, textvariable=subject_min_capacity_var, width=6).grid(
-            row=2, column=3, sticky="w", padx=(6, 12), pady=(8, 0)
-        )
+        subject_room_type_box.pack(fill=tk.X)
+
+        min_capacity_field = build_subject_field(2, 1, "Мін. місткість")
+        ttk.Entry(min_capacity_field, textvariable=subject_min_capacity_var).pack(fill=tk.X)
+
+        projector_field = build_subject_field(2, 2, "Оснащення")
         ttk.Checkbutton(
-            subject_box,
+            projector_field,
             text="Потрібен проєктор",
             variable=subject_needs_projector_var,
-        ).grid(row=2, column=4, columnspan=2, sticky="w", pady=(8, 0))
-        ttk.Label(subject_box, text="Фікс. аудиторія").grid(row=2, column=6, sticky="w", pady=(8, 0))
-        subject_fixed_room_box = ttk.Combobox(subject_box, textvariable=subject_fixed_room_var, width=22, state="readonly")
-        subject_fixed_room_box.grid(row=2, column=7, sticky="w", padx=(6, 0), pady=(8, 0))
+        ).pack(anchor="w", pady=(2, 0))
+
+        fixed_room_field = build_subject_field(2, 3, "Фікс. аудиторія")
+        subject_fixed_room_box = ttk.Combobox(fixed_room_field, textvariable=subject_fixed_room_var, state="readonly")
+        subject_fixed_room_box.pack(fill=tk.X)
 
         blackout_box = ttk.LabelFrame(parent, text="Недоступності ресурсів", padding=10)
         blackout_box.pack(fill=tk.X, pady=(8, 0))

@@ -470,6 +470,20 @@ class UiTheme:
             foreground=self.TEXT_PRIMARY,
             font=(body_font, 10, "bold"),
         )
+        style.configure(
+            "CardSection.TLabelframe",
+            background=self.SURFACE,
+            bordercolor=self.BORDER,
+            relief="solid",
+            borderwidth=1,
+            padding=8,
+        )
+        style.configure(
+            "CardSection.TLabelframe.Label",
+            background=self.SURFACE,
+            foreground=self.TEXT_PRIMARY,
+            font=(body_font, 10, "bold"),
+        )
 
         style.configure(
             "FlatTabs.TNotebook",
