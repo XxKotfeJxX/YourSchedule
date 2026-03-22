@@ -616,6 +616,142 @@ class ScheduleMainWindow:
         manual_room_var = tk.StringVar(value="Авто")
         manual_lock_var = tk.BooleanVar(value=True)
 
+        schedule_shell = ttk.Frame(parent, style="Card.TFrame")
+        schedule_shell.pack(fill=tk.BOTH, expand=True)
+
+        schedule_canvas = tk.Canvas(
+            schedule_shell,
+            bg=self.theme.SURFACE,
+            bd=0,
+            highlightthickness=0,
+            relief=tk.FLAT,
+        )
+        schedule_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        schedule_scroll = ttk.Scrollbar(
+            schedule_shell,
+            orient=tk.VERTICAL,
+            command=schedule_canvas.yview,
+            style="App.Vertical.TScrollbar",
+        )
+        schedule_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        schedule_canvas.configure(yscrollcommand=schedule_scroll.set)
+
+        schedule_body = ttk.Frame(schedule_canvas, style="Card.TFrame")
+        schedule_window = schedule_canvas.create_window((0, 0), anchor="nw", window=schedule_body)
+        schedule_scroll_state = {"visible": True}
+
+        def _sync_schedule_scroll(_event=None) -> None:
+            viewport_width = max(1, schedule_canvas.winfo_width())
+            viewport_height = max(1, schedule_canvas.winfo_height())
+            requested_height = max(1, schedule_body.winfo_reqheight())
+            schedule_canvas.itemconfigure(
+                schedule_window,
+                width=viewport_width,
+                height=max(viewport_height, requested_height),
+            )
+            bbox = schedule_canvas.bbox("all")
+            if bbox is not None:
+                schedule_canvas.configure(scrollregion=bbox)
+
+            need_scroll = requested_height > (viewport_height + 1)
+            if need_scroll and not schedule_scroll_state["visible"]:
+                schedule_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+                schedule_scroll_state["visible"] = True
+            elif not need_scroll and schedule_scroll_state["visible"]:
+                schedule_scroll.pack_forget()
+                schedule_scroll_state["visible"] = False
+
+        def _create_smooth_wheel_handlers(get_view, set_view, *, gain: float = 0.14):
+            state: dict[str, float] = {"velocity": 0.0}
+
+            def _wheel_step(step_units: float) -> str:
+                first, last = get_view()
+                first_f = float(first)
+                last_f = float(last)
+                visible = max(0.0001, last_f - first_f)
+                if visible >= 0.999:
+                    return "break"
+
+                smoothed_units = state["velocity"] * 0.35 + max(-4.0, min(4.0, step_units)) * 0.65
+                if abs(smoothed_units) < 0.01:
+                    smoothed_units = step_units
+                state["velocity"] = smoothed_units
+
+                max_first = max(0.0, 1.0 - visible)
+                next_first = max(0.0, min(first_f + smoothed_units * visible * gain, max_first))
+                if abs(next_first - first_f) < 0.00001:
+                    return "break"
+                set_view(next_first)
+                return "break"
+
+            def _on_wheel(event: tk.Event) -> str:
+                delta = float(getattr(event, "delta", 0.0))
+                if delta == 0:
+                    return "break"
+                return _wheel_step(-delta / 120.0)
+
+            def _on_button4(_event: tk.Event) -> str:
+                return _wheel_step(-1.0)
+
+            def _on_button5(_event: tk.Event) -> str:
+                return _wheel_step(1.0)
+
+            return _on_wheel, _on_button4, _on_button5
+
+        def _with_fallback(primary_handler, primary_view, fallback_handler):
+            def _handler(event: tk.Event) -> str:
+                first, last = primary_view()
+                first_f = float(first)
+                last_f = float(last)
+                if last_f - first_f >= 0.999:
+                    return fallback_handler(event)
+                event_num = getattr(event, "num", 0)
+                delta = float(getattr(event, "delta", 0.0))
+                scroll_up = bool(event_num == 4 or delta > 0)
+                scroll_down = bool(event_num == 5 or delta < 0)
+                if scroll_up and first_f <= 0.0001:
+                    return fallback_handler(event)
+                if scroll_down and last_f >= 0.9999:
+                    return fallback_handler(event)
+                return primary_handler(event)
+
+            return _handler
+
+        def _bind_wheel_recursive(
+            widget: tk.Widget,
+            on_wheel,
+            on_up,
+            on_down,
+            *,
+            skip_widgets: set[tk.Widget] | None = None,
+        ) -> None:
+            if skip_widgets is not None and widget in skip_widgets:
+                return
+            widget.bind("<MouseWheel>", on_wheel, add="+")
+            widget.bind("<Button-4>", on_up, add="+")
+            widget.bind("<Button-5>", on_down, add="+")
+            for child in widget.winfo_children():
+                _bind_wheel_recursive(
+                    child,
+                    on_wheel,
+                    on_up,
+                    on_down,
+                    skip_widgets=skip_widgets,
+                )
+
+        schedule_body.bind("<Configure>", _sync_schedule_scroll, add="+")
+        schedule_canvas.bind("<Configure>", _sync_schedule_scroll, add="+")
+        schedule_wheel, schedule_wheel_up, schedule_wheel_down = _create_smooth_wheel_handlers(
+            schedule_canvas.yview,
+            schedule_canvas.yview_moveto,
+            gain=0.14,
+        )
+        schedule_canvas.bind("<MouseWheel>", schedule_wheel, add="+")
+        schedule_canvas.bind("<Button-4>", schedule_wheel_up, add="+")
+        schedule_canvas.bind("<Button-5>", schedule_wheel_down, add="+")
+
+        parent = schedule_body
+
         header = ttk.Frame(parent, style="Card.TFrame")
         header.pack(fill=tk.X, pady=(0, 8))
 
@@ -800,7 +936,12 @@ class ScheduleMainWindow:
         blackout_table.column("end", width=160, anchor="center")
         blackout_table.column("title", width=300, anchor="w")
         blackout_table.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        blackout_scroll = ttk.Scrollbar(blackout_table_wrap, orient=tk.VERTICAL, command=blackout_table.yview)
+        blackout_scroll = ttk.Scrollbar(
+            blackout_table_wrap,
+            orient=tk.VERTICAL,
+            command=blackout_table.yview,
+            style="App.Vertical.TScrollbar",
+        )
         blackout_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         blackout_table.configure(yscrollcommand=blackout_scroll.set)
 
@@ -834,7 +975,12 @@ class ScheduleMainWindow:
         requirements_table.column("target", width=190, anchor="w")
         requirements_table.column("room", width=290, anchor="w")
         requirements_table.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        requirements_scroll = ttk.Scrollbar(requirements_table_wrap, orient=tk.VERTICAL, command=requirements_table.yview)
+        requirements_scroll = ttk.Scrollbar(
+            requirements_table_wrap,
+            orient=tk.VERTICAL,
+            command=requirements_table.yview,
+            style="App.Vertical.TScrollbar",
+        )
         requirements_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         requirements_table.configure(yscrollcommand=requirements_scroll.set)
 
@@ -925,7 +1071,12 @@ class ScheduleMainWindow:
         entries_table.column("room", width=240, anchor="w")
         entries_table.column("flags", width=160, anchor="center")
         entries_table.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        entries_scroll = ttk.Scrollbar(entries_table_wrap, orient=tk.VERTICAL, command=entries_table.yview)
+        entries_scroll = ttk.Scrollbar(
+            entries_table_wrap,
+            orient=tk.VERTICAL,
+            command=entries_table.yview,
+            style="App.Vertical.TScrollbar",
+        )
         entries_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         entries_table.configure(yscrollcommand=entries_scroll.set)
 
@@ -953,9 +1104,40 @@ class ScheduleMainWindow:
         coverage_table.column("missing", width=150, anchor="center")
         coverage_table.column("message", width=520, anchor="w")
         coverage_table.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        coverage_scroll = ttk.Scrollbar(coverage_table_wrap, orient=tk.VERTICAL, command=coverage_table.yview)
+        coverage_scroll = ttk.Scrollbar(
+            coverage_table_wrap,
+            orient=tk.VERTICAL,
+            command=coverage_table.yview,
+            style="App.Vertical.TScrollbar",
+        )
         coverage_scroll.pack(side=tk.RIGHT, fill=tk.Y)
         coverage_table.configure(yscrollcommand=coverage_scroll.set)
+
+        def _bind_table_wheel(widget: tk.Widget, view_get, view_set) -> None:
+            table_wheel, table_wheel_up, table_wheel_down = _create_smooth_wheel_handlers(
+                view_get,
+                view_set,
+                gain=0.14,
+            )
+            wheel_f = _with_fallback(table_wheel, view_get, schedule_wheel)
+            up_f = _with_fallback(table_wheel_up, view_get, schedule_wheel_up)
+            down_f = _with_fallback(table_wheel_down, view_get, schedule_wheel_down)
+            widget.bind("<MouseWheel>", wheel_f, add="+")
+            widget.bind("<Button-4>", up_f, add="+")
+            widget.bind("<Button-5>", down_f, add="+")
+
+        _bind_table_wheel(blackout_table, blackout_table.yview, blackout_table.yview_moveto)
+        _bind_table_wheel(requirements_table, requirements_table.yview, requirements_table.yview_moveto)
+        _bind_table_wheel(entries_table, entries_table.yview, entries_table.yview_moveto)
+        _bind_table_wheel(coverage_table, coverage_table.yview, coverage_table.yview_moveto)
+
+        _bind_wheel_recursive(
+            schedule_body,
+            schedule_wheel,
+            schedule_wheel_up,
+            schedule_wheel_down,
+            skip_widgets={blackout_table, requirements_table, entries_table, coverage_table},
+        )
 
         buttons = ttk.Frame(parent, style="Card.TFrame")
         buttons.pack(fill=tk.X, pady=(8, 8))
@@ -2387,6 +2569,7 @@ class ScheduleMainWindow:
         requirements_table.bind("<Double-1>", lambda _e: open_requirement_edit_modal(), add="+")
         if period_var.get():
             on_load_week()
+        self.root.after_idle(_sync_schedule_scroll)
 
 
     def _build_company_curriculum_view(self, parent: ttk.Frame, company_id: int) -> None:
