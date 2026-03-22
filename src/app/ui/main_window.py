@@ -48,6 +48,20 @@ class ScheduleMainWindow:
 
         self._show_start_screen()
 
+    def _dismiss_combobox_popdowns(self, scope: tk.Widget) -> None:
+        stack: list[tk.Widget] = [scope]
+        while stack:
+            widget = stack.pop()
+            try:
+                if str(widget.winfo_class()) == "TCombobox":
+                    try:
+                        self.root.tk.call("ttk::combobox::Unpost", str(widget))
+                    except tk.TclError:
+                        pass
+                stack.extend(widget.winfo_children())
+            except tk.TclError:
+                continue
+
     def _create_auth_shell(self, subtitle: str) -> tuple[ttk.Frame, ttk.Frame]:
         self._clear_root()
 
@@ -772,11 +786,27 @@ class ScheduleMainWindow:
 
         schedule_body.bind("<Configure>", _sync_schedule_scroll, add="+")
         schedule_canvas.bind("<Configure>", _sync_schedule_scroll, add="+")
-        schedule_wheel, schedule_wheel_up, schedule_wheel_down = _create_smooth_wheel_handlers(
+        schedule_wheel_raw, schedule_wheel_up_raw, schedule_wheel_down_raw = _create_smooth_wheel_handlers(
             schedule_canvas.yview,
             schedule_canvas.yview_moveto,
             gain=0.14,
         )
+
+        def dismiss_schedule_popdowns() -> None:
+            self._dismiss_combobox_popdowns(schedule_body)
+
+        def schedule_wheel(event: tk.Event) -> str:
+            dismiss_schedule_popdowns()
+            return schedule_wheel_raw(event)
+
+        def schedule_wheel_up(event: tk.Event) -> str:
+            dismiss_schedule_popdowns()
+            return schedule_wheel_up_raw(event)
+
+        def schedule_wheel_down(event: tk.Event) -> str:
+            dismiss_schedule_popdowns()
+            return schedule_wheel_down_raw(event)
+
         schedule_canvas.bind("<MouseWheel>", schedule_wheel, add="+")
         schedule_canvas.bind("<Button-4>", schedule_wheel_up, add="+")
         schedule_canvas.bind("<Button-5>", schedule_wheel_down, add="+")
@@ -1434,9 +1464,22 @@ class ScheduleMainWindow:
                 view_set,
                 gain=0.14,
             )
-            wheel_f = _with_fallback(table_wheel, view_get, schedule_wheel)
-            up_f = _with_fallback(table_wheel_up, view_get, schedule_wheel_up)
-            down_f = _with_fallback(table_wheel_down, view_get, schedule_wheel_down)
+            wheel_f_raw = _with_fallback(table_wheel, view_get, schedule_wheel)
+            up_f_raw = _with_fallback(table_wheel_up, view_get, schedule_wheel_up)
+            down_f_raw = _with_fallback(table_wheel_down, view_get, schedule_wheel_down)
+
+            def wheel_f(event: tk.Event) -> str:
+                dismiss_schedule_popdowns()
+                return wheel_f_raw(event)
+
+            def up_f(event: tk.Event) -> str:
+                dismiss_schedule_popdowns()
+                return up_f_raw(event)
+
+            def down_f(event: tk.Event) -> str:
+                dismiss_schedule_popdowns()
+                return down_f_raw(event)
+
             widget.bind("<MouseWheel>", wheel_f, add="+")
             widget.bind("<Button-4>", up_f, add="+")
             widget.bind("<Button-5>", down_f, add="+")
@@ -1680,6 +1723,7 @@ class ScheduleMainWindow:
             width: int,
             height: int,
             close_callback,
+            clip_widget: tk.Widget | None = None,
             poll_ms: int = 90,
         ) -> None:
             def _apply() -> None:
@@ -1689,15 +1733,39 @@ class ScheduleMainWindow:
                     if not anchor_widget.winfo_exists() or not anchor_widget.winfo_ismapped():
                         close_callback()
                         return
+
+                    anchor_left = anchor_widget.winfo_rootx()
+                    anchor_top = anchor_widget.winfo_rooty()
+                    anchor_right = anchor_left + anchor_widget.winfo_width()
+                    anchor_bottom = anchor_top + anchor_widget.winfo_height()
+
+                    if clip_widget is not None:
+                        if not clip_widget.winfo_exists() or not clip_widget.winfo_ismapped():
+                            close_callback()
+                            return
+                        clip_left = clip_widget.winfo_rootx()
+                        clip_top = clip_widget.winfo_rooty()
+                        clip_right = clip_left + clip_widget.winfo_width()
+                        clip_bottom = clip_top + clip_widget.winfo_height()
+                        inside_clip = not (
+                            anchor_right <= clip_left
+                            or anchor_left >= clip_right
+                            or anchor_bottom <= clip_top
+                            or anchor_top >= clip_bottom
+                        )
+                        if not inside_clip:
+                            close_callback()
+                            return
+
                     self.root.update_idletasks()
                     anchor_widget.update_idletasks()
-                    x_pos = anchor_widget.winfo_rootx()
-                    y_pos = anchor_widget.winfo_rooty() + anchor_widget.winfo_height()
+                    x_pos = anchor_left
+                    y_pos = anchor_top + anchor_widget.winfo_height()
                     screen_width = self.root.winfo_screenwidth()
                     screen_height = self.root.winfo_screenheight()
                     x_pos = max(0, min(x_pos, screen_width - width - 4))
                     if y_pos + height > screen_height:
-                        y_pos = max(0, anchor_widget.winfo_rooty() - height - 2)
+                        y_pos = max(0, anchor_top - height - 2)
                     popup.geometry(f"{width}x{height}+{x_pos}+{y_pos}")
                     popup.lift()
                     popup.after(poll_ms, _apply)
@@ -1847,6 +1915,7 @@ class ScheduleMainWindow:
                 width=base_width,
                 height=base_height,
                 close_callback=lambda: close_selector_menu(selector_state),
+                clip_widget=schedule_canvas,
             )
             popup.grab_set()
             if searchable and search_entry is not None:
@@ -2491,6 +2560,7 @@ class ScheduleMainWindow:
                 width=menu_width,
                 height=menu_height,
                 close_callback=close_period_menu,
+                clip_widget=schedule_canvas,
             )
             popup.grab_set()
 
@@ -2713,6 +2783,7 @@ class ScheduleMainWindow:
                 width=menu_width,
                 height=menu_height,
                 close_callback=lambda: close_selector_menu(group_selector_state),
+                clip_widget=schedule_canvas,
             )
             popup.grab_set()
             search_entry.focus_set()
@@ -4682,29 +4753,68 @@ class ScheduleMainWindow:
             return _handler
 
         detail_canvas.bind("<Configure>", _update_detail_responsive, add="+")
-        detail_wheel, detail_wheel_up, detail_wheel_down = _create_smooth_wheel_handlers(
+        def dismiss_group_popdowns() -> None:
+            self._dismiss_combobox_popdowns(parent)
+
+        detail_wheel_raw, detail_wheel_up_raw, detail_wheel_down_raw = _create_smooth_wheel_handlers(
             detail_canvas.yview,
             detail_canvas.yview_moveto,
             gain=0.14,
         )
+
+        def detail_wheel(event: tk.Event) -> str:
+            dismiss_group_popdowns()
+            return detail_wheel_raw(event)
+
+        def detail_wheel_up(event: tk.Event) -> str:
+            dismiss_group_popdowns()
+            return detail_wheel_up_raw(event)
+
+        def detail_wheel_down(event: tk.Event) -> str:
+            dismiss_group_popdowns()
+            return detail_wheel_down_raw(event)
 
         participants_wheel, participants_wheel_up, participants_wheel_down = _create_smooth_wheel_handlers(
             participants_canvas.yview,
             participants_canvas.yview_moveto,
             gain=0.13,
         )
-        participants_wheel_f = _with_fallback(participants_wheel, participants_canvas.yview, detail_wheel)
-        participants_wheel_up_f = _with_fallback(participants_wheel_up, participants_canvas.yview, detail_wheel_up)
-        participants_wheel_down_f = _with_fallback(participants_wheel_down, participants_canvas.yview, detail_wheel_down)
+        participants_wheel_f_raw = _with_fallback(participants_wheel, participants_canvas.yview, detail_wheel)
+        participants_wheel_up_f_raw = _with_fallback(participants_wheel_up, participants_canvas.yview, detail_wheel_up)
+        participants_wheel_down_f_raw = _with_fallback(participants_wheel_down, participants_canvas.yview, detail_wheel_down)
+
+        def participants_wheel_f(event: tk.Event) -> str:
+            dismiss_group_popdowns()
+            return participants_wheel_f_raw(event)
+
+        def participants_wheel_up_f(event: tk.Event) -> str:
+            dismiss_group_popdowns()
+            return participants_wheel_up_f_raw(event)
+
+        def participants_wheel_down_f(event: tk.Event) -> str:
+            dismiss_group_popdowns()
+            return participants_wheel_down_f_raw(event)
 
         tree_wheel, tree_wheel_up, tree_wheel_down = _create_smooth_wheel_handlers(
             subgroup_tree.yview,
             subgroup_tree.yview_moveto,
             gain=0.14,
         )
-        tree_wheel_f = _with_fallback(tree_wheel, subgroup_tree.yview, detail_wheel)
-        tree_wheel_up_f = _with_fallback(tree_wheel_up, subgroup_tree.yview, detail_wheel_up)
-        tree_wheel_down_f = _with_fallback(tree_wheel_down, subgroup_tree.yview, detail_wheel_down)
+        tree_wheel_f_raw = _with_fallback(tree_wheel, subgroup_tree.yview, detail_wheel)
+        tree_wheel_up_f_raw = _with_fallback(tree_wheel_up, subgroup_tree.yview, detail_wheel_up)
+        tree_wheel_down_f_raw = _with_fallback(tree_wheel_down, subgroup_tree.yview, detail_wheel_down)
+
+        def tree_wheel_f(event: tk.Event) -> str:
+            dismiss_group_popdowns()
+            return tree_wheel_f_raw(event)
+
+        def tree_wheel_up_f(event: tk.Event) -> str:
+            dismiss_group_popdowns()
+            return tree_wheel_up_f_raw(event)
+
+        def tree_wheel_down_f(event: tk.Event) -> str:
+            dismiss_group_popdowns()
+            return tree_wheel_down_f_raw(event)
 
         _bind_wheel_recursive(detail_nav, detail_wheel, detail_wheel_up, detail_wheel_down)
         _bind_wheel_recursive(detail_subtitle, detail_wheel, detail_wheel_up, detail_wheel_down)
@@ -7920,6 +8030,7 @@ class ScheduleMainWindow:
                 settings_canvas.configure(scrollregion=bbox)
 
         def _scroll_settings(step_units: int) -> str:
+            self._dismiss_combobox_popdowns(body)
             first, last = settings_canvas.yview()
             visible = float(last) - float(first)
             if visible >= 0.999:
