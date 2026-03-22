@@ -594,6 +594,7 @@ class ScheduleMainWindow:
         blackout_resource_scope_by_id: dict[int, str] = {}
         room_type_label_by_enum = {room_type: label for label, room_type in room_type_options if room_type is not None}
         requirements_state: dict[str, list[dict[str, object]]] = {"items": []}
+        schedule_entries_state: dict[int, dict[str, object]] = {}
         scenario_values_state: dict[str, list[str]] = {"values": ["Опублікований"]}
 
         policy_max_sessions_var = tk.StringVar(value="4")
@@ -887,6 +888,46 @@ class ScheduleMainWindow:
         ttk.Checkbutton(manual_box, text="Закріпити (LOCK)", variable=manual_lock_var).grid(row=1, column=0, sticky="w", pady=(8, 0))
         manual_add_button = ttk.Button(manual_box, text="Додати ручний слот")
         manual_add_button.grid(row=1, column=1, sticky="w", pady=(8, 0))
+        manual_update_button = ttk.Button(manual_box, text="Оновити вибране")
+        manual_update_button.grid(row=1, column=2, sticky="w", padx=(8, 0), pady=(8, 0))
+
+        entries_box = ttk.LabelFrame(parent, text="Заняття (CRUD)", padding=10)
+        entries_box.pack(fill=tk.X, pady=(8, 0))
+        entries_actions = ttk.Frame(entries_box, style="Card.TFrame")
+        entries_actions.pack(fill=tk.X, pady=(0, 6))
+        entries_refresh_button = ttk.Button(entries_actions, text="Оновити")
+        entries_refresh_button.pack(side=tk.LEFT, padx=(0, 8))
+        entries_prefill_button = ttk.Button(entries_actions, text="У поля ручного слота")
+        entries_prefill_button.pack(side=tk.LEFT, padx=(0, 8))
+        entries_lock_button = ttk.Button(entries_actions, text="LOCK")
+        entries_lock_button.pack(side=tk.LEFT, padx=(0, 8))
+        entries_unlock_button = ttk.Button(entries_actions, text="UNLOCK")
+        entries_unlock_button.pack(side=tk.LEFT, padx=(0, 8))
+        entries_delete_button = ttk.Button(entries_actions, text="Видалити")
+        entries_delete_button.pack(side=tk.LEFT)
+
+        entries_table_wrap = ttk.Frame(entries_box, style="Card.TFrame")
+        entries_table_wrap.pack(fill=tk.X)
+        entries_table = ttk.Treeview(
+            entries_table_wrap,
+            columns=("id", "requirement", "slot", "room", "flags"),
+            show="headings",
+            height=6,
+        )
+        entries_table.heading("id", text="ID")
+        entries_table.heading("requirement", text="Вимога")
+        entries_table.heading("slot", text="Слот")
+        entries_table.heading("room", text="Аудиторія")
+        entries_table.heading("flags", text="Ознаки")
+        entries_table.column("id", width=70, anchor="center")
+        entries_table.column("requirement", width=280, anchor="w")
+        entries_table.column("slot", width=230, anchor="center")
+        entries_table.column("room", width=240, anchor="w")
+        entries_table.column("flags", width=160, anchor="center")
+        entries_table.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        entries_scroll = ttk.Scrollbar(entries_table_wrap, orient=tk.VERTICAL, command=entries_table.yview)
+        entries_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+        entries_table.configure(yscrollcommand=entries_scroll.set)
 
         coverage_box = ttk.LabelFrame(parent, text="Coverage dashboard", padding=10)
         coverage_box.pack(fill=tk.X, pady=(8, 0))
@@ -1166,6 +1207,104 @@ class ScheduleMainWindow:
                         reason.sample_message,
                     ),
                 )
+
+        def selected_schedule_entry_id() -> int | None:
+            selected = entries_table.selection()
+            if not selected:
+                return None
+            return int(selected[0])
+
+        def clear_schedule_entries() -> None:
+            schedule_entries_state.clear()
+            for item_id in entries_table.get_children():
+                entries_table.delete(item_id)
+
+        def load_schedule_entries() -> None:
+            try:
+                period_id = parse_period_id()
+                scenario_id = selected_scenario_id()
+            except Exception:
+                clear_schedule_entries()
+                return
+
+            with session_scope() as session:
+                rows = SchedulerController(session=session).list_schedule_entries(
+                    calendar_period_id=period_id,
+                    scenario_id=scenario_id,
+                )
+
+            clear_schedule_entries()
+            for row in rows:
+                flags: list[str] = []
+                if row.is_locked:
+                    flags.append("LOCK")
+                if row.is_manual:
+                    flags.append("MAN")
+                slot_label = (
+                    f"{row.day.isoformat()} | "
+                    f"{row.order_in_day}-{row.order_in_day + row.blocks_count - 1}"
+                )
+                entries_table.insert(
+                    "",
+                    tk.END,
+                    iid=str(row.entry_id),
+                    values=(
+                        str(row.entry_id),
+                        f"{row.requirement_id} | {row.requirement_name}",
+                        slot_label,
+                        row.room_name or "—",
+                        " ".join(flags) if flags else "—",
+                    ),
+                )
+                schedule_entries_state[int(row.entry_id)] = {
+                    "entry_id": int(row.entry_id),
+                    "requirement_id": int(row.requirement_id),
+                    "day": row.day,
+                    "order_in_day": int(row.order_in_day),
+                    "blocks_count": int(row.blocks_count),
+                    "room_resource_id": None if row.room_resource_id is None else int(row.room_resource_id),
+                    "is_locked": bool(row.is_locked),
+                }
+
+        def load_selected_entry_into_manual() -> bool:
+            entry_id = selected_schedule_entry_id()
+            if entry_id is None:
+                messagebox.showwarning("Заняття", "Оберіть запис у списку занять.")
+                return False
+            entry_state = schedule_entries_state.get(entry_id)
+            if entry_state is None:
+                messagebox.showwarning("Заняття", "Стан вибраного запису не знайдено.")
+                return False
+
+            requirement_id = int(entry_state["requirement_id"])
+            requirement_label = ""
+            for item in requirements_state["items"]:
+                if int(item["id"]) == requirement_id:
+                    requirement_label = str(item["label"])
+                    break
+            if requirement_label:
+                manual_requirement_var.set(requirement_label)
+
+            day_value = entry_state.get("day")
+            if isinstance(day_value, date):
+                manual_date_var.set(day_value.isoformat())
+            manual_order_var.set(str(entry_state["order_in_day"]))
+
+            room_resource_id = entry_state.get("room_resource_id")
+            if room_resource_id is None:
+                manual_room_var.set("Авто")
+            else:
+                match = next(
+                    (
+                        value
+                        for value in manual_room_box["values"]
+                        if str(value).startswith(f"{int(room_resource_id)} |")
+                    ),
+                    None,
+                )
+                manual_room_var.set(str(match) if match is not None else "Авто")
+            manual_lock_var.set(bool(entry_state["is_locked"]))
+            return True
 
         def selected_requirement_id() -> int | None:
             selected = requirements_table.selection()
@@ -1668,6 +1807,7 @@ class ScheduleMainWindow:
             except Exception:
                 load_scenarios(period_id=None)
                 load_coverage_dashboard()
+                clear_schedule_entries()
                 return
             load_scenarios(period_id=period_id)
             on_load_week()
@@ -1802,6 +1942,7 @@ class ScheduleMainWindow:
             scope_label = "опублікований" if selected_scenario_id() is None else "чернетка"
             status_var.set(f"Завантажено тиждень {grid.week_start}. Рядків: {len(grid.rows)}. Режим: {scope_label}.")
             load_coverage_dashboard()
+            load_schedule_entries()
 
         def on_build_schedule() -> None:
             try:
@@ -2066,6 +2207,81 @@ class ScheduleMainWindow:
             on_load_week()
             status_var.set("Ручний слот додано.")
 
+        def on_update_manual_entry() -> None:
+            entry_id = selected_schedule_entry_id()
+            if entry_id is None:
+                messagebox.showwarning("Заняття", "Оберіть запис у списку занять.")
+                return
+            try:
+                period_id = parse_period_id()
+                scenario_id = selected_scenario_id()
+                day = date.fromisoformat(manual_date_var.get().strip())
+                order_in_day = int(manual_order_var.get().strip())
+                if order_in_day <= 0:
+                    raise ValueError("Номер блоку має бути більшим за 0.")
+                room_resource_id = selected_manual_room_resource_id()
+                with session_scope() as session:
+                    SchedulerController(session=session).update_manual_entry(
+                        calendar_period_id=period_id,
+                        scenario_id=scenario_id,
+                        entry_id=entry_id,
+                        day=day,
+                        order_in_day=order_in_day,
+                        room_resource_id=room_resource_id,
+                        is_locked=bool(manual_lock_var.get()),
+                    )
+            except Exception as exc:
+                messagebox.showerror("Оновлення заняття", str(exc))
+                return
+            on_load_week()
+            status_var.set(f"Заняття #{entry_id} оновлено.")
+
+        def on_set_schedule_entry_lock(is_locked: bool) -> None:
+            entry_id = selected_schedule_entry_id()
+            if entry_id is None:
+                messagebox.showwarning("Заняття", "Оберіть запис у списку занять.")
+                return
+            try:
+                period_id = parse_period_id()
+                scenario_id = selected_scenario_id()
+                with session_scope() as session:
+                    SchedulerController(session=session).set_schedule_entry_lock(
+                        calendar_period_id=period_id,
+                        scenario_id=scenario_id,
+                        entry_id=entry_id,
+                        is_locked=is_locked,
+                    )
+            except Exception as exc:
+                messagebox.showerror("LOCK/UNLOCK", str(exc))
+                return
+            on_load_week()
+            status_var.set(f"Заняття #{entry_id}: {'LOCK' if is_locked else 'UNLOCK'}.")
+
+        def on_delete_schedule_entry() -> None:
+            entry_id = selected_schedule_entry_id()
+            if entry_id is None:
+                messagebox.showwarning("Заняття", "Оберіть запис у списку занять.")
+                return
+            if not messagebox.askyesno("Видалення заняття", f"Видалити заняття #{entry_id}?", parent=self.root):
+                return
+            try:
+                period_id = parse_period_id()
+                scenario_id = selected_scenario_id()
+                with session_scope() as session:
+                    deleted = SchedulerController(session=session).delete_schedule_entry(
+                        calendar_period_id=period_id,
+                        scenario_id=scenario_id,
+                        entry_id=entry_id,
+                        allow_locked=True,
+                    )
+                    if not deleted:
+                        raise ValueError("Запис не знайдено або вже видалено.")
+            except Exception as exc:
+                messagebox.showerror("Видалення заняття", str(exc))
+                return
+            on_load_week()
+            status_var.set(f"Заняття #{entry_id} видалено.")
+
         def on_create_default_period() -> None:
             try:
                 start = date.today()
@@ -2148,6 +2364,12 @@ class ScheduleMainWindow:
         scenario_publish_button.configure(command=on_publish_scenario)
         policy_save_button.configure(command=on_save_policy)
         manual_add_button.configure(command=on_add_manual_entry)
+        manual_update_button.configure(command=on_update_manual_entry)
+        entries_refresh_button.configure(command=load_schedule_entries)
+        entries_prefill_button.configure(command=load_selected_entry_into_manual)
+        entries_lock_button.configure(command=lambda: on_set_schedule_entry_lock(True))
+        entries_unlock_button.configure(command=lambda: on_set_schedule_entry_lock(False))
+        entries_delete_button.configure(command=on_delete_schedule_entry)
         requirements_refresh_button.configure(command=load_requirements)
         requirements_edit_button.configure(command=open_requirement_edit_modal)
         requirements_delete_button.configure(command=on_delete_requirement)
@@ -2161,6 +2383,7 @@ class ScheduleMainWindow:
         blackout_scope_box.bind("<<ComboboxSelected>>", lambda _e: refresh_blackout_resource_choices(), add="+")
         period_box.bind("<<ComboboxSelected>>", lambda _e: on_period_changed(), add="+")
         scenario_box.bind("<<ComboboxSelected>>", lambda _e: on_load_week(), add="+")
+        entries_table.bind("<Double-1>", lambda _e: load_selected_entry_into_manual(), add="+")
         requirements_table.bind("<Double-1>", lambda _e: open_requirement_edit_modal(), add="+")
         if period_var.get():
             on_load_week()
