@@ -19,6 +19,7 @@ from app.controllers.room_controller import RoomController
 from app.controllers.schedule_validation_controller import ScheduleValidationController
 from app.controllers.schedule_view_controller import ScheduleViewController
 from app.controllers.scheduler_controller import SchedulerController
+from app.controllers.template_controller import TemplateController
 from app.domain.enums import MarkKind, ResourceType, RoomType, TimePreference, UserRole
 from app.domain.models import User
 from app.repositories.calendar_repository import CalendarRepository
@@ -596,6 +597,11 @@ class ScheduleMainWindow:
         requirements_state: dict[str, list[dict[str, object]]] = {"items": []}
         schedule_entries_state: dict[int, dict[str, object]] = {}
         scenario_values_state: dict[str, list[str]] = {"values": ["Опублікований"]}
+        period_state: dict[str, object] = {
+            "items": [],
+            "by_id": {},
+            "menu": None,
+        }
 
         policy_max_sessions_var = tk.StringVar(value="4")
         policy_max_consecutive_var = tk.StringVar(value="3")
@@ -816,8 +822,22 @@ class ScheduleMainWindow:
         ).grid(row=0, column=1, columnspan=5, sticky="w", padx=(10, 0))
         ttk.Label(header, text="Період", style="Card.TLabel").grid(row=1, column=0, sticky="w", pady=(8, 0))
 
-        period_box = ttk.Combobox(header, textvariable=period_var, width=22, state="readonly")
-        period_box.grid(row=1, column=1, sticky="w", padx=(6, 10), pady=(8, 0))
+        period_selector_shell = ttk.Frame(header, style="Card.TFrame")
+        period_selector_shell.grid(row=1, column=1, sticky="w", padx=(6, 10), pady=(8, 0))
+        period_selector_main = ttk.Frame(period_selector_shell, style="Card.TFrame")
+        period_selector_main.pack(fill=tk.X)
+        period_entry = ttk.Entry(period_selector_main, textvariable=period_var, width=26, state="readonly")
+        period_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        period_toggle_button = ttk.Button(period_selector_main, text="▾", width=3)
+        period_toggle_button.pack(side=tk.LEFT, padx=(4, 0))
+        period_empty_create_button = self._motion_button(
+            period_selector_shell,
+            text="+ Створити період",
+            command=lambda: None,
+            primary=True,
+            width=210,
+            height=34,
+        )
 
         ttk.Label(header, text="Початок тижня", style="Card.TLabel").grid(row=1, column=2, sticky="w", pady=(8, 0))
         ttk.Entry(header, textvariable=week_start_var, width=14).grid(row=1, column=3, sticky="w", padx=(6, 10), pady=(8, 0))
@@ -1298,6 +1318,487 @@ class ScheduleMainWindow:
             if not result:
                 raise ValueError("Вкажіть хоча б один день тижня.")
             return result
+
+        def period_weeks_count(start_date: date, end_date: date) -> int:
+            days_count = (end_date - start_date).days + 1
+            return max(1, (days_count + 6) // 7)
+
+        def period_label(item: dict[str, object]) -> str:
+            period_id = int(item["id"])
+            start_date = item["start_date"]
+            end_date = item["end_date"]
+            name = str(item.get("name") or "").strip()
+            if name:
+                return f"{period_id} | {name} ({start_date}..{end_date})"
+            return f"{period_id} | {start_date}..{end_date}"
+
+        def close_period_menu() -> None:
+            popup = period_state.get("menu")
+            if popup is None:
+                return
+            try:
+                if isinstance(popup, tk.Toplevel) and popup.winfo_exists():
+                    popup.destroy()
+            except tk.TclError:
+                pass
+            period_state["menu"] = None
+
+        def selected_period_item() -> dict[str, object] | None:
+            raw = period_var.get().strip()
+            if not raw or "|" not in raw:
+                return None
+            try:
+                period_id = int(raw.split("|", maxsplit=1)[0].strip())
+            except ValueError:
+                return None
+            period_by_id = period_state.get("by_id", {})
+            if isinstance(period_by_id, dict):
+                item = period_by_id.get(period_id)
+                if isinstance(item, dict):
+                    return item
+            return None
+
+        def select_period(period_id: int | None, *, trigger_reload: bool) -> None:
+            period_by_id = period_state.get("by_id", {})
+            if period_id is None or not isinstance(period_by_id, dict) or period_id not in period_by_id:
+                period_var.set("")
+                if trigger_reload:
+                    on_period_changed()
+                return
+            item = period_by_id[period_id]
+            if isinstance(item, dict):
+                period_var.set(period_label(item))
+            if trigger_reload:
+                on_period_changed()
+
+        def refresh_period_selector_state() -> None:
+            items = period_state.get("items", [])
+            has_periods = isinstance(items, list) and bool(items)
+            close_period_menu()
+            if has_periods:
+                if period_empty_create_button.winfo_ismapped():
+                    period_empty_create_button.pack_forget()
+                if not period_selector_main.winfo_ismapped():
+                    period_selector_main.pack(fill=tk.X)
+                period_entry.configure(state="readonly")
+                period_toggle_button.configure(state="normal")
+                period_entry.bind("<Button-1>", lambda _e: open_period_menu())
+            else:
+                period_var.set("")
+                if period_selector_main.winfo_ismapped():
+                    period_selector_main.pack_forget()
+                if not period_empty_create_button.winfo_ismapped():
+                    period_empty_create_button.pack(fill=tk.X)
+
+        def list_week_template_choices(*, include_ids: set[int] | None = None) -> tuple[list[str], dict[str, int], dict[int, str]]:
+            include_ids = include_ids or set()
+            with session_scope() as session:
+                overview = TemplateController(session=session).load_templates_overview(company_id)
+            templates = sorted(
+                list(overview.week_templates),
+                key=lambda item: (bool(item.is_archived), str(item.name).lower(), int(item.id)),
+            )
+            visible = [item for item in templates if (not bool(item.is_archived)) or (int(item.id) in include_ids)]
+            if not visible:
+                raise ValueError("Немає доступних шаблонів тижня. Створіть їх у вкладці шаблонів.")
+
+            labels: list[str] = []
+            by_label: dict[str, int] = {}
+            by_id: dict[int, str] = {}
+            for item in visible:
+                archived_suffix = " [архів]" if bool(item.is_archived) else ""
+                label = f"{int(item.id)} | {item.name}{archived_suffix}"
+                labels.append(label)
+                by_label[label] = int(item.id)
+                by_id[int(item.id)] = label
+            return labels, by_label, by_id
+
+        def open_period_modal(*, period_id: int | None = None) -> None:
+            existing = period_state.get("by_id", {}).get(period_id) if period_id is not None else None
+            is_edit = isinstance(existing, dict)
+            period_data = existing if is_edit else None
+            include_template_ids: set[int] = set()
+            if period_data is not None:
+                week_map = period_data.get("week_pattern_by_week_index", {})
+                if isinstance(week_map, dict):
+                    include_template_ids = {int(value) for value in week_map.values()}
+            try:
+                template_labels, template_id_by_label, template_label_by_id = list_week_template_choices(
+                    include_ids=include_template_ids
+                )
+            except Exception as exc:
+                messagebox.showerror("Період", str(exc), parent=self.root)
+                return
+
+            if is_edit and period_data is not None:
+                start_date = period_data["start_date"]
+                weeks_default = int(period_data["weeks_count"])
+                period_name_default = str(period_data.get("name") or "")
+                existing_week_map = dict(period_data.get("week_pattern_by_week_index", {}))
+            else:
+                items = period_state.get("items", [])
+                if isinstance(items, list) and items:
+                    last_period = items[-1]
+                    start_date = last_period["end_date"] + timedelta(days=1)
+                else:
+                    start_date = date.today()
+                weeks_default = 16
+                period_name_default = ""
+                default_template_id = template_id_by_label[template_labels[0]]
+                existing_week_map = {index: default_template_id for index in range(1, weeks_default + 1)}
+
+            modal = tk.Toplevel(self.root)
+            modal.title("Редагувати період" if is_edit else "Створити період")
+            modal.transient(self.root)
+            modal.grab_set()
+            modal.resizable(False, False)
+
+            shell = ttk.Frame(modal, style="Card.TFrame", padding=14)
+            shell.pack(fill=tk.BOTH, expand=True)
+            ttk.Label(shell, text="Редагування періоду" if is_edit else "Створення періоду", style="CardTitle.TLabel").pack(anchor="w")
+            ttk.Label(shell, text=f"Початок: {start_date.isoformat()}", style="CardSubtle.TLabel").pack(anchor="w", pady=(2, 10))
+
+            form = ttk.Frame(shell, style="Card.TFrame")
+            form.pack(fill=tk.X)
+            ttk.Label(form, text="Назва", style="Card.TLabel").grid(row=0, column=0, sticky="w")
+            period_name_var = tk.StringVar(value=period_name_default)
+            ttk.Entry(form, textvariable=period_name_var, width=34).grid(row=0, column=1, sticky="w", padx=(8, 12))
+            ttk.Label(form, text="Кількість тижнів", style="Card.TLabel").grid(row=0, column=2, sticky="w")
+            weeks_count_var = tk.StringVar(value=str(weeks_default))
+            ttk.Entry(form, textvariable=weeks_count_var, width=8).grid(row=0, column=3, sticky="w", padx=(8, 0))
+
+            quick_row = ttk.Frame(shell, style="Card.TFrame")
+            quick_row.pack(fill=tk.X, pady=(10, 8))
+            ttk.Label(quick_row, text="Швидке призначення", style="Card.TLabel").pack(side=tk.LEFT)
+            quick_template_var = tk.StringVar(value=template_labels[0])
+            ttk.Combobox(
+                quick_row,
+                textvariable=quick_template_var,
+                values=template_labels,
+                state="readonly",
+                width=38,
+            ).pack(side=tk.LEFT, padx=(8, 8))
+
+            weeks_shell = ttk.Frame(shell, style="Card.TFrame")
+            weeks_shell.pack(fill=tk.BOTH, expand=True)
+            weeks_canvas = tk.Canvas(
+                weeks_shell,
+                bg=self.theme.SURFACE,
+                bd=0,
+                highlightthickness=0,
+                relief=tk.FLAT,
+                height=260,
+            )
+            weeks_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+            weeks_scroll = ttk.Scrollbar(
+                weeks_shell,
+                orient=tk.VERTICAL,
+                command=weeks_canvas.yview,
+                style="App.Vertical.TScrollbar",
+            )
+            weeks_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+            weeks_canvas.configure(yscrollcommand=weeks_scroll.set)
+            weeks_body = ttk.Frame(weeks_canvas, style="Card.TFrame")
+            weeks_window = weeks_canvas.create_window((0, 0), anchor="nw", window=weeks_body)
+
+            week_choice_vars: list[tk.StringVar] = []
+
+            def sync_weeks_canvas(_event=None) -> None:
+                weeks_canvas.itemconfigure(weeks_window, width=max(1, weeks_canvas.winfo_width()))
+                bbox = weeks_canvas.bbox("all")
+                if bbox is not None:
+                    weeks_canvas.configure(scrollregion=bbox)
+
+            weeks_body.bind("<Configure>", sync_weeks_canvas, add="+")
+            weeks_canvas.bind("<Configure>", sync_weeks_canvas, add="+")
+
+            def rebuild_week_rows() -> None:
+                for child in weeks_body.winfo_children():
+                    child.destroy()
+                previous_values = [var.get().strip() for var in week_choice_vars]
+                week_choice_vars.clear()
+
+                weeks_count = parse_optional_positive_int(weeks_count_var.get(), field_name="Кількість тижнів")
+                if weeks_count is None:
+                    raise ValueError("Вкажіть кількість тижнів.")
+                default_template_id = template_id_by_label.get(quick_template_var.get().strip(), template_id_by_label[template_labels[0]])
+                for week_index in range(1, weeks_count + 1):
+                    row = ttk.Frame(weeks_body, style="Card.TFrame")
+                    row.pack(fill=tk.X, pady=(0, 6))
+                    ttk.Label(row, text=f"Тиждень {week_index}", style="Card.TLabel").pack(side=tk.LEFT)
+                    if week_index <= len(previous_values) and previous_values[week_index - 1] in template_id_by_label:
+                        selected_label = previous_values[week_index - 1]
+                    else:
+                        mapped_template_id = int(existing_week_map.get(week_index, default_template_id))
+                        selected_label = template_label_by_id.get(mapped_template_id, template_labels[0])
+                    var = tk.StringVar(value=selected_label)
+                    week_choice_vars.append(var)
+                    ttk.Combobox(
+                        row,
+                        textvariable=var,
+                        values=template_labels,
+                        state="readonly",
+                        width=38,
+                    ).pack(side=tk.LEFT, padx=(8, 0))
+                modal.after_idle(sync_weeks_canvas)
+
+            def apply_quick_template() -> None:
+                quick_label = quick_template_var.get().strip()
+                if quick_label not in template_id_by_label:
+                    raise ValueError("Оберіть шаблон для швидкого призначення.")
+                for var in week_choice_vars:
+                    var.set(quick_label)
+
+            def on_rebuild_weeks() -> None:
+                try:
+                    rebuild_week_rows()
+                except Exception as exc:
+                    messagebox.showerror("Період", str(exc), parent=modal)
+
+            def on_apply_quick_template() -> None:
+                try:
+                    apply_quick_template()
+                except Exception as exc:
+                    messagebox.showerror("Період", str(exc), parent=modal)
+
+            def on_save_period() -> None:
+                try:
+                    weeks_count = parse_optional_positive_int(weeks_count_var.get(), field_name="Кількість тижнів")
+                    if weeks_count is None:
+                        raise ValueError("Вкажіть кількість тижнів.")
+                    if weeks_count != len(week_choice_vars):
+                        rebuild_week_rows()
+                        weeks_count = len(week_choice_vars)
+                    week_pattern_by_week_index: dict[int, int] = {}
+                    for week_index, value_var in enumerate(week_choice_vars, start=1):
+                        label = value_var.get().strip()
+                        if label not in template_id_by_label:
+                            raise ValueError(f"Оберіть шаблон для тижня {week_index}.")
+                        week_pattern_by_week_index[week_index] = int(template_id_by_label[label])
+
+                    with session_scope() as session:
+                        calendar_controller = CalendarController(session=session)
+                        if is_edit and period_data is not None:
+                            if not messagebox.askyesno(
+                                "Редагування періоду",
+                                "Підтвердити збереження? Поточні заняття цього періоду буде перебудовано.",
+                                parent=modal,
+                            ):
+                                return
+                            updated = calendar_controller.update_calendar_period_with_templates(
+                                period_id=int(period_data["id"]),
+                                name=period_name_var.get().strip(),
+                                start_date=start_date,
+                                weeks_count=weeks_count,
+                                week_pattern_by_week_index=week_pattern_by_week_index,
+                            )
+                            resulting_id = int(updated.id)
+                        else:
+                            created = calendar_controller.create_calendar_period_with_templates(
+                                company_id=company_id,
+                                name=period_name_var.get().strip(),
+                                start_date=start_date,
+                                weeks_count=weeks_count,
+                                week_pattern_by_week_index=week_pattern_by_week_index,
+                            )
+                            resulting_id = int(created.id)
+                except Exception as exc:
+                    messagebox.showerror("Період", str(exc), parent=modal)
+                    return
+
+                modal.destroy()
+                close_period_menu()
+                load_reference_data(select_period_id=resulting_id)
+                on_period_changed()
+                status_var.set("Період збережено.")
+
+            self._motion_button(
+                quick_row,
+                text="Застосувати до всіх",
+                command=on_apply_quick_template,
+                primary=False,
+                width=180,
+                height=36,
+            ).pack(side=tk.LEFT)
+
+            actions = ttk.Frame(shell, style="Card.TFrame")
+            actions.pack(fill=tk.X, pady=(10, 0))
+            self._motion_button(
+                actions,
+                text="Оновити тижні",
+                command=on_rebuild_weeks,
+                primary=False,
+                width=150,
+                height=36,
+            ).pack(side=tk.LEFT, padx=(0, 8))
+            self._motion_button(
+                actions,
+                text="Зберегти",
+                command=on_save_period,
+                primary=True,
+                width=130,
+                height=36,
+            ).pack(side=tk.LEFT, padx=(0, 8))
+            self._motion_button(
+                actions,
+                text="Скасувати",
+                command=modal.destroy,
+                primary=False,
+                width=130,
+                height=36,
+            ).pack(side=tk.LEFT)
+
+            on_rebuild_weeks()
+
+        def on_delete_period(period_id: int) -> None:
+            period_by_id = period_state.get("by_id", {})
+            if not isinstance(period_by_id, dict) or period_id not in period_by_id:
+                return
+            items = period_state.get("items", [])
+            if not isinstance(items, list):
+                return
+            period_index = next((idx for idx, item in enumerate(items) if int(item["id"]) == int(period_id)), -1)
+            if period_index < 0:
+                return
+            current_item = items[period_index]
+            current_label = str(current_item.get("name") or "").strip() or f"Період #{period_id}"
+            if not messagebox.askyesno(
+                "Видалення періоду",
+                f"Видалити '{current_label}'? Це також очистить заняття й сценарії цього періоду.",
+                parent=self.root,
+            ):
+                return
+            try:
+                with session_scope() as session:
+                    deleted = CalendarController(session=session).delete_calendar_period(period_id=period_id)
+                    if not deleted:
+                        raise ValueError("Період не знайдено або вже видалено.")
+            except Exception as exc:
+                messagebox.showerror("Видалення періоду", str(exc), parent=self.root)
+                return
+
+            selected_item = selected_period_item()
+            selected_id = int(selected_item["id"]) if isinstance(selected_item, dict) else None
+            next_period_id: int | None = None
+            remaining = [item for item in items if int(item["id"]) != int(period_id)]
+            if selected_id == int(period_id):
+                if period_index < len(remaining):
+                    next_period_id = int(remaining[period_index]["id"])
+                elif remaining:
+                    next_period_id = int(remaining[-1]["id"])
+            else:
+                next_period_id = selected_id
+
+            close_period_menu()
+            load_reference_data(select_period_id=next_period_id)
+            on_period_changed()
+            status_var.set("Період видалено.")
+
+        def open_period_menu() -> None:
+            items = period_state.get("items", [])
+            if not isinstance(items, list) or not items:
+                open_period_modal(period_id=None)
+                return
+            popup = period_state.get("menu")
+            if isinstance(popup, tk.Toplevel) and popup.winfo_exists():
+                close_period_menu()
+                return
+
+            close_period_menu()
+            popup = tk.Toplevel(self.root)
+            popup.overrideredirect(True)
+            popup.transient(self.root)
+            popup.configure(bg=self.theme.BORDER)
+            period_state["menu"] = popup
+            popup.bind("<Escape>", lambda _e: close_period_menu(), add="+")
+
+            shell = tk.Frame(popup, bg=self.theme.SURFACE, bd=0, highlightthickness=0)
+            shell.pack(fill=tk.BOTH, expand=True, padx=1, pady=1)
+
+            selected_item = selected_period_item()
+            selected_id = int(selected_item["id"]) if isinstance(selected_item, dict) else None
+
+            for item in items:
+                item_id = int(item["id"])
+                is_selected = selected_id == item_id
+                row_bg = self.theme.SECONDARY_HOVER if is_selected else self.theme.SURFACE
+                row = tk.Frame(shell, bg=row_bg, bd=0, highlightthickness=0)
+                row.pack(fill=tk.X)
+
+                select_button = tk.Button(
+                    row,
+                    text=period_label(item),
+                    anchor="w",
+                    relief=tk.FLAT,
+                    bd=0,
+                    padx=8,
+                    pady=7,
+                    bg=row_bg,
+                    fg=self.theme.TEXT_PRIMARY,
+                    activebackground=self.theme.SECONDARY_HOVER,
+                    activeforeground=self.theme.TEXT_PRIMARY,
+                    command=lambda pid=item_id: (
+                        close_period_menu(),
+                        select_period(pid, trigger_reload=True),
+                    ),
+                )
+                select_button.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+                HoverCircleIconButton(
+                    row,
+                    text="✎",
+                    command=lambda pid=item_id: (
+                        close_period_menu(),
+                        open_period_modal(period_id=pid),
+                    ),
+                    diameter=32,
+                    canvas_bg=row_bg,
+                    icon_color=self.theme.TEXT_MUTED,
+                    hover_bg=self.theme.SECONDARY_HOVER,
+                    hover_icon_color=self.theme.TEXT_PRIMARY,
+                    pressed_bg=self.theme.SECONDARY_PRESSED,
+                ).pack(side=tk.LEFT, padx=(4, 2), pady=2)
+                HoverCircleIconButton(
+                    row,
+                    text="🗑",
+                    command=lambda pid=item_id: on_delete_period(pid),
+                    diameter=32,
+                    canvas_bg=row_bg,
+                    icon_color=self.theme.DANGER,
+                    hover_bg=self.theme.SECONDARY_HOVER,
+                    hover_icon_color=self.theme.DANGER_HOVER,
+                    pressed_bg=self.theme.SECONDARY_PRESSED,
+                ).pack(side=tk.LEFT, padx=(2, 6), pady=2)
+
+            create_row = tk.Frame(shell, bg=self.theme.SURFACE_ALT, bd=0, highlightthickness=0)
+            create_row.pack(fill=tk.X, pady=(4, 0))
+            create_button = tk.Button(
+                create_row,
+                text="+ Створити період",
+                anchor="w",
+                relief=tk.FLAT,
+                bd=0,
+                padx=8,
+                pady=8,
+                bg=self.theme.SURFACE_ALT,
+                fg=self.theme.ACCENT,
+                activebackground=self.theme.SECONDARY_HOVER,
+                activeforeground=self.theme.ACCENT_HOVER,
+                command=lambda: (
+                    close_period_menu(),
+                    open_period_modal(period_id=None),
+                ),
+            )
+            create_button.pack(fill=tk.X)
+
+            popup.update_idletasks()
+            x_pos = period_selector_shell.winfo_rootx()
+            y_pos = period_selector_shell.winfo_rooty() + period_selector_shell.winfo_height() + 2
+            popup.geometry(f"+{x_pos}+{y_pos}")
+            popup.lift()
+
+        period_toggle_button.configure(command=open_period_menu)
+        period_empty_create_button.command = lambda: open_period_modal(period_id=None)
 
         def selected_group_resource_id() -> int | None:
             raw = group_filter_var.get().strip()
@@ -2049,7 +2550,7 @@ class ScheduleMainWindow:
             load_scenarios(period_id=period_id)
             on_load_week()
 
-        def load_reference_data() -> None:
+        def load_reference_data(*, select_period_id: int | None = None) -> None:
             with session_scope() as session:
                 calendar = CalendarController(session=session)
                 periods = calendar.list_calendar_periods(company_id=company_id)
@@ -2060,13 +2561,42 @@ class ScheduleMainWindow:
                 room_profiles = RoomController(session=session).list_rooms(company_id=company_id, include_archived=False)
                 streams = AcademicController(session=session).list_streams(company_id=company_id, include_archived=False)
 
-            period_values = [f"{item.id} | {item.start_date}..{item.end_date}" for item in periods]
-            period_box["values"] = period_values
-            if period_values and not period_var.get():
-                period_var.set(period_values[0])
-            if not period_values:
+            period_items: list[dict[str, object]] = []
+            for item in periods:
+                weeks_count = period_weeks_count(item.start_date, item.end_date)
+                week_pattern_by_week_index: dict[int, int] = {
+                    week_index: int(item.week_pattern_id)
+                    for week_index in range(1, weeks_count + 1)
+                }
+                for override in item.week_template_overrides:
+                    week_idx = int(override.week_index)
+                    if 1 <= week_idx <= weeks_count:
+                        week_pattern_by_week_index[week_idx] = int(override.week_pattern_id)
+                period_items.append(
+                    {
+                        "id": int(item.id),
+                        "name": str(item.name or "").strip(),
+                        "start_date": item.start_date,
+                        "end_date": item.end_date,
+                        "weeks_count": weeks_count,
+                        "week_pattern_id": int(item.week_pattern_id),
+                        "week_pattern_by_week_index": week_pattern_by_week_index,
+                    }
+                )
+
+            period_state["items"] = period_items
+            period_state["by_id"] = {int(item["id"]): item for item in period_items}
+            existing_selected = selected_period_item()
+            fallback_selected_id = int(existing_selected["id"]) if isinstance(existing_selected, dict) else None
+            target_period_id = select_period_id if select_period_id is not None else fallback_selected_id
+            if period_items:
+                if target_period_id is None or target_period_id not in period_state["by_id"]:
+                    target_period_id = int(period_items[0]["id"])
+                select_period(target_period_id, trigger_reload=False)
+            else:
                 period_var.set("")
-                status_var.set("Періоди відсутні. Створи період у налаштуваннях або кнопкою нижче.")
+                status_var.set("Періоди відсутні. Створіть період через дропдаун.")
+            refresh_period_selector_state()
             try:
                 load_scenarios(period_id=parse_period_id())
             except Exception:
@@ -2104,23 +2634,14 @@ class ScheduleMainWindow:
             manual_room_box["values"] = ["Авто"] + room_values
             if manual_room_var.get() not in manual_room_box["values"]:
                 manual_room_var.set("Авто")
-            if period_values and not manual_date_var.get():
-                try:
-                    period_start = str(period_values[0].split("|", maxsplit=1)[1].split("..", maxsplit=1)[0]).strip()
-                    manual_date_var.set(period_start)
-                except Exception:
-                    pass
-            if period_values and (not blackout_batch_start_date_var.get() or not blackout_batch_end_date_var.get()):
-                try:
-                    period_range = str(period_values[0].split("|", maxsplit=1)[1]).strip()
-                    period_start = period_range.split("..", maxsplit=1)[0].strip()
-                    period_end = period_range.split("..", maxsplit=1)[1].strip()
-                    if not blackout_batch_start_date_var.get():
-                        blackout_batch_start_date_var.set(period_start)
-                    if not blackout_batch_end_date_var.get():
-                        blackout_batch_end_date_var.set(period_end)
-                except Exception:
-                    pass
+            selected_period = selected_period_item()
+            if selected_period is not None and not manual_date_var.get():
+                manual_date_var.set(selected_period["start_date"].isoformat())
+            if selected_period is not None and (not blackout_batch_start_date_var.get() or not blackout_batch_end_date_var.get()):
+                if not blackout_batch_start_date_var.get():
+                    blackout_batch_start_date_var.set(selected_period["start_date"].isoformat())
+                if not blackout_batch_end_date_var.get():
+                    blackout_batch_end_date_var.set(selected_period["end_date"].isoformat())
 
             blackout_resource_values_by_scope["Викладач"] = teacher_values
             blackout_resource_values_by_scope["Група"] = group_values
@@ -2532,11 +3053,7 @@ class ScheduleMainWindow:
                 messagebox.showerror("Не вдалося створити період", str(exc))
                 return
 
-            load_reference_data()
-            for value in period_box["values"]:
-                if value.startswith(f"{period_id} |"):
-                    period_var.set(value)
-                    break
+            load_reference_data(select_period_id=period_id)
             status_var.set(
                 f"Створено період #{period_id}: {start.isoformat()}..{end.isoformat()}."
             )
@@ -2618,7 +3135,7 @@ class ScheduleMainWindow:
         load_coverage_dashboard()
         subject_target_box.bind("<<ComboboxSelected>>", lambda _e: refresh_subject_target_controls(), add="+")
         blackout_scope_box.bind("<<ComboboxSelected>>", lambda _e: refresh_blackout_resource_choices(), add="+")
-        period_box.bind("<<ComboboxSelected>>", lambda _e: on_period_changed(), add="+")
+        group_box.bind("<<ComboboxSelected>>", lambda _e: on_load_week(), add="+")
         scenario_box.bind("<<ComboboxSelected>>", lambda _e: on_load_week(), add="+")
         entries_table.bind("<Double-1>", lambda _e: load_selected_entry_into_manual(), add="+")
         requirements_table.bind("<Double-1>", lambda _e: open_requirement_edit_modal(), add="+")
@@ -6929,3 +7446,4 @@ class ScheduleMainWindow:
         open_tab("home")
         if period_var.get():
             load_personal_schedule()
+

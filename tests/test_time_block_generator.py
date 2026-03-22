@@ -6,7 +6,15 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.domain.base import Base
 from app.domain.enums import MarkKind
-from app.domain.models import CalendarPeriod, DayPattern, DayPatternItem, MarkType, TimeBlock, WeekPattern
+from app.domain.models import (
+    CalendarPeriod,
+    CalendarPeriodWeekTemplate,
+    DayPattern,
+    DayPatternItem,
+    MarkType,
+    TimeBlock,
+    WeekPattern,
+)
 from app.services.time_block_generator import TimeBlockGeneratorService
 
 
@@ -114,3 +122,77 @@ def test_regeneration_replaces_existing_blocks(session: Session) -> None:
 
     total_blocks = session.query(TimeBlock).count()
     assert total_blocks == 6
+
+
+def test_generator_applies_week_template_override_by_week_index(session: Session) -> None:
+    teaching_mark = MarkType(
+        name="Teaching 45",
+        kind=MarkKind.TEACHING,
+        duration_minutes=45,
+    )
+    break_mark = MarkType(
+        name="Break 10",
+        kind=MarkKind.BREAK,
+        duration_minutes=10,
+    )
+
+    default_day = DayPattern(name="Default day")
+    default_day.items = [
+        DayPatternItem(order_index=1, mark_type=teaching_mark),
+        DayPatternItem(order_index=2, mark_type=break_mark),
+        DayPatternItem(order_index=3, mark_type=teaching_mark),
+    ]
+    override_day = DayPattern(name="Override day")
+    override_day.items = [
+        DayPatternItem(order_index=1, mark_type=teaching_mark),
+    ]
+
+    default_week = WeekPattern(
+        monday_pattern=default_day,
+        tuesday_pattern=default_day,
+        wednesday_pattern=default_day,
+        thursday_pattern=default_day,
+        friday_pattern=default_day,
+        saturday_pattern=default_day,
+        sunday_pattern=default_day,
+    )
+    override_week = WeekPattern(
+        monday_pattern=override_day,
+        tuesday_pattern=override_day,
+        wednesday_pattern=override_day,
+        thursday_pattern=override_day,
+        friday_pattern=override_day,
+        saturday_pattern=override_day,
+        sunday_pattern=override_day,
+    )
+
+    period = CalendarPeriod(
+        start_date=date(2026, 2, 16),
+        end_date=date(2026, 2, 23),
+        week_pattern=default_week,
+    )
+    period.week_template_overrides = [
+        CalendarPeriodWeekTemplate(week_index=2, week_pattern=override_week),
+    ]
+    session.add(period)
+    session.commit()
+
+    generator = TimeBlockGeneratorService(day_start_time=time(hour=8, minute=30))
+    generator.generate_for_period(session=session, calendar_period_id=period.id)
+    session.commit()
+
+    first_week_blocks = (
+        session.query(TimeBlock)
+        .filter(TimeBlock.date == date(2026, 2, 16))
+        .order_by(TimeBlock.order_in_day.asc())
+        .all()
+    )
+    second_week_blocks = (
+        session.query(TimeBlock)
+        .filter(TimeBlock.date == date(2026, 2, 23))
+        .order_by(TimeBlock.order_in_day.asc())
+        .all()
+    )
+
+    assert len(first_week_blocks) == 3
+    assert len(second_week_blocks) == 1
