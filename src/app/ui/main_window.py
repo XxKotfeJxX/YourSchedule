@@ -14,6 +14,7 @@ from app.controllers.academic_controller import AcademicController
 from app.controllers.auth_controller import AuthController
 from app.controllers.building_controller import BuildingController
 from app.controllers.calendar_controller import CalendarController
+from app.controllers.curriculum_controller import CurriculumController
 from app.controllers.requirement_controller import RequirementController
 from app.controllers.resource_controller import ResourceController
 from app.controllers.room_controller import RoomController
@@ -547,19 +548,8 @@ class ScheduleMainWindow:
         scenario_var = tk.StringVar(value="Опублікований")
         scenario_compare_var = tk.StringVar(value="Опублікований")
         status_var = tk.StringVar(value="Готово.")
-
-        subject_name_var = tk.StringVar()
-        subject_duration_var = tk.StringVar(value="1")
-        subject_sessions_var = tk.StringVar(value="4")
-        subject_max_week_var = tk.StringVar(value="2")
-        subject_teacher_var = tk.StringVar()
-        subject_target_var = tk.StringVar(value="Група")
-        subject_group_var = tk.StringVar()
-        subject_stream_var = tk.StringVar()
-        subject_room_type_var = tk.StringVar(value="Не важливо")
-        subject_min_capacity_var = tk.StringVar()
-        subject_needs_projector_var = tk.BooleanVar(value=False)
-        subject_fixed_room_var = tk.StringVar(value="Авто")
+        plan_sync_var = tk.StringVar()
+        plan_sync_hint_var = tk.StringVar(value="Синхронізуйте вимоги з навчальних планів.")
 
         blackout_scope_var = tk.StringVar(value="Викладач")
         blackout_resource_var = tk.StringVar()
@@ -596,6 +586,7 @@ class ScheduleMainWindow:
         blackout_resource_scope_by_id: dict[int, str] = {}
         room_type_label_by_enum = {room_type: label for label, room_type in room_type_options if room_type is not None}
         requirements_state: dict[str, list[dict[str, object]]] = {"items": []}
+        plan_sync_state: dict[str, list[dict[str, object]]] = {"items": []}
         schedule_entries_state: dict[int, dict[str, object]] = {}
         scenario_values_state: dict[str, list[str]] = {"values": ["Опублікований"]}
         period_state: dict[str, object] = {
@@ -996,78 +987,30 @@ class ScheduleMainWindow:
 
         parent = schedule_views["setup"]
 
-        subject_box = ttk.LabelFrame(parent, text="Предмет", padding=(12, 10), style="CardSection.TLabelframe")
-        subject_box.pack(fill=tk.X)
-        for col in range(4):
-            subject_box.columnconfigure(col, weight=1, uniform="subject-field-col")
+        plan_sync_box = ttk.LabelFrame(parent, text="Навчальні плани", padding=(12, 10), style="CardSection.TLabelframe")
+        plan_sync_box.pack(fill=tk.X)
+        plan_sync_box.columnconfigure(1, weight=1)
 
-        def build_subject_field(row: int, col: int, label_text: str) -> ttk.Frame:
-            field_shell = ttk.Frame(subject_box, style="Card.TFrame")
-            field_shell.grid(
-                row=row,
-                column=col,
-                sticky="ew",
-                padx=(0, 10) if col < 3 else (0, 0),
-                pady=(0, 8),
-            )
-            ttk.Label(field_shell, text=label_text, style="CardSubtle.TLabel").pack(anchor="w", pady=(0, 4))
-            return field_shell
-
-        name_field = build_subject_field(0, 0, "Назва")
-        ttk.Entry(name_field, textvariable=subject_name_var).pack(fill=tk.X)
-
-        duration_field = build_subject_field(0, 1, "Тривалість (блоків)")
-        ttk.Entry(duration_field, textvariable=subject_duration_var).pack(fill=tk.X)
-
-        sessions_field = build_subject_field(0, 2, "Кількість занять")
-        ttk.Entry(sessions_field, textvariable=subject_sessions_var).pack(fill=tk.X)
-
-        max_week_field = build_subject_field(0, 3, "Макс/тиждень")
-        ttk.Entry(max_week_field, textvariable=subject_max_week_var).pack(fill=tk.X)
-
-        teacher_field = build_subject_field(1, 0, "Викладач")
-        teacher_box = ttk.Combobox(teacher_field, textvariable=subject_teacher_var, state="readonly")
-        teacher_box.pack(fill=tk.X)
-
-        target_field = build_subject_field(1, 1, "Ціль")
-        subject_target_box = ttk.Combobox(
-            target_field,
-            textvariable=subject_target_var,
-            values=["Група", "Потік"],
+        ttk.Label(plan_sync_box, text="План", style="CardSubtle.TLabel").grid(row=0, column=0, sticky="w")
+        plan_selector_box = ttk.Combobox(
+            plan_sync_box,
+            textvariable=plan_sync_var,
             state="readonly",
         )
-        subject_target_box.pack(fill=tk.X)
+        plan_selector_box.grid(row=0, column=1, sticky="ew", padx=(8, 12))
 
-        group_field = build_subject_field(1, 2, "Група")
-        subject_group_box = ttk.Combobox(group_field, textvariable=subject_group_var, state="readonly")
-        subject_group_box.pack(fill=tk.X)
+        plan_sync_selected_button = ttk.Button(plan_sync_box, text="Синхр. вибраний план")
+        plan_sync_selected_button.grid(row=0, column=2, sticky="w", padx=(0, 8))
+        plan_sync_all_button = ttk.Button(plan_sync_box, text="Синхр. усі плани")
+        plan_sync_all_button.grid(row=0, column=3, sticky="w", padx=(0, 8))
+        plan_sync_refresh_button = ttk.Button(plan_sync_box, text="Оновити список")
+        plan_sync_refresh_button.grid(row=0, column=4, sticky="w")
 
-        stream_field = build_subject_field(1, 3, "Потік")
-        subject_stream_box = ttk.Combobox(stream_field, textvariable=subject_stream_var, state="readonly")
-        subject_stream_box.pack(fill=tk.X)
-
-        room_type_field = build_subject_field(2, 0, "Тип аудиторії")
-        subject_room_type_box = ttk.Combobox(
-            room_type_field,
-            textvariable=subject_room_type_var,
-            values=room_type_labels,
-            state="readonly",
-        )
-        subject_room_type_box.pack(fill=tk.X)
-
-        min_capacity_field = build_subject_field(2, 1, "Мін. місткість")
-        ttk.Entry(min_capacity_field, textvariable=subject_min_capacity_var).pack(fill=tk.X)
-
-        projector_field = build_subject_field(2, 2, "Оснащення")
-        ttk.Checkbutton(
-            projector_field,
-            text="Потрібен проєктор",
-            variable=subject_needs_projector_var,
-        ).pack(anchor="w", pady=(2, 0))
-
-        fixed_room_field = build_subject_field(2, 3, "Фікс. аудиторія")
-        subject_fixed_room_box = ttk.Combobox(fixed_room_field, textvariable=subject_fixed_room_var, state="readonly")
-        subject_fixed_room_box.pack(fill=tk.X)
+        ttk.Label(
+            plan_sync_box,
+            textvariable=plan_sync_hint_var,
+            style="CardSubtle.TLabel",
+        ).grid(row=1, column=0, columnspan=5, sticky="w", pady=(8, 0))
 
         blackout_box = ttk.LabelFrame(parent, text="Недоступності ресурсів", padding=10)
         blackout_box.pack(fill=tk.X, pady=(8, 0))
@@ -1379,6 +1322,12 @@ class ScheduleMainWindow:
 
         def selected_scenario_id() -> int | None:
             return parse_scenario_id(scenario_var.get())
+
+        def selected_plan_id() -> int:
+            raw = plan_sync_var.get().strip()
+            if not raw:
+                raise ValueError("Оберіть навчальний план.")
+            return parse_prefixed_id(raw, field_name="навчальний план")
 
         def parse_week_start() -> date | None:
             raw = week_start_var.get().strip()
@@ -2608,43 +2557,6 @@ class ScheduleMainWindow:
                 return -1
             return parse_prefixed_id(raw, field_name="група")
 
-        def selected_teacher_resource_id() -> int:
-            raw = subject_teacher_var.get().strip()
-            if not raw:
-                raise ValueError("Оберіть викладача.")
-            return parse_prefixed_id(raw, field_name="викладач")
-
-        def selected_subject_group_id() -> int:
-            raw = subject_group_var.get().strip()
-            if not raw:
-                raise ValueError("Оберіть групу для предмета.")
-            return parse_prefixed_id(raw, field_name="група")
-
-        def selected_subject_stream_id() -> int:
-            raw = subject_stream_var.get().strip()
-            if not raw:
-                raise ValueError("Оберіть потік для предмета.")
-            return parse_prefixed_id(raw, field_name="потік")
-
-        def selected_subject_target() -> str:
-            normalized = subject_target_var.get().strip().lower()
-            value = {"група": "GROUP", "потік": "STREAM"}.get(normalized)
-            if value is None:
-                raise ValueError("Оберіть ціль предмета: група або потік.")
-            return value
-
-        def selected_room_type() -> RoomType | None:
-            label = subject_room_type_var.get().strip() or "Не важливо"
-            if label not in room_type_by_label:
-                raise ValueError("Оберіть тип аудиторії.")
-            return room_type_by_label[label]
-
-        def selected_fixed_room_id() -> int | None:
-            raw = subject_fixed_room_var.get().strip()
-            if not raw or raw == "Авто":
-                return None
-            return parse_prefixed_id(raw, field_name="фіксована аудиторія")
-
         def selected_blackout_scope() -> str:
             scope = blackout_scope_var.get().strip()
             if scope not in blackout_scope_type_by_label:
@@ -2668,11 +2580,6 @@ class ScheduleMainWindow:
             if not raw or raw == "Авто":
                 return None
             return parse_prefixed_id(raw, field_name="аудиторія")
-
-        def refresh_subject_target_controls() -> None:
-            is_stream = selected_subject_target() == "STREAM"
-            subject_group_box.configure(state="disabled" if is_stream else "readonly")
-            subject_stream_box.configure(state="readonly" if is_stream else "disabled")
 
         def refresh_blackout_resource_choices() -> None:
             scope = selected_blackout_scope()
@@ -3373,6 +3280,7 @@ class ScheduleMainWindow:
                 streams_all = academic.list_streams(company_id=company_id, include_archived=True)
                 courses_all = academic.list_courses(company_id=company_id, include_archived=True)
                 specialties_all = academic.list_specialties(company_id=company_id, include_archived=True)
+                plans = CurriculumController(session=session).list_plans(company_id=company_id, include_archived=False)
                 period_items: list[dict[str, object]] = []
                 for item in periods:
                     weeks_count = period_weeks_count(item.start_date, item.end_date)
@@ -3414,6 +3322,20 @@ class ScheduleMainWindow:
                 load_scenarios(period_id=parse_period_id())
             except Exception:
                 load_scenarios(period_id=None)
+
+            plan_sync_state["items"] = [{"id": int(item.id), "name": str(item.name)} for item in plans]
+            plan_values = [f"{item['id']} | {item['name']}" for item in plan_sync_state["items"]]
+            plan_selector_box["values"] = plan_values
+            if plan_values and plan_sync_var.get() not in plan_values:
+                plan_sync_var.set(plan_values[0])
+            if not plan_values:
+                plan_sync_var.set("")
+            plan_sync_selected_button.configure(state=("normal" if plan_values else "disabled"))
+            plan_sync_all_button.configure(state=("normal" if plan_values else "disabled"))
+            plan_sync_hint_var.set(
+                f"Активних планів: {len(plan_values)}. "
+                "Синхронізуйте плани, потім адмініструйте вимоги нижче."
+            )
 
             group_values = [f"{item.id} | {item.name}" for item in groups]
             group_selector_values = ["Не обрано"] + group_values
@@ -3485,29 +3407,7 @@ class ScheduleMainWindow:
             )
 
             teacher_values = [f"{item.id} | {item.name}" for item in teachers]
-            teacher_box["values"] = teacher_values
-            if teacher_values and not subject_teacher_var.get():
-                subject_teacher_var.set(teacher_values[0])
-
-            subject_group_box["values"] = group_values
-            if group_values and not subject_group_var.get():
-                subject_group_var.set(group_values[0])
-
-            stream_values = []
-            for stream in streams:
-                year_suffix = f" • набір {stream.admission_year}" if stream.admission_year is not None else ""
-                stream_values.append(f"{stream.id} | {stream.name}{year_suffix}")
-            subject_stream_box["values"] = stream_values
-            if stream_values and (subject_stream_var.get() not in stream_values):
-                subject_stream_var.set(stream_values[0])
-            if not stream_values:
-                subject_stream_var.set("")
-
             room_values = [f"{item.id} | {item.name}" for item in rooms]
-            room_profile_values = [f"{item.id} | {item.name}" for item in room_profiles]
-            subject_fixed_room_box["values"] = ["Авто"] + room_profile_values
-            if subject_fixed_room_var.get() not in subject_fixed_room_box["values"]:
-                subject_fixed_room_var.set("Авто")
             manual_room_box["values"] = ["Авто"] + room_values
             if manual_room_var.get() not in manual_room_box["values"]:
                 manual_room_var.set("Авто")
@@ -3536,11 +3436,6 @@ class ScheduleMainWindow:
                 blackout_resource_name_by_id[int(resource.id)] = str(resource.name)
                 blackout_resource_scope_by_id[int(resource.id)] = "Аудиторія"
 
-            try:
-                refresh_subject_target_controls()
-            except ValueError:
-                subject_target_var.set("Група")
-                refresh_subject_target_controls()
             try:
                 refresh_blackout_resource_choices()
             except ValueError:
@@ -3691,57 +3586,45 @@ class ScheduleMainWindow:
             messagebox.showwarning("Перевірка здійсненності", details)
             status_var.set(f"Знайдено ризиків: {len(report.issues)}")
 
-        def on_add_subject() -> None:
+        def on_sync_selected_plan() -> None:
             try:
-                name = subject_name_var.get().strip()
-                if not name:
-                    raise ValueError("Вкажіть назву предмета.")
-                duration = int(subject_duration_var.get().strip())
-                sessions_total = int(subject_sessions_var.get().strip())
-                max_per_week = int(subject_max_week_var.get().strip())
-                teacher_id = selected_teacher_resource_id()
-                target_mode = selected_subject_target()
-                room_type = selected_room_type()
-                min_capacity = parse_optional_positive_int(subject_min_capacity_var.get(), field_name="Мін. місткість")
-                needs_projector = bool(subject_needs_projector_var.get())
-                fixed_room_id = selected_fixed_room_id()
-
+                plan_id = selected_plan_id()
                 with session_scope() as session:
-                    req_controller = RequirementController(session=session)
-                    resource_controller = ResourceController(session=session)
-                    requirement = req_controller.create_requirement(
-                        name=name,
-                        duration_blocks=duration,
-                        sessions_total=sessions_total,
-                        max_per_week=max_per_week,
-                        company_id=company_id,
-                        room_type=room_type,
-                        min_capacity=min_capacity,
-                        needs_projector=needs_projector,
-                        fixed_room_id=fixed_room_id,
-                    )
-                    req_controller.assign_resource(requirement.id, teacher_id, "TEACHER")
-
-                    if target_mode == "STREAM":
-                        stream_id = selected_subject_stream_id()
-                        stream_groups = resource_controller.list_resources(
-                            resource_type=ResourceType.GROUP,
-                            company_id=company_id,
-                            stream_id=stream_id,
-                        )
-                        if not stream_groups:
-                            raise ValueError("У вибраному потоці немає жодної групи.")
-                        for group in stream_groups:
-                            req_controller.assign_resource(requirement.id, group.id, "GROUP")
-                    else:
-                        group_id = selected_subject_group_id()
-                        req_controller.assign_resource(requirement.id, group_id, "GROUP")
+                    synced = CurriculumController(session=session).sync_plan_requirements(plan_id=plan_id)
             except Exception as exc:
-                messagebox.showerror("Не вдалося додати предмет", str(exc))
+                messagebox.showerror("Синхронізація плану", str(exc))
                 return
             load_requirements()
-            target_label = "потоку" if selected_subject_target() == "STREAM" else "групи"
-            status_var.set(f"Предмет '{name}' додано для {target_label}.")
+            load_coverage_dashboard()
+            if period_var.get().strip():
+                on_load_week()
+            else:
+                load_schedule_entries()
+            status_var.set(f"План #{plan_id} синхронізовано. Вимог: {len(synced)}.")
+
+        def on_sync_all_plans() -> None:
+            try:
+                total_synced = 0
+                synced_plans = 0
+                with session_scope() as session:
+                    controller = CurriculumController(session=session)
+                    plans = controller.list_plans(company_id=company_id, include_archived=False)
+                    if not plans:
+                        raise ValueError("Немає активних навчальних планів для синхронізації.")
+                    for plan in plans:
+                        synced_requirements = controller.sync_plan_requirements(plan_id=int(plan.id))
+                        total_synced += len(synced_requirements)
+                        synced_plans += 1
+            except Exception as exc:
+                messagebox.showerror("Синхронізація планів", str(exc))
+                return
+            load_requirements()
+            load_coverage_dashboard()
+            if period_var.get().strip():
+                on_load_week()
+            else:
+                load_schedule_entries()
+            status_var.set(f"Синхронізовано планів: {synced_plans}. Оновлено вимог: {total_synced}.")
 
         def on_add_blackout() -> None:
             try:
@@ -3979,13 +3862,6 @@ class ScheduleMainWindow:
         ).pack(side=tk.LEFT, padx=(0, 6))
         self._motion_button(
             buttons,
-            text="Додати предмет",
-            command=on_add_subject,
-            primary=False,
-            width=170,
-        ).pack(side=tk.LEFT, padx=(0, 16))
-        self._motion_button(
-            buttons,
             text="Швидко створити період",
             command=on_create_default_period,
             primary=True,
@@ -4010,13 +3886,15 @@ class ScheduleMainWindow:
         requirements_refresh_button.configure(command=load_requirements)
         requirements_edit_button.configure(command=open_requirement_edit_modal)
         requirements_delete_button.configure(command=on_delete_requirement)
+        plan_sync_selected_button.configure(command=on_sync_selected_plan)
+        plan_sync_all_button.configure(command=on_sync_all_plans)
+        plan_sync_refresh_button.configure(command=lambda: load_reference_data())
 
         load_reference_data()
         load_policy()
         load_blackouts()
         load_requirements()
         load_coverage_dashboard()
-        subject_target_box.bind("<<ComboboxSelected>>", lambda _e: refresh_subject_target_controls(), add="+")
         blackout_scope_box.bind("<<ComboboxSelected>>", lambda _e: refresh_blackout_resource_choices(), add="+")
         entries_table.bind("<Double-1>", lambda _e: load_selected_entry_into_manual(), add="+")
         requirements_table.bind("<Double-1>", lambda _e: open_requirement_edit_modal(), add="+")
