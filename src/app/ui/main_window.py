@@ -603,6 +603,11 @@ class ScheduleMainWindow:
             "by_id": {},
             "menu": None,
         }
+        week_start_state: dict[str, object] = {
+            "labels": [],
+            "start_by_label": {},
+            "label_by_iso": {},
+        }
 
         policy_max_sessions_var = tk.StringVar(value="4")
         policy_max_consecutive_var = tk.StringVar(value="3")
@@ -871,7 +876,8 @@ class ScheduleMainWindow:
         period_empty_create_button.pack(fill=tk.X)
 
         ttk.Label(header, text="Початок тижня", style="Card.TLabel").grid(row=1, column=2, sticky="w", pady=(8, 0))
-        ttk.Entry(header, textvariable=week_start_var, width=14).grid(row=1, column=3, sticky="w", padx=(6, 10), pady=(8, 0))
+        week_start_box = ttk.Combobox(header, textvariable=week_start_var, width=26, state="readonly")
+        week_start_box.grid(row=1, column=3, sticky="w", padx=(6, 10), pady=(8, 0))
 
         ttk.Label(header, text="Група", style="Card.TLabel").grid(row=1, column=4, sticky="w", pady=(8, 0))
         group_box = ttk.Combobox(header, textvariable=group_filter_var, width=22, state="readonly")
@@ -1270,6 +1276,15 @@ class ScheduleMainWindow:
             raw = week_start_var.get().strip()
             if not raw:
                 return None
+            start_by_label = week_start_state.get("start_by_label", {})
+            if isinstance(start_by_label, dict):
+                resolved = start_by_label.get(raw)
+                if isinstance(resolved, date):
+                    return resolved
+            if "|" in raw:
+                tail = raw.split("|", maxsplit=1)[1].strip()
+                start_part = tail.split("..", maxsplit=1)[0].strip()
+                return date.fromisoformat(start_part)
             return date.fromisoformat(raw)
 
         def parse_prefixed_id(raw: str, *, field_name: str) -> int:
@@ -1391,16 +1406,58 @@ class ScheduleMainWindow:
                     return item
             return None
 
+        def refresh_week_start_selector(*, keep_selection: bool = True) -> None:
+            selected_period = selected_period_item()
+            previous_raw = week_start_var.get().strip()
+            labels: list[str] = []
+            start_by_label: dict[str, date] = {}
+            label_by_iso: dict[str, str] = {}
+            current_label: str | None = None
+            if isinstance(selected_period, dict):
+                period_start = selected_period["start_date"]
+                period_end = selected_period["end_date"]
+                weeks_count = int(selected_period["weeks_count"])
+                today = date.today()
+                for week_index in range(1, weeks_count + 1):
+                    week_start = period_start + timedelta(days=(week_index - 1) * 7)
+                    week_end = min(period_end, week_start + timedelta(days=6))
+                    is_current_week = week_start <= today <= week_end
+                    label = f"{week_index} | {week_start.isoformat()}..{week_end.isoformat()}"
+                    if is_current_week:
+                        label += " • поточний"
+                        current_label = label
+                    labels.append(label)
+                    start_by_label[label] = week_start
+                    label_by_iso[week_start.isoformat()] = label
+
+            week_start_state["labels"] = labels
+            week_start_state["start_by_label"] = start_by_label
+            week_start_state["label_by_iso"] = label_by_iso
+            week_start_box.configure(values=labels)
+
+            selected_label: str = ""
+            if keep_selection and previous_raw in start_by_label:
+                selected_label = previous_raw
+            elif keep_selection and previous_raw in label_by_iso:
+                selected_label = label_by_iso[previous_raw]
+            elif current_label is not None:
+                selected_label = current_label
+            elif labels:
+                selected_label = labels[0]
+            week_start_var.set(selected_label)
+
         def select_period(period_id: int | None, *, trigger_reload: bool) -> None:
             period_by_id = period_state.get("by_id", {})
             if period_id is None or not isinstance(period_by_id, dict) or period_id not in period_by_id:
                 period_var.set("")
+                refresh_week_start_selector(keep_selection=False)
                 if trigger_reload:
                     on_period_changed()
                 return
             item = period_by_id[period_id]
             if isinstance(item, dict):
                 period_var.set(period_label(item))
+            refresh_week_start_selector(keep_selection=True)
             if trigger_reload:
                 on_period_changed()
 
@@ -2768,6 +2825,7 @@ class ScheduleMainWindow:
                 select_period(target_period_id, trigger_reload=False)
             else:
                 period_var.set("")
+                refresh_week_start_selector(keep_selection=False)
                 status_var.set("Періоди відсутні. Створіть період через дропдаун.")
             refresh_period_selector_state()
             try:
@@ -3308,6 +3366,7 @@ class ScheduleMainWindow:
         load_coverage_dashboard()
         subject_target_box.bind("<<ComboboxSelected>>", lambda _e: refresh_subject_target_controls(), add="+")
         blackout_scope_box.bind("<<ComboboxSelected>>", lambda _e: refresh_blackout_resource_choices(), add="+")
+        week_start_box.bind("<<ComboboxSelected>>", lambda _e: on_load_week(), add="+")
         group_box.bind("<<ComboboxSelected>>", lambda _e: on_load_week(), add="+")
         scenario_box.bind("<<ComboboxSelected>>", lambda _e: on_load_week(), add="+")
         entries_table.bind("<Double-1>", lambda _e: load_selected_entry_into_manual(), add="+")
