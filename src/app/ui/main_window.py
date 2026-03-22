@@ -751,6 +751,59 @@ class ScheduleMainWindow:
         schedule_canvas.bind("<Button-5>", schedule_wheel_down, add="+")
 
         parent = schedule_body
+        tabs_bar = ttk.Frame(parent, style="Card.TFrame")
+        tabs_bar.pack(fill=tk.X, pady=(0, 8))
+        schedule_views: dict[str, ttk.Frame] = {
+            "view": ttk.Frame(parent, style="Card.TFrame"),
+            "setup": ttk.Frame(parent, style="Card.TFrame"),
+        }
+        for frame in schedule_views.values():
+            frame.pack(fill=tk.BOTH, expand=True)
+            frame.pack_forget()
+        schedule_tab_buttons: dict[str, RoundedMotionButton] = {}
+
+        def _set_schedule_tab_state(button: RoundedMotionButton, *, active: bool) -> None:
+            if active:
+                button.fill = self.theme.ACCENT
+                button.hover_fill = self.theme.ACCENT_HOVER
+                button.pressed_fill = self.theme.ACCENT_PRESSED
+                button.text_color = self.theme.TEXT_LIGHT
+                button.shadow_color = self.theme.SHADOW_SOFT
+            else:
+                button.fill = self.theme.SURFACE_ALT
+                button.hover_fill = self.theme.SECONDARY_HOVER
+                button.pressed_fill = self.theme.SECONDARY_PRESSED
+                button.text_color = self.theme.TEXT_PRIMARY
+                button.shadow_color = self.theme.SHADOW_SOFT
+            button._state = "normal"
+            button._lift = 0
+            button._draw()
+
+        def open_schedule_tab(name: str) -> None:
+            for frame in schedule_views.values():
+                frame.pack_forget()
+            schedule_views[name].pack(fill=tk.BOTH, expand=True)
+            for key, button in schedule_tab_buttons.items():
+                _set_schedule_tab_state(button, active=(key == name))
+            self.root.after_idle(_sync_schedule_scroll)
+
+        tab_specs = (
+            ("view", "Візуалізація"),
+            ("setup", "Налаштування"),
+        )
+        for key, label in tab_specs:
+            tab_button = self._motion_button(
+                tabs_bar,
+                text=label,
+                command=lambda selected=key: open_schedule_tab(selected),
+                primary=False,
+                width=170,
+                height=40,
+            )
+            tab_button.pack(side=tk.LEFT, padx=(0, 8))
+            schedule_tab_buttons[key] = tab_button
+
+        parent = schedule_views["view"]
 
         header = ttk.Frame(parent, style="Card.TFrame")
         header.pack(fill=tk.X, pady=(0, 8))
@@ -797,6 +850,8 @@ class ScheduleMainWindow:
             tree.heading(day, text=day.upper())
             tree.column(day, width=145, anchor="center", stretch=True)
         tree.pack(fill=tk.BOTH, expand=True, pady=(8, 10))
+
+        parent = schedule_views["setup"]
 
         subject_box = ttk.LabelFrame(parent, text="Предмет", padding=10)
         subject_box.pack(fill=tk.X)
@@ -2567,6 +2622,7 @@ class ScheduleMainWindow:
         scenario_box.bind("<<ComboboxSelected>>", lambda _e: on_load_week(), add="+")
         entries_table.bind("<Double-1>", lambda _e: load_selected_entry_into_manual(), add="+")
         requirements_table.bind("<Double-1>", lambda _e: open_requirement_edit_modal(), add="+")
+        open_schedule_tab("view")
         if period_var.get():
             on_load_week()
         self.root.after_idle(_sync_schedule_scroll)
