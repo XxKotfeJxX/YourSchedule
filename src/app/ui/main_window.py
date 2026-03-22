@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from calendar import monthrange
 from datetime import date, datetime, time, timedelta
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -847,7 +848,7 @@ class ScheduleMainWindow:
         period_display.pack(side=tk.LEFT, fill=tk.X, expand=True)
         period_toggle_button = tk.Button(
             period_selector_main,
-            text="v",
+            text="▾",
             width=3,
             relief=tk.FLAT,
             bd=0,
@@ -1355,12 +1356,10 @@ class ScheduleMainWindow:
 
         def period_label(item: dict[str, object]) -> str:
             period_id = int(item["id"])
-            start_date = item["start_date"]
-            end_date = item["end_date"]
             name = str(item.get("name") or "").strip()
             if name:
-                return f"{period_id} | {name} ({start_date}..{end_date})"
-            return f"{period_id} | {start_date}..{end_date}"
+                return f"{period_id} | {name}"
+            return f"{period_id} | Період #{period_id}"
 
         def close_period_menu() -> None:
             popup = period_state.get("menu")
@@ -1405,19 +1404,15 @@ class ScheduleMainWindow:
             items = period_state.get("items", [])
             has_periods = isinstance(items, list) and bool(items)
             close_period_menu()
+            period_selector_main.pack_forget()
+            period_empty_create_button.pack_forget()
             if has_periods:
-                if period_empty_create_button.winfo_ismapped():
-                    period_empty_create_button.pack_forget()
-                if not period_selector_main.winfo_ismapped():
-                    period_selector_main.pack(fill=tk.X)
+                period_selector_main.pack(fill=tk.X)
                 period_toggle_button.configure(state="normal")
                 period_display.bind("<Button-1>", lambda _e: open_period_menu())
             else:
                 period_var.set("")
-                if period_selector_main.winfo_ismapped():
-                    period_selector_main.pack_forget()
-                if not period_empty_create_button.winfo_ismapped():
-                    period_empty_create_button.pack(fill=tk.X)
+                period_empty_create_button.pack(fill=tk.X)
 
         def list_week_template_choices(*, include_ids: set[int] | None = None) -> tuple[list[str], dict[str, int], dict[int, str]]:
             include_ids = include_ids or set()
@@ -1485,7 +1480,11 @@ class ScheduleMainWindow:
             shell = ttk.Frame(modal, style="Card.TFrame", padding=14)
             shell.pack(fill=tk.BOTH, expand=True)
             ttk.Label(shell, text="Редагування періоду" if is_edit else "Створення періоду", style="CardTitle.TLabel").pack(anchor="w")
-            ttk.Label(shell, text=f"Початок: {start_date.isoformat()}", style="CardSubtle.TLabel").pack(anchor="w", pady=(2, 10))
+            ttk.Label(
+                shell,
+                text="Оберіть назву, дату старту та кількість тижнів.",
+                style="CardSubtle.TLabel",
+            ).pack(anchor="w", pady=(2, 10))
 
             form = ttk.Frame(shell, style="Card.TFrame")
             form.pack(fill=tk.X)
@@ -1495,6 +1494,62 @@ class ScheduleMainWindow:
             ttk.Label(form, text="Кількість тижнів", style="Card.TLabel").grid(row=0, column=2, sticky="w")
             weeks_count_var = tk.StringVar(value=str(weeks_default))
             ttk.Entry(form, textvariable=weeks_count_var, width=8).grid(row=0, column=3, sticky="w", padx=(8, 0))
+            ttk.Label(form, text="Початок", style="Card.TLabel").grid(row=1, column=0, sticky="w", pady=(8, 0))
+
+            start_year_var = tk.StringVar(value=str(start_date.year))
+            start_month_var = tk.StringVar(value=f"{start_date.month:02d}")
+            start_day_var = tk.StringVar(value=f"{start_date.day:02d}")
+
+            years_pool = {start_date.year, date.today().year}
+            items = period_state.get("items", [])
+            if isinstance(items, list):
+                for period_item in items:
+                    if not isinstance(period_item, dict):
+                        continue
+                    item_start = period_item.get("start_date")
+                    if isinstance(item_start, date):
+                        years_pool.add(item_start.year)
+            year_values = [str(year) for year in range(min(years_pool) - 2, max(years_pool) + 5)]
+            month_values = [f"{month:02d}" for month in range(1, 13)]
+
+            start_date_row = ttk.Frame(form, style="Card.TFrame")
+            start_date_row.grid(row=1, column=1, sticky="w", padx=(8, 12), pady=(8, 0))
+            start_year_box = ttk.Combobox(
+                start_date_row,
+                textvariable=start_year_var,
+                values=year_values,
+                state="readonly",
+                width=7,
+            )
+            start_year_box.pack(side=tk.LEFT)
+            ttk.Label(start_date_row, text="-", style="CardSubtle.TLabel").pack(side=tk.LEFT, padx=4)
+            start_month_box = ttk.Combobox(
+                start_date_row,
+                textvariable=start_month_var,
+                values=month_values,
+                state="readonly",
+                width=4,
+            )
+            start_month_box.pack(side=tk.LEFT)
+            ttk.Label(start_date_row, text="-", style="CardSubtle.TLabel").pack(side=tk.LEFT, padx=4)
+            start_day_box = ttk.Combobox(
+                start_date_row,
+                textvariable=start_day_var,
+                values=[],
+                state="readonly",
+                width=4,
+            )
+            start_day_box.pack(side=tk.LEFT)
+
+            period_range_var = tk.StringVar(value="")
+            ttk.Label(form, textvariable=period_range_var, style="CardSubtle.TLabel").grid(
+                row=1,
+                column=2,
+                columnspan=2,
+                sticky="w",
+                padx=(0, 0),
+                pady=(8, 0),
+            )
 
             quick_row = ttk.Frame(shell, style="Card.TFrame")
             quick_row.pack(fill=tk.X, pady=(10, 8))
@@ -1540,6 +1595,63 @@ class ScheduleMainWindow:
 
             weeks_body.bind("<Configure>", sync_weeks_canvas, add="+")
             weeks_canvas.bind("<Configure>", sync_weeks_canvas, add="+")
+
+            def selected_period_start_date() -> date:
+                year_raw = start_year_var.get().strip()
+                month_raw = start_month_var.get().strip()
+                day_raw = start_day_var.get().strip()
+                if not year_raw or not month_raw or not day_raw:
+                    raise ValueError("Оберіть дату початку періоду.")
+                try:
+                    return date(int(year_raw), int(month_raw), int(day_raw))
+                except ValueError as exc:
+                    raise ValueError("Оберіть коректну дату початку періоду.") from exc
+
+            def refresh_start_day_choices() -> None:
+                try:
+                    year_num = int(start_year_var.get().strip())
+                    month_num = int(start_month_var.get().strip())
+                    if month_num < 1 or month_num > 12:
+                        return
+                except ValueError:
+                    return
+                days_in_month = monthrange(year_num, month_num)[1]
+                day_values = [f"{day:02d}" for day in range(1, days_in_month + 1)]
+                start_day_box.configure(values=day_values)
+                current_day = start_day_var.get().strip()
+                if current_day not in day_values:
+                    start_day_var.set(f"{min(start_date.day, days_in_month):02d}")
+
+            def refresh_period_range_preview() -> None:
+                try:
+                    preview_start = selected_period_start_date()
+                except ValueError:
+                    period_range_var.set("Період: —")
+                    return
+                raw_weeks = weeks_count_var.get().strip()
+                if not raw_weeks:
+                    period_range_var.set(f"Період: {preview_start.isoformat()}..—")
+                    return
+                try:
+                    parsed_weeks = int(raw_weeks)
+                    if parsed_weeks <= 0:
+                        raise ValueError
+                except ValueError:
+                    period_range_var.set(f"Період: {preview_start.isoformat()}..—")
+                    return
+                preview_end = preview_start + timedelta(days=parsed_weeks * 7 - 1)
+                period_range_var.set(f"Період: {preview_start.isoformat()}..{preview_end.isoformat()}")
+
+            def on_start_date_selection_changed(_event=None) -> None:
+                refresh_start_day_choices()
+                refresh_period_range_preview()
+
+            start_year_box.bind("<<ComboboxSelected>>", on_start_date_selection_changed, add="+")
+            start_month_box.bind("<<ComboboxSelected>>", on_start_date_selection_changed, add="+")
+            start_day_box.bind("<<ComboboxSelected>>", lambda _event: refresh_period_range_preview(), add="+")
+            weeks_count_var.trace_add("write", lambda *_args: refresh_period_range_preview())
+            refresh_start_day_choices()
+            refresh_period_range_preview()
 
             def rebuild_week_rows() -> None:
                 for child in weeks_body.winfo_children():
@@ -1592,6 +1704,7 @@ class ScheduleMainWindow:
 
             def on_save_period() -> None:
                 try:
+                    resolved_start_date = selected_period_start_date()
                     weeks_count = parse_optional_positive_int(weeks_count_var.get(), field_name="Кількість тижнів")
                     if weeks_count is None:
                         raise ValueError("Вкажіть кількість тижнів.")
@@ -1617,7 +1730,7 @@ class ScheduleMainWindow:
                             updated = calendar_controller.update_calendar_period_with_templates(
                                 period_id=int(period_data["id"]),
                                 name=period_name_var.get().strip(),
-                                start_date=start_date,
+                                start_date=resolved_start_date,
                                 weeks_count=weeks_count,
                                 week_pattern_by_week_index=week_pattern_by_week_index,
                             )
@@ -1626,7 +1739,7 @@ class ScheduleMainWindow:
                             created = calendar_controller.create_calendar_period_with_templates(
                                 company_id=company_id,
                                 name=period_name_var.get().strip(),
-                                start_date=start_date,
+                                start_date=resolved_start_date,
                                 weeks_count=weeks_count,
                                 week_pattern_by_week_index=week_pattern_by_week_index,
                             )
@@ -1820,9 +1933,19 @@ class ScheduleMainWindow:
             create_button.pack(fill=tk.X)
 
             popup.update_idletasks()
-            x_pos = period_selector_shell.winfo_rootx()
-            y_pos = period_selector_shell.winfo_rooty() + period_selector_shell.winfo_height() + 2
-            popup.geometry(f"+{x_pos}+{y_pos}")
+            self.root.update_idletasks()
+            anchor = period_selector_main if period_selector_main.winfo_ismapped() else period_selector_shell
+            anchor.update_idletasks()
+            menu_width = max(anchor.winfo_width(), shell.winfo_reqwidth())
+            menu_height = shell.winfo_reqheight() + 2
+            x_pos = anchor.winfo_rootx()
+            y_pos = anchor.winfo_rooty() + anchor.winfo_height() + 2
+            screen_width = self.root.winfo_screenwidth()
+            screen_height = self.root.winfo_screenheight()
+            x_pos = max(0, min(x_pos, screen_width - menu_width - 4))
+            if y_pos + menu_height > screen_height:
+                y_pos = max(0, anchor.winfo_rooty() - menu_height - 2)
+            popup.geometry(f"{menu_width}x{menu_height}+{x_pos}+{y_pos}")
             popup.lift()
 
         period_toggle_button.configure(command=open_period_menu)
