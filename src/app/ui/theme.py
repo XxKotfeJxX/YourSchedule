@@ -437,6 +437,24 @@ class UiTheme:
             padding=6,
         )
         style.map("TCombobox", bordercolor=[("focus", self.ACCENT)])
+        style.configure(
+            "PopupFilter.TCombobox",
+            fieldbackground=self.SURFACE,
+            background=self.SURFACE,
+            foreground=self.TEXT_PRIMARY,
+            bordercolor=self.BORDER,
+            lightcolor=self.BORDER,
+            darkcolor=self.BORDER,
+            padding=5,
+            arrowsize=12,
+        )
+        style.map(
+            "PopupFilter.TCombobox",
+            bordercolor=[("focus", self.ACCENT), ("readonly", self.BORDER)],
+            fieldbackground=[("readonly", self.SURFACE), ("disabled", self.SURFACE_ALT)],
+            foreground=[("readonly", self.TEXT_PRIMARY), ("disabled", self.TEXT_MUTED)],
+            background=[("readonly", self.SURFACE), ("disabled", self.SURFACE_ALT)],
+        )
 
         style.configure(
             "TLabelframe",

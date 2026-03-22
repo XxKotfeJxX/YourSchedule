@@ -940,13 +940,13 @@ class ScheduleMainWindow:
         )
         week_selector_main.grid(row=1, column=3, sticky="w", padx=(6, 10), pady=(8, 0))
 
-        ttk.Label(header, text="Група", style="Card.TLabel").grid(row=1, column=4, sticky="w", pady=(8, 0))
+        ttk.Label(header, text="Група", style="Card.TLabel").grid(row=1, column=4, sticky="e", padx=(0, 4), pady=(8, 0))
         group_selector_main, group_selector_label, group_selector_button = build_header_selector(
             header,
             text_var=group_filter_var,
-            width_px=260,
+            width_px=200,
         )
-        group_selector_main.grid(row=1, column=5, sticky="w", padx=(6, 10), pady=(8, 0))
+        group_selector_main.grid(row=1, column=5, sticky="w", padx=(2, 10), pady=(8, 0))
 
         ttk.Label(header, text="Сценарій", style="Card.TLabel").grid(row=2, column=0, sticky="w", pady=(8, 0))
         scenario_selector_main, scenario_selector_label, scenario_selector_button = build_header_selector(
@@ -2376,7 +2376,8 @@ class ScheduleMainWindow:
                 textvariable=specialty_filter_var,
                 values=specialty_values,
                 state="readonly",
-                width=26,
+                width=24,
+                style="PopupFilter.TCombobox",
             )
             specialty_box.grid(row=1, column=0, sticky="ew", pady=(2, 0))
             course_box = ttk.Combobox(
@@ -2384,7 +2385,8 @@ class ScheduleMainWindow:
                 textvariable=course_filter_var,
                 values=course_values,
                 state="readonly",
-                width=16,
+                width=14,
+                style="PopupFilter.TCombobox",
             )
             course_box.grid(row=1, column=1, sticky="ew", padx=(8, 0), pady=(2, 0))
             filters_row.columnconfigure(0, weight=1)
