@@ -798,3 +798,228 @@ def open_edit_dialog__impl(
             drag_state["grab_widget"] = event.widget
         except tk.TclError:
             drag_state["grab_widget"] = None
+        preview_title, preview_meta, badge_text, badge_bg, badge_fg = build_palette_preview(kind, payload)
+        show_drag_preview(
+            title=preview_title,
+            meta=preview_meta,
+            badge_text=badge_text,
+            badge_bg=badge_bg,
+            badge_fg=badge_fg,
+            x_root=event.x_root,
+            y_root=event.y_root,
+            source_widget=source_widget,
+        )
+        return "break"
+
+    def on_palette_drag(event: tk.Event) -> str:
+        if drag_state["kind"] is not None:
+            drag_state["moved"] = True
+        target_index = resolve_drop_index(event.x_root, event.y_root)
+        update_drop_highlight(target_index is not None)
+        show_drop_indicator(target_index)
+        move_drag_preview(event.x_root, event.y_root)
+        return "break"
+
+    def on_palette_release(event: tk.Event, *, kind: str, payload: int | None) -> str:
+        if drag_state["kind"] != kind or drag_state["payload"] != payload:
+            return "break"
+
+        weekday = selected_weekday["value"]
+        drop_index = resolve_drop_index(event.x_root, event.y_root)
+        try:
+            if kind == "day" and (drop_index is not None or not bool(drag_state["moved"])):
+                if not day_enabled[weekday].get():
+                    day_enabled[weekday].set(True)
+                set_from_day_template(weekday, payload)
+            elif kind == "mark" and payload is not None and drop_index is not None:
+                if not day_enabled[weekday].get():
+                    day_enabled[weekday].set(True)
+                apply_mark_card(weekday, int(payload), insert_index=drop_index)
+            elif kind == "mark" and payload is not None and not bool(drag_state["moved"]):
+                if not day_enabled[weekday].get():
+                    day_enabled[weekday].set(True)
+                apply_mark_card(weekday, int(payload))
+        finally:
+            reset_palette_drag_state()
+        update_switcher()
+        render_selected_day()
+        return "break"
+
+    def bind_palette_drag(widget: tk.Widget, *, kind: str, payload: int | None) -> None:
+        def bind_drag_recursive(node: tk.Widget) -> None:
+            node.bind(
+                "<ButtonPress-1>",
+                lambda event, k=kind, p=payload, src=widget: on_palette_press(
+                    event,
+                    kind=k,
+                    payload=p,
+                    source_widget=src,
+                ),
+                add="+",
+            )
+            node.bind("<B1-Motion>", on_palette_drag, add="+")
+            node.bind(
+                "<ButtonRelease-1>",
+                lambda event, k=kind, p=payload: on_palette_release(event, kind=k, payload=p),
+                add="+",
+            )
+            for child in node.winfo_children():
+                bind_drag_recursive(child)
+
+        bind_drag_recursive(widget)
+        bind_wheel_recursive(widget, on_palette_wheel)
+
+    for day_id, card in day_palette_cards.items():
+        bind_palette_drag(card, kind="day", payload=day_id)
+    for mark_id, card in mark_palette_cards.items():
+        bind_palette_drag(card, kind="mark", payload=mark_id)
+
+    delete_button = self.motion_button_factory(
+        actions_row,
+        text="Видалити слот",
+        command=lambda: remove_selected_slot(),
+        primary=False,
+        width=130,
+        height=36,
+    )
+    delete_button.pack(side=tk.LEFT, padx=(0, 6))
+    clear_button = self.motion_button_factory(
+        actions_row,
+        text="Очистити день",
+        command=lambda: clear_day_slots(),
+        primary=False,
+        width=130,
+        height=36,
+    )
+    clear_button.pack(side=tk.LEFT)
+
+    def remove_selected_slot() -> None:
+        weekday = selected_weekday["value"]
+        mark_ids = draft_mark_ids.get(weekday, [])
+        if not mark_ids:
+            return
+        idx = selected_row_index["value"]
+        if idx < 0 or idx >= len(mark_ids):
+            idx = len(mark_ids) - 1
+        mark_ids.pop(idx)
+        draft_mark_ids[weekday] = mark_ids
+        mapping[weekday] = None
+        selected_row_index["value"] = min(idx, len(mark_ids) - 1) if mark_ids else -1
+        render_selected_day()
+
+    def clear_day_slots() -> None:
+        weekday = selected_weekday["value"]
+        draft_mark_ids[weekday] = []
+        mapping[weekday] = None
+        selected_row_index["value"] = -1
+        render_selected_day()
+
+    for widget in (palette_canvas, palette_body):
+        widget.bind("<MouseWheel>", on_palette_wheel, add="+")
+        widget.bind("<Button-4>", on_palette_wheel, add="+")
+        widget.bind("<Button-5>", on_palette_wheel, add="+")
+
+    for widget in (schedule_canvas, schedule_body):
+        widget.bind("<MouseWheel>", on_schedule_wheel, add="+")
+        widget.bind("<Button-4>", on_schedule_wheel, add="+")
+        widget.bind("<Button-5>", on_schedule_wheel, add="+")
+
+    palette_body.bind("<Configure>", sync_palette, add="+")
+    palette_canvas.bind("<Configure>", sync_palette, add="+")
+    schedule_body.bind("<Configure>", sync_schedule, add="+")
+    schedule_canvas.bind("<Configure>", sync_schedule, add="+")
+
+    update_switcher()
+    render_selected_day()
+
+    def on_submit() -> bool:
+        clean_name = name_var.get().strip()
+        if not clean_name:
+            raise ValueError("Назва шаблону тижня обов'язкова.")
+
+        signature_to_day_id: dict[tuple[int, ...], int] = {}
+        for day in day_templates:
+            signature = tuple(day.mark_type_ids)
+            existing_id = signature_to_day_id.get(signature)
+            if existing_id is None:
+                signature_to_day_id[signature] = day.id
+                continue
+            existing_day = all_days_by_id.get(existing_id)
+            if existing_day is not None and existing_day.is_archived and not day.is_archived:
+                signature_to_day_id[signature] = day.id
+
+        existing_day_names = {day.name for day in day_templates}
+
+        def generate_unique_day_name(base_name: str) -> str:
+            candidate = base_name
+            index = 2
+            while candidate in existing_day_names:
+                candidate = f"{base_name} ({index})"
+                index += 1
+            existing_day_names.add(candidate)
+            return candidate
+
+        normalized_mapping: dict[int, int] = {}
+        with session_scope() as session:
+            controller = TemplateController(session=session)
+            empty_day_id: int | None = None
+            for weekday in range(7):
+                if not day_enabled[weekday].get():
+                    if empty_day_id is None:
+                        empty_day_id = controller.ensure_empty_day_template(company_id=self.company_id)
+                    normalized_mapping[weekday] = int(empty_day_id)
+                    continue
+
+                mark_ids = [mark_id for mark_id in draft_mark_ids.get(weekday, []) if mark_id in mark_by_id]
+                if not mark_ids:
+                    if empty_day_id is None:
+                        empty_day_id = controller.ensure_empty_day_template(company_id=self.company_id)
+                    normalized_mapping[weekday] = int(empty_day_id)
+                    continue
+
+                signature = tuple(mark_ids)
+                mapped_day_id = mapping.get(weekday)
+                if mapped_day_id is not None:
+                    mapped_day = all_days_by_id.get(mapped_day_id)
+                    if mapped_day is not None and tuple(mapped_day.mark_type_ids) == signature:
+                        normalized_mapping[weekday] = int(mapped_day_id)
+                        signature_to_day_id.setdefault(signature, int(mapped_day_id))
+                        continue
+
+                day_id = signature_to_day_id.get(signature)
+                if day_id is None:
+                    generated_name = generate_unique_day_name(f"{clean_name} {WEEKDAY_LABELS[weekday]}")
+                    created = controller.create_day_template(
+                        company_id=self.company_id,
+                        name=generated_name,
+                        mark_type_ids=list(signature),
+                    )
+                    day_id = int(created.id)
+                    signature_to_day_id[signature] = day_id
+                    all_days_by_id[day_id] = created
+
+                if day_id is not None:
+                    normalized_mapping[weekday] = int(day_id)
+
+            if item is None:
+                controller.create_week_template(
+                    company_id=self.company_id,
+                    name=clean_name,
+                    weekday_to_day_template_id=normalized_mapping,
+                )
+            else:
+                controller.update_week_template(
+                    company_id=self.company_id,
+                    week_template_id=item.id,
+                    name=clean_name,
+                    weekday_to_day_template_id=normalized_mapping,
+                )
+        self.on_changed()
+        self._notify("Збережено")
+        return True
+
+    dialog.set_submit_handler(on_submit)
+    if item is not None:
+        dialog.set_duplicate_handler(lambda: self.duplicate(item))
+        dialog.set_archive_delete_handler(lambda: self.archive_or_delete(item))
+    dialog.show_modal()

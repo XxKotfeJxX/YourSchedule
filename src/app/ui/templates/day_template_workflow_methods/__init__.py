@@ -5,8 +5,7 @@ from pathlib import Path
 
 _METHOD_PARTS: dict[str, list[str]] = {
     "open_edit_dialog__impl": [
-        "open_edit_dialog__impl_parts/part_01.pyfrag",
-        "open_edit_dialog__impl_parts/part_02.pyfrag",
+        "open_edit_dialog__impl.py",
     ],
 }
 
