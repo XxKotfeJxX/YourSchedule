@@ -1,3 +1,7 @@
+# NOTE: This implementation module is executed via the parent module loader.
+# Importing the parent symbols keeps static analyzers (Pylance/Pyright) in sync.
+from app.ui.curriculum_tab import *  # noqa: F401,F403
+
 def _update_component__impl(self) -> None:
     if self._selected_component_id is None:
         messagebox.showerror("Помилка валідації", "Спочатку вибери компонент.")

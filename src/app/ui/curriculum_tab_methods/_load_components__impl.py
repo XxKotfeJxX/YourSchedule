@@ -1,3 +1,7 @@
+# NOTE: This implementation module is executed via the parent module loader.
+# Importing the parent symbols keeps static analyzers (Pylance/Pyright) in sync.
+from app.ui.curriculum_tab import *  # noqa: F401,F403
+
 def _load_components__impl(self, plan_id: int | None) -> None:
     if self.component_tree is None:
         return

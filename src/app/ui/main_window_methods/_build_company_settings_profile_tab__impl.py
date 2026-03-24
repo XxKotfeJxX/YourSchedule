@@ -1,3 +1,7 @@
+# NOTE: This implementation module is executed via the parent module loader.
+# Importing the parent symbols keeps static analyzers (Pylance/Pyright) in sync.
+from app.ui.main_window import *  # noqa: F401,F403
+
 def _build_company_settings_profile_tab__impl(self, parent: ttk.Frame, *, company_id: int, username: str) -> None:
     with session_scope() as session:
         controller = AuthController(session=session)

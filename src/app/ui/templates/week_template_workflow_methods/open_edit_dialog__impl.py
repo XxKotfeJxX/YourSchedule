@@ -1,3 +1,7 @@
+# NOTE: This implementation module is executed via the parent module loader.
+# Importing the parent symbols keeps static analyzers (Pylance/Pyright) in sync.
+from app.ui.templates.week_template_workflow import *  # noqa: F401,F403
+
 def open_edit_dialog__impl(
     self,
     *,

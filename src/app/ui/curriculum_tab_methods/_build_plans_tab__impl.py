@@ -1,3 +1,7 @@
+# NOTE: This implementation module is executed via the parent module loader.
+# Importing the parent symbols keeps static analyzers (Pylance/Pyright) in sync.
+from app.ui.curriculum_tab import *  # noqa: F401,F403
+
 def _build_plans_tab__impl(self, parent: ttk.Frame) -> None:
     content = ttk.Frame(parent, style="Card.TFrame")
     content.pack(fill=tk.BOTH, expand=True)

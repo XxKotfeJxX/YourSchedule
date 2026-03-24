@@ -1,3 +1,7 @@
+# NOTE: This implementation module is executed via the parent module loader.
+# Importing the parent symbols keeps static analyzers (Pylance/Pyright) in sync.
+from app.ui.curriculum_tab import *  # noqa: F401,F403
+
 def _format_optional_ref__impl(self, value: int | None, kind: str) -> str:
     if value is None:
         return ""

@@ -1,3 +1,7 @@
+# NOTE: This implementation module is executed via the parent module loader.
+# Importing the parent symbols keeps static analyzers (Pylance/Pyright) in sync.
+from app.ui.curriculum_tab import *  # noqa: F401,F403
+
 def _build_components_editor__impl(self, parent: ttk.Frame) -> None:
     components = ttk.Frame(parent, style="Card.TFrame")
     components.grid(row=1, column=0, sticky="nsew", pady=(0, 6))

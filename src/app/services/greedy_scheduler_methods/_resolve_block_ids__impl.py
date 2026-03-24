@@ -1,3 +1,7 @@
+# NOTE: This implementation module is executed via the parent module loader.
+# Importing the parent symbols keeps static analyzers (Pylance/Pyright) in sync.
+from app.services.greedy_scheduler import *  # noqa: F401,F403
+
 def _resolve_block_ids__impl(
     self,
     start_block: TimeBlock,

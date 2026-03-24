@@ -1,12 +1,5 @@
 {
   "include": [
     "src"
-  ],
-  "ignore": [
-    "src/app/services/greedy_scheduler_methods",
-    "src/app/ui/curriculum_tab_methods",
-    "src/app/ui/main_window_methods",
-    "src/app/ui/templates/day_template_workflow_methods",
-    "src/app/ui/templates/week_template_workflow_methods"
   ]
 }

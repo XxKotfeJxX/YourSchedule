@@ -1,3 +1,7 @@
+# NOTE: This implementation module is executed via the parent module loader.
+# Importing the parent symbols keeps static analyzers (Pylance/Pyright) in sync.
+from app.ui.main_window import *  # noqa: F401,F403
+
 def _build_company_rooms_view__impl(self, parent: ttk.Frame, company_id: int) -> None:
     buildings_state: dict[str, list[object]] = {"items": []}
     columns_state = {"value": 4}

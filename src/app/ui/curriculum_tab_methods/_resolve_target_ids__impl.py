@@ -1,3 +1,7 @@
+# NOTE: This implementation module is executed via the parent module loader.
+# Importing the parent symbols keeps static analyzers (Pylance/Pyright) in sync.
+from app.ui.curriculum_tab import *  # noqa: F401,F403
+
 def _resolve_target_ids__impl(self, target_type: PlanTargetType) -> tuple[int | None, int | None]:
     if target_type == PlanTargetType.STREAM:
         stream_id = self._parse_prefixed_id(self.assignment_stream_var.get())

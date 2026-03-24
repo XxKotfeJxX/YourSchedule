@@ -1,3 +1,7 @@
+# NOTE: This implementation module is executed via the parent module loader.
+# Importing the parent symbols keeps static analyzers (Pylance/Pyright) in sync.
+from app.ui.curriculum_tab import *  # noqa: F401,F403
+
 def _on_plan_select__impl(self) -> None:
     plan_id = self._selected_listbox_id(self.plan_listbox, self._plan_ids)
     self._selected_plan_id = plan_id

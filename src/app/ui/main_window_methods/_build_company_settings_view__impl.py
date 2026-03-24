@@ -1,3 +1,7 @@
+# NOTE: This implementation module is executed via the parent module loader.
+# Importing the parent symbols keeps static analyzers (Pylance/Pyright) in sync.
+from app.ui.main_window import *  # noqa: F401,F403
+
 def _build_company_settings_view__impl(self, parent: ttk.Frame, company_id: int, username: str) -> None:
     settings_shell = ttk.Frame(parent, style="Card.TFrame")
     settings_shell.pack(fill=tk.BOTH, expand=True)

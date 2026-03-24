@@ -1,3 +1,7 @@
+# NOTE: This implementation module is executed via the parent module loader.
+# Importing the parent symbols keeps static analyzers (Pylance/Pyright) in sync.
+from app.ui.main_window import *  # noqa: F401,F403
+
 def _show_personal_dashboard__impl(self) -> None:
     user = self.current_user
     if user is None:
